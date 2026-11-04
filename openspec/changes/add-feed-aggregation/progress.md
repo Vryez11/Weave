@@ -13,6 +13,7 @@
 - feed-service 시나리오 테스트의 하위 서비스 흉내는 `com.weave.feed.DownstreamWireMock`(JVM에 WireMock 하나, 테스트마다 `resetAll`)이고, feed 호출은 `FeedHttpClient`(실제 HTTP, 경과 시간 측정)다. 새 feed 통합 테스트도 이것을 쓴다.
 - e2e는 `ServiceProcesses`가 서비스를 띄운다. feed-service에는 `--spring.http.serviceclient.<그룹>.base-url`, like-service에는 `--spring.datasource.url/username/password`를 명령줄 인자로 넘긴다. 구현 쪽 `application.yml`의 `${LIKE_DB_URL}` 같은 값은 이 인자가 덮어쓴다. 속성 이름을 바꾸면 e2e가 깨진다.
 - 서비스 로그는 `e2e/build/e2e-logs/<서비스>.log`에 남는다(e2e/CLAUDE.md).
+- feed-service의 하위 서비스 클라이언트는 `com.weave.feed.client.<의존성>.<의존성>Client`(PostClient 등) Bean이다. 그룹별 커넥션 풀은 테스트 소스의 `connectionManagersByDependency()`(`HttpClientGroupTest.kt`, 의존성 이름 → `PoolingHttpClientConnectionManager`)로 꺼낸다. 4.2의 "라우트당 20" 검사는 이것을 쓰는 새 테스트 파일로 더한다(3.1 테스트 파일은 고칠 수 없다).
 
 ---
 
@@ -139,4 +140,14 @@
 - 바꾼 파일: `.env.example`, `like-service/src/test/kotlin/com/weave/like/{TestLikeServiceApplication,TestLikeServiceApplicationTest}.kt`, `like-service/CLAUDE.md`
 - 확인: `:like-service:ktlintCheck test integrationTest --rerun-tasks` 통과(통합 20개: 새 테스트 1개 포함). `resolveTestMainClassName`이 `com.weave.like.TestLikeServiceApplication`을 고른다(bootTestRun이 이 진입점을 쓴다). 전체 `ktlintCheck compileKotlin compileTestKotlin test`, `openspec validate` 통과. `bootTestRun`을 직접 띄워 보는 것은 6.1에서 사람이 한다.
 - 다음 반복이 알아 둘 것: 3.1부터 feed-service다. `with(...)`로 붙인 설정과 컴포넌트 스캔이 같은 `MySqlTestConfiguration`을 잡아도 충돌하지 않았다.
+---
+
+## 2026-11-04 18:05 - 3.1 하위 서비스 HTTP 클라이언트
+- `com.weave.feed.client.{post,user,like,recommendation,ad}`에 `@HttpExchange` 인터페이스와 응답 DTO를 두었다. user는 `ids`, like는 `postIds`를 `List<Long>`으로 넘긴다(`ids=3&ids=4` 꼴, 시나리오 테스트가 받아들임). like는 `X-User-Id`를 헤더로 넘긴다. recommendation·ad는 size 없이 서비스 기본값을 쓴다. `PostResponse.createdAt`은 `Instant`.
+- `HttpClientConfig`에 `@ImportHttpServices` 그룹 다섯과, `weave.http-client.max-connections-per-route`가 있을 때만 생기는 `ClientHttpRequestFactoryBuilder` Bean(`httpComponents().withConnectionManagerCustomizer`, 라우트당·전체 같은 값)을 두었다. `application.yml`에 결정 11의 주소(`${POST_BASE_URL:http://localhost:8081}` 등).
+- 통합 테스트 `HttpClientGroupTest`(그룹 다섯의 커넥션 매니저가 서로 다른 객체 5개), `HttpClientPoolSizePropertyTest`(속성 7이면 다섯 그룹 모두 라우트당·전체 7)가 통과했다. 그룹마다 풀이 따로 생겨 design 위험 항목의 그룹 설정자는 필요 없었다. 커스텀 빌더 Bean도 Boot 그룹 설정이 그대로 쓴다.
+- 커넥션 매니저는 `HttpClientPools`가 프록시에서 객체 그래프를 따라가 찾는다(내부 필드 이름에 기대지 않음).
+- 바꾼 파일: `feed-service/src/main/kotlin/com/weave/feed/client/**`, `feed-service/src/main/resources/application.yml`, `feed-service/src/test/kotlin/com/weave/feed/{HttpClientPools,HttpClientGroupTest}.kt`
+- 확인: 새 통합 테스트 2개, `ktlintCheck compileKotlin compileTestKotlin :feed-service:test`, `openspec validate` 통과.
+- 다음 반복이 알아 둘 것: 3.2 Gateway는 위 클라이언트 Bean을 주입받는다. 4.1에서 HttpClient 기본 풀 크기를 볼 때도 `connectionManagersByDependency()`를 쓸 수 있다(속성 없는 `HttpClientGroupTest` 컨텍스트가 기본값).
 ---
