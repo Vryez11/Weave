@@ -76,7 +76,7 @@
 - [x] 4.2 feed-service의 `weave.http-client.max-connections-per-route`를 20으로 둔다.
   - 커밋 본문에 결정 8의 계산(200 RPS × 50ms = 10, 여유 2배)과 4.1에서 확인한 기본값을 적는다.
   - 확인: 3.1의 통합 테스트에 라우트당 최대 커넥션이 20인지 보는 검사를 더해 통과한다.
-- [ ] 4.3 feed-service의 `spring.task.execution.pool.core-size`를 100으로 둔다. 대기열은 바꾸지 않는다.
+- [x] 4.3 feed-service의 `spring.task.execution.pool.core-size`를 100으로 둔다. 대기열은 바꾸지 않는다.
   - 커밋 본문에 결정 8의 계산(200 RPS × 호출 5번 × 50ms = 50, 여유 2배)을 적는다.
   - 확인: `applicationTaskExecutor`의 코어가 100이고 대기열은 4.1에서 기록한 기본값인지 보는 통합 테스트가 통과한다.
 
