@@ -6,6 +6,8 @@
 - Testcontainers는 2.0.5다. MySQL 클래스는 `org.testcontainers.mysql.MySQLContainer`(제네릭 없음).
 - e2e의 jar 경로 시스템 속성 이름은 모듈 이름을 그대로 쓴다: `weave.e2e.jar.feed-service`, `weave.e2e.jar.like-service` 등. `integrationTest` 태스크에만 넘긴다.
 - Gradle 9.8에서 `by configurations.creating`, `by tasks.registering`은 deprecated다. `configurations.create(name)`, `tasks.register<T>(name)`을 쓴다.
+- Kotest 스펙 클래스의 생성자 주입은 안 된다(`SpecInstantiationException`). Bean은 테스트 안에서 `testContextManager().testContext.applicationContext.getBean(...)`으로 꺼낸다(`io.kotest.extensions.spring.testContextManager`, suspend 함수 안에서만).
+- Boot 4의 MockMvc 어노테이션은 `org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc`다. JSON은 `tools.jackson.module.kotlin.jacksonObjectMapper()`로 `Map`/`List`로 읽어 비교한다(숫자는 `Int`로 읽힌다).
 
 ---
 
@@ -17,4 +19,12 @@
 - 바꾼 파일: `buildSrc/build.gradle.kts`, `buildSrc/src/main/kotlin/weave.spring-service.gradle.kts`, `settings.gradle.kts`, `feed-service/build.gradle.kts`, `like-service/build.gradle.kts`, `like-service/src/test/kotlin/com/weave/like/MySqlTestConfiguration.kt`, `like-service/CLAUDE.md`, `e2e/build.gradle.kts`, `scripts/harness/stop-check.sh`
 - 확인: `./gradlew ktlintCheck build` 통과(like-service 통합 테스트가 MySQL 컨테이너로 뜸), `./gradlew :e2e:dependencies --configuration serviceJars`에 서비스 6개.
 - 다음 반복이 알아 둘 것: 시스템 속성 전달은 e2e 테스트가 아직 없어 실제로 돌려 보지 못했다. 1.7에서 `System.getProperty("weave.e2e.jar.feed-service")`가 null이면 `e2e/build.gradle.kts`의 `jvmArgumentProviders`를 본다.
+---
+
+## 2026-11-04 18:10 - 1.2 post-catalog 시나리오 테스트
+- `PostCatalogScenarioTest`(`@SpringBootTest` + MockMvc, `@Tags("Integration")`)에 스펙 시나리오 5개를 옮겼다. 범위 밖 개수는 0, 51, abc 세 경우로 나눴다.
+- 기댓값은 design 결정 1의 식(`expectedLatestPosts(size)`, 파일 안 private 함수)으로 만들어 응답 전체를 비교한다. 키 집합도 정확히 다섯 개인지 본다. "다시 띄워도 같은 데이터"는 결정 9대로 식과의 비교로 대신했다.
+- 바꾼 파일: `post-service/src/test/kotlin/com/weave/post/PostCatalogScenarioTest.kt`
+- 확인: `:post-service:integrationTest`에서 새 테스트 7개가 상태 검사(404)에서 실패, `:post-service:test`와 `ktlintCheck compileKotlin compileTestKotlin` 통과.
+- 다음 반복이 알아 둘 것: 2.1 구현은 응답을 `{"posts": [...]}`로, `createdAt`을 `Instant.toString()`과 같은 문자열(예: `2026-01-01T03:20:00Z`)로 내보내야 통과한다. 응답 객체에 필드를 더 넣으면 키 집합 검사가 깨진다.
 ---
