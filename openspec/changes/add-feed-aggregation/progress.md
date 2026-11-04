@@ -187,3 +187,11 @@
   - Tomcat 값은 `(context as WebServerApplicationContext).webServer as org.springframework.boot.tomcat.TomcatWebServer` → `tomcat.connector.protocolHandler`(`AbstractProtocol`)로 읽는다(RANDOM_PORT 필요).
   - HttpClient의 연결·소켓 설정은 `PoolingHttpClientConnectionManager`에 공개 getter가 없다. 필드 `connectionConfigResolver`·`socketConfigResolver`(`Resolver`)의 `resolve(null)`로 읽었다.
 ---
+
+## 2026-11-04 18:15 - 4.2 커넥션 풀 라우트당 20
+- feed-service `application.yml`에 `weave.http-client.max-connections-per-route: 20`(결정 8 계산을 주석으로)을 두었다. 전체 최대도 같은 값(20)이 된다.
+- 새 통합 테스트 `HttpClientPoolCapacityTest`(속성 덮어쓰기 없는 `@SpringBootTest`)가 그룹 다섯 모두 라우트당·전체 20인지 본다. 3.1 테스트 파일은 고치지 않았다.
+- 바꾼 파일: `feed-service/src/main/resources/application.yml`, `feed-service/src/test/kotlin/com/weave/feed/HttpClientPoolCapacityTest.kt`, `tasks.md`
+- 확인: `ktlintCheck compileKotlin compileTestKotlin :feed-service:test :feed-service:integrationTest --rerun-tasks` 통과(통합 25개, 단위 5개), `openspec validate` 통과. 커밋 89886ef(`perf(feed)`, 설정값만).
+- 다음 반복이 알아 둘 것: 4.3은 `spring.task.execution.pool.core-size: 100`을 같은 `application.yml`에 두고 별도 커밋한다. 검사는 4.1 메모대로 `getBean("applicationTaskExecutor", ThreadPoolTaskExecutor::class.java)`의 `corePoolSize == 100`, `queueCapacity == Integer.MAX_VALUE`. 새 테스트 파일로 만든다.
+---
