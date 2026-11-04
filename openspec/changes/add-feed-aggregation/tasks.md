@@ -67,7 +67,7 @@
 
 설정값을 바꾸는 4.2와 4.3은 각각 따로 커밋한다(커밋 컨벤션).
 
-- [ ] 4.1 MVP 기본값을 실제 객체에서 꺼내 확인하고 `docs/architecture.md` 4-2에 기록한다.
+- [x] 4.1 MVP 기본값을 실제 객체에서 꺼내 확인하고 `docs/architecture.md` 4-2에 기록한다.
   - `applicationTaskExecutor`의 코어·최대 스레드와 대기열 크기
   - HttpClient 5의 연결 타임아웃, 응답 타임아웃, 라우트당·전체 최대 커넥션
   - feed-service Tomcat 최대 스레드
