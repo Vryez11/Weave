@@ -124,3 +124,10 @@
 - 바꾼 파일: `like-service/src/main/kotlin/com/weave/like/{PostLike,PostLikeCount,LikeRepositories,LikeService,LikeController}.kt`, `like-service/src/main/resources/application.yml`, `like-service/src/main/resources/db/migration/V1__create_like_tables.sql`
 - 다음 반복이 알아 둘 것: `GET /likes`는 이 커밋에 이미 들어 있다. 2.5는 `./gradlew :like-service:test :like-service:integrationTest`가 모두 통과하는지 다시 확인하고 체크만 하면 된다(배치 조회 단위 테스트를 더할지는 2.5에서 판단).
 ---
+
+## 2026-11-04 18:00 - 2.5 like-service GET /likes 배치 조회
+- 구현은 2.4 커밋에 있다. Stop 훅이 도는 단위 테스트에서도 배치 조회 로직을 보도록 `LikeServiceTest`(MockK, 태그 없음)를 더했다: 수·내 좋아요 매핑과 없는 게시글은 0/false, 같은 ID는 한 번만 요청 순서대로.
+- 바꾼 파일: `like-service/src/test/kotlin/com/weave/like/LikeServiceTest.kt`
+- 확인: `:like-service:ktlintCheck :like-service:test :like-service:integrationTest --rerun-tasks` 통과(단위 2개, 통합 17개).
+- 다음 반복이 알아 둘 것: 2.6은 `TestLikeServiceApplication`을 테스트 소스에 새로 만든다. `MySqlTestConfiguration`은 이미 커밋돼 고칠 수 없으니 `SpringApplication.from(LikeServiceApplication::main).with(MySqlTestConfiguration::class)`로 그대로 쓴다. 포트는 `--server.port=0` 인자로 넘긴다(like-service/CLAUDE.md).
+---
