@@ -210,3 +210,12 @@
 - 확인: 결과 XML에서 테스트 2개, 실패·건너뜀 0. `ktlintCheck compileKotlin compileTestKotlin test`, `openspec validate` 통과.
 - 다음 반복이 알아 둘 것: 5.2는 문서 작업이다. 확인으로 `./gradlew :e2e:integrationTest`를 다시 돌린다(14초 정도 걸린다).
 ---
+
+## 2026-11-04 18:30 - 5.2 명령과 모듈을 문서에 더한다
+- `CLAUDE.md` 명령 표에 `./gradlew :e2e:integrationTest`(종단 간 테스트)와 `./gradlew :like-service:bootTestRun`(서비스 실행 칸)을, 구조 표에 `e2e/`를 더했다.
+- 하네스 규칙 5장 표에 "종단 간 테스트" 줄을 더하고, "서비스 하나 실행" 줄에 like-service의 `bootTestRun`을 적었다.
+- README 모듈 구성에 "테스트 모듈" 표(`e2e`)를 더하고, 실행 절에 like-service는 `bootTestRun`으로 띄운다고 적었다.
+- 바꾼 파일: `CLAUDE.md`, `conventions/harness.md`, `README.md`, `tasks.md`
+- 확인: 문서에 적은 `./gradlew :e2e:integrationTest --rerun-tasks` 통과(테스트 2개, 실패 0), `openspec validate` 통과. `bootTestRun`은 끝나지 않는 명령이라 6.1에서 사람이 확인한다.
+- 다음 반복이 알아 둘 것: 5.3은 `./gradlew ktlintCheck build`와 `openspec validate --all --strict --no-interactive`만 돌리면 된다. 5.3이 끝나면 6번 묶음만 남으므로 COMPLETE 신호를 낸다.
+---
