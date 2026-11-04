@@ -5,7 +5,7 @@
 - 서비스 6개는 지금 Spring Boot 애플리케이션 클래스와 `application.yml`(이름, 포트, Actuator)만 있는 빈 모듈이다. 공통 설정은 `buildSrc`의 `weave.spring-service` 컨벤션 플러그인이 넣는다(webmvc, actuator, jackson-module-kotlin, Kotest, springmockk).
 - 테스트는 Kotest 태그로 나뉜다. `./gradlew test`는 `Integration` 태그가 없는 것만, `./gradlew integrationTest`는 태그가 있는 것만 돈다. Stop 훅은 바뀐 모듈의 `test`만 돌린다.
 - 서비스끼리 코드를 공유하지 않는다. feed-service는 하위 서비스 응답 형식을 자기 쪽에 따로 정의한다.
-- 이 change는 [아키텍처](../../../docs/architecture.md) 12장 표대로 4-1(호출 순서), 4-2(MVP 구성과 기본값 기록), 5-1(클라이언트 구성), 8장(토글 좋아요)을 가져간다. 다르게 정한 곳은 각 결정에 이유와 함께 적는다.
+- 이 change는 [아키텍처](../../../../docs/architecture.md) 12장 표대로 4-1(호출 순서), 4-2(MVP 구성과 기본값 기록), 5-1(클라이언트 구성), 8장(토글 좋아요)을 가져간다. 다르게 정한 곳은 각 결정에 이유와 함께 적는다.
 
 ## Goals / Non-Goals
 
@@ -94,7 +94,7 @@ FeedController ─ GET /feed, POST /feed/likes/{postId}/toggle
 
 ### 7. 추가하는 의존성
 
-[하네스 규칙](../../../conventions/harness.md) 2-2에 따라 의존성 추가는 사람이 확인한다. 이 change를 승인하면 아래 목록을 확인한 것으로 보고, 구현 중에 목록 밖의 의존성이 필요하면 멈춘다. 버전이 없는 것은 Boot BOM이 정한다.
+[하네스 규칙](../../../../conventions/harness.md) 2-2에 따라 의존성 추가는 사람이 확인한다. 이 change를 승인하면 아래 목록을 확인한 것으로 보고, 구현 중에 목록 밖의 의존성이 필요하면 멈춘다. 버전이 없는 것은 Boot BOM이 정한다.
 
 | 모듈 | 의존성 | 용도 |
 |---|---|---|
@@ -122,7 +122,7 @@ MySQL 이미지는 `mysql:9.7`을 쓴다. 드라이버(9.7.0, Boot BOM)와 같�
 | Tomcat 최대 스레드 (feed-service) | 피드 p99를 하위 p99 두 번(post → user·like)과 여유로 약 150ms로 두면 200 × 0.15 = 동시 30개. 기본값으로 충분하다 | 기본값 | 확인 후 기록 (200으로 알려져 있다) |
 
 - 기본값 그대로면 평시에 이미 막힌다. 라우트당 커넥션 5개는 동시 10개보다 작고, 코어 스레드 8개는 동시 50개보다 작아 평시에도 대기열이 쌓인다. 그러면 기준선이 "장애 때 무너지는 모습"이 아니라 "평시에도 느린 모습"이 되어 비교가 흐려진다.
-- 값은 `application.yml`에 둔다. 커넥션 풀은 `weave.http-client.max-connections-per-route`(전체 최대도 같은 값), 스레드 풀은 Boot의 `spring.task.execution.pool.core-size`다. 설정값 커밋은 다른 변경과 섞지 않는다([커밋 컨벤션](../../../conventions/commit.md)).
+- 값은 `application.yml`에 둔다. 커넥션 풀은 `weave.http-client.max-connections-per-route`(전체 최대도 같은 값), 스레드 풀은 Boot의 `spring.task.execution.pool.core-size`다. 설정값 커밋은 다른 변경과 섞지 않는다([커밋 컨벤션](../../../../conventions/commit.md)).
 - 기본값은 작업 4.1에서 실제 객체에서 꺼내 확인하고 아키텍처 4-2에 기록한다. 위 표의 "알려져 있다"는 확인 전의 예상이다.
 
 ### 9. 테스트 배치

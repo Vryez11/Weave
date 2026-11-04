@@ -1,10 +1,10 @@
-# Spec Delta
+# user-profile Specification
 
 ## Purpose
 
-user-service가 피드 게시글의 작성자 프로필을 여러 명 한 번에 내준다. 피드에서 중요 등급 의존성이다([PRD](../../../../../docs/prd.md) 3장).
+user-service가 피드 게시글의 작성자 프로필을 여러 명 한 번에 내준다. 피드에서 중요 등급 의존성이다([PRD](../../../docs/prd.md) 3장).
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: 프로필 배치 조회 (F-006)
 

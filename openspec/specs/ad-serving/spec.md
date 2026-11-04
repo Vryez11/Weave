@@ -1,10 +1,10 @@
-# Spec Delta
+# ad-serving Specification
 
 ## Purpose
 
-ad-service가 피드의 광고 영역에 들어갈 광고를 내준다. 우리가 통제할 수 없는 외부 API 역할을 하며, 피드에서 선택 등급 의존성이다([PRD](../../../../../docs/prd.md) 3장).
+ad-service가 피드의 광고 영역에 들어갈 광고를 내준다. 우리가 통제할 수 없는 외부 API 역할을 하며, 피드에서 선택 등급 의존성이다([PRD](../../../docs/prd.md) 3장).
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: 광고 목록 조회 (F-006)
 

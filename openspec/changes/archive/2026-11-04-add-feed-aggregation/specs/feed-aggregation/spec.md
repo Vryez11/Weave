@@ -2,7 +2,7 @@
 
 ## Purpose
 
-feed-service가 하위 서비스 5개를 불러 피드 하나를 만들고, 클라이언트의 좋아요 요청을 like-service로 넘긴다. 클라이언트는 feed-service만 부른다. 의존성 등급과 호출 흐름은 [PRD](../../../../../docs/prd.md) 3장을 따른다.
+feed-service가 하위 서비스 5개를 불러 피드 하나를 만들고, 클라이언트의 좋아요 요청을 like-service로 넘긴다. 클라이언트는 feed-service만 부른다. 의존성 등급과 호출 흐름은 [PRD](../../../../../../docs/prd.md) 3장을 따른다.
 
 ## ADDED Requirements
 

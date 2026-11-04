@@ -2,7 +2,7 @@
 
 ## Purpose
 
-recommendation-service가 피드의 추천 섹션에 들어갈 게시글 목록을 내준다. 피드에서 선택 등급 의존성이다([PRD](../../../../../docs/prd.md) 3장).
+recommendation-service가 피드의 추천 섹션에 들어갈 게시글 목록을 내준다. 피드에서 선택 등급 의존성이다([PRD](../../../../../../docs/prd.md) 3장).
 
 ## ADDED Requirements
 

@@ -1,10 +1,10 @@
-# Spec Delta
+# post-catalog Specification
 
 ## Purpose
 
-post-service가 피드의 뼈대인 최신 게시글 목록을 내준다. 피드에서 필수 등급 의존성이다([PRD](../../../../../docs/prd.md) 3장).
+post-service가 피드의 뼈대인 최신 게시글 목록을 내준다. 피드에서 필수 등급 의존성이다([PRD](../../../docs/prd.md) 3장).
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: 최신 게시글 목록 조회 (F-006)
 
