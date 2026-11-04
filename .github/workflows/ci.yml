@@ -1,0 +1,46 @@
+# 하네스의 CI 검사 (conventions/harness.md 2-3). PR은 이 검사가 모두 통과해야 merge한다
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "25"
+      - uses: gradle/actions/setup-gradle@v6
+      # build는 check를 거쳐 단위 테스트(test)와 통합 테스트(integrationTest)를 모두 돌린다.
+      # 통합 테스트의 Testcontainers는 러너의 Docker를 쓴다
+      - name: 린트, 빌드, 전체 테스트
+        run: ./gradlew ktlintCheck build
+      # 실패했을 때만 원인을 볼 자료를 남긴다. e2e는 서비스 6개의 로그를 파일로 쓴다(e2e/CLAUDE.md)
+      - name: 실패한 테스트의 리포트와 서비스 로그 올리기
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-reports
+          path: |
+            **/build/reports/tests/
+            **/build/test-results/
+            e2e/build/e2e-logs/
+          retention-days: 7
+
+  spec:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+      - name: OpenSpec 검사
+        run: npx --yes @fission-ai/openspec@1.15.0 validate --all --strict --no-interactive

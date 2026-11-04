@@ -1,41 +1,28 @@
 // 모든 서비스 모듈이 공유하는 빌드 규칙. 각 모듈은 독립 실행 가능한 Spring Boot 앱이다.
 plugins {
-    kotlin("jvm")
-    kotlin("plugin.spring")
+    id("weave.kotlin-conventions")
     id("org.springframework.boot")
     id("io.spring.dependency-management")
 }
 
-group = "com.weave"
-version = "0.0.1-SNAPSHOT"
-
-java {
-    toolchain {
-        languageVersion = JavaLanguageVersion.of(25)
-    }
-}
-
-repositories {
-    mavenCentral()
-}
-
 dependencies {
+    implementation(project(":libs:observability"))
     implementation("org.springframework.boot:spring-boot-starter-webmvc")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
-    implementation("org.jetbrains.kotlin:kotlin-reflect")
     implementation("tools.jackson.module:jackson-module-kotlin")
     testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")
     testImplementation("org.springframework.boot:spring-boot-starter-actuator-test")
-    testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
-    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+    testImplementation("io.kotest:kotest-extensions-spring:6.2.6")
+    testImplementation("com.ninja-squad:springmockk:5.0.1")
 }
 
-kotlin {
-    compilerOptions {
-        freeCompilerArgs.addAll("-Xjsr305=strict", "-Xannotation-default-target=param-property")
+// 실행 jar(bootJar)를 다른 모듈이 받아 쓸 수 있게 내놓는다. e2e 모듈이 서비스를 프로세스로 띄울 때 쓴다.
+val bootJarElements =
+    configurations.create("bootJarElements") {
+        isCanBeConsumed = true
+        isCanBeResolved = false
     }
-}
 
-tasks.withType<Test> {
-    useJUnitPlatform()
+artifacts {
+    add(bootJarElements.name, tasks.named("bootJar"))
 }

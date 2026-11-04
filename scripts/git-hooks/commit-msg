@@ -1,0 +1,29 @@
+#!/bin/bash
+# 커밋 메시지가 conventions/commit.md 형식인지 검사한다.
+# 설치: git config core.hooksPath scripts/git-hooks
+set -euo pipefail
+
+msg=$(grep -v '^#' "$1")
+subject=$(head -n 1 <<<"$msg")
+
+case "$subject" in
+  Merge\ * | Revert\ * | fixup!\ * | squash!\ *) exit 0 ;;
+esac
+
+fail() {
+  {
+    echo "커밋 메시지가 conventions/commit.md 형식이 아닙니다: $1"
+    echo
+    echo "  <type>(<scope>): <한국어 요약, ~한다> (F-001)"
+    echo
+    echo "  - <작업 내용 핵심 1>"
+  } >&2
+  exit 1
+}
+
+type_re='^(feat|fix|refactor|perf|test|docs|chore)(\([a-z0-9-]+\))?: .+'
+grep -qE "$type_re" <<<"$subject" || fail "제목은 type(scope): 요약 형식이어야 합니다"
+grep -qE '다( \(F-[0-9]{3}(, F-[0-9]{3})*\))?$' <<<"$subject" || fail "요약은 '~한다'처럼 '다'로 끝나야 합니다 (기능 ID는 그 뒤 괄호)"
+tail -n +2 <<<"$msg" | grep -qE '^- .+' || fail "본문에 작업 내용 핵심을 '- '로 시작하는 항목으로 적어야 합니다"
+grep -qiE '^co-authored-by:' <<<"$msg" && fail "Co-Authored-By 줄은 넣지 않습니다"
+exit 0
