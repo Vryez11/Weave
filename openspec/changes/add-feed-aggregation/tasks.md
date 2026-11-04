@@ -61,7 +61,7 @@
   - FeedAssembler 단위 테스트(MockK)로 아래를 확인한다: 작성자 없음은 null, 좋아요 매핑, 게시글 없음이면 user·like를 부르지 않음, 작성자 ID 중복 제거.
   - 확인: `./gradlew :feed-service:test -Pkotest.filter.tests='*F-006*'`가 통과한다.
 - [x] 3.3 `GET /feed` 컨트롤러와 요청 검증을 만든다. 확인: feed-service 통합 테스트 중 피드 응답 구성, 요청 검증, 호출 순서, 실패 전파 시나리오가 통과한다.
-- [ ] 3.4 `POST /feed/likes/{postId}/toggle`을 만든다. 확인: `./gradlew :feed-service:test :feed-service:integrationTest`가 모두 통과한다.
+- [x] 3.4 `POST /feed/likes/{postId}/toggle`을 만든다. 확인: `./gradlew :feed-service:test :feed-service:integrationTest`가 모두 통과한다.
 
 ## 4. 기본값 기록과 용량 설정
 
