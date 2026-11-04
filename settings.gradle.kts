@@ -6,4 +6,6 @@ include(
     "user-service",
     "like-service",
     "recommendation-service",
+    "ad-service",
+    "libs:observability",
 )

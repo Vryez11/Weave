@@ -17,7 +17,7 @@ Kotlin 2.3 · Spring Boot 4.1 · JDK 25 · Gradle 9 (Kotlin DSL)
 
 ## 모듈 구성
 
-각 모듈은 독립적으로 띄울 수 있는 Spring Boot 애플리케이션이다. 공통 빌드 규칙은 `buildSrc`의 `weave.spring-service` 컨벤션 플러그인에 있다.
+각 서비스는 독립적으로 띄울 수 있는 Spring Boot 애플리케이션이다. 공통 빌드 규칙은 `buildSrc`의 컨벤션 플러그인에 있다 (`weave.spring-service`, `weave.spring-library`).
 
 | 모듈 | 포트 | 역할 |
 |---|---|---|
@@ -26,6 +26,17 @@ Kotlin 2.3 · Spring Boot 4.1 · JDK 25 · Gradle 9 (Kotlin DSL)
 | `user-service` | 8082 | 작성자 프로필 |
 | `like-service` | 8083 | 좋아요 (상태 기반 · 멱등) |
 | `recommendation-service` | 8084 | 추천 |
+| `ad-service` | 8085 | 광고. 통제할 수 없는 외부 API 역할 (429 · Retry-After · 쿼터) |
+
+| 라이브러리 | 역할 |
+|---|---|
+| `libs/observability` | 모든 서비스에 자동 적용되는 공통 로깅·트레이싱 설정 |
+
+비즈니스 DTO를 공유하는 공통 모듈은 두지 않는다. 서비스끼리는 HTTP 계약으로만 통신한다.
+
+## 규칙
+
+`conventions/`에 커밋, 브랜치, 스펙, 하네스 규칙이 있다.
 
 ## 실행
 
