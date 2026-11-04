@@ -131,3 +131,12 @@
 - 확인: `:like-service:ktlintCheck :like-service:test :like-service:integrationTest --rerun-tasks` 통과(단위 2개, 통합 17개).
 - 다음 반복이 알아 둘 것: 2.6은 `TestLikeServiceApplication`을 테스트 소스에 새로 만든다. `MySqlTestConfiguration`은 이미 커밋돼 고칠 수 없으니 `SpringApplication.from(LikeServiceApplication::main).with(MySqlTestConfiguration::class)`로 그대로 쓴다. 포트는 `--server.port=0` 인자로 넘긴다(like-service/CLAUDE.md).
 ---
+
+## 2026-11-04 18:05 - 2.6 like-service 로컬 실행
+- 테스트 소스에 `TestLikeServiceApplication`(object + `@JvmStatic main`, `start(vararg args)`)을 두었다. `SpringApplication.from { com.weave.like.main(it) }.with(MySqlTestConfiguration::class.java)`로 띄운다. 같은 패키지에 최상위 `main`이 이미 있어 object로 감쌌다.
+- `TestLikeServiceApplicationTest`(`@Tags("Integration")`)가 `start("--server.port=0")`로 띄워 테이블을 비운 뒤 `POST /likes/1/toggle`이 200, `liked` true인지 본다. 같은 JVM의 다른 테스트가 남긴 좋아요가 있으면 토글이 취소가 되므로 먼저 비운다.
+- 루트에 `.env.example`을 새로 만들어 `LIKE_DB_URL`, `LIKE_DB_USERNAME`, `LIKE_DB_PASSWORD`를 설명과 함께 적었다.
+- 바꾼 파일: `.env.example`, `like-service/src/test/kotlin/com/weave/like/{TestLikeServiceApplication,TestLikeServiceApplicationTest}.kt`, `like-service/CLAUDE.md`
+- 확인: `:like-service:ktlintCheck test integrationTest --rerun-tasks` 통과(통합 20개: 새 테스트 1개 포함). `resolveTestMainClassName`이 `com.weave.like.TestLikeServiceApplication`을 고른다(bootTestRun이 이 진입점을 쓴다). 전체 `ktlintCheck compileKotlin compileTestKotlin test`, `openspec validate` 통과. `bootTestRun`을 직접 띄워 보는 것은 6.1에서 사람이 한다.
+- 다음 반복이 알아 둘 것: 3.1부터 feed-service다. `with(...)`로 붙인 설정과 컴포넌트 스캔이 같은 `MySqlTestConfiguration`을 잡아도 충돌하지 않았다.
+---
