@@ -176,3 +176,14 @@
 - 확인: `:feed-service:ktlintCheck :feed-service:test :feed-service:integrationTest --rerun-tasks` 통과(`FeedAggregationScenarioTest` 20개, `FeedUnreachableScenarioTest`, 컨텍스트·HttpClient 3개, 단위 5개). 전체 `ktlintCheck compileKotlin compileTestKotlin`, `openspec validate` 통과.
 - 다음 반복이 알아 둘 것: 4.1은 기본값을 실제 객체에서 꺼내 확인한다. HttpClient 풀은 테스트 소스의 `connectionManagersByDependency()`(속성 없는 컨텍스트)로 읽을 수 있다. 4.1은 `docs(architecture)` 커밋 하나로 남겨야 하므로, 값을 읽으려고 만든 테스트를 남길지는 그때 판단한다(남기면 별도 `test` 커밋).
 ---
+
+## 2026-11-04 18:15 - 4.1 MVP 기본값 확인과 기록
+- 임시 탐색 테스트(`@SpringBootTest(RANDOM_PORT)`)로 실제 객체에서 값을 읽고, 테스트는 지웠다. 4.2·4.3이 같은 값을 검사하는 테스트를 새로 만들기 때문이다.
+- 결과(design 결정 8 예상과 같음): `applicationTaskExecutor` 코어 8, 최대 `Integer.MAX_VALUE`, 대기열 `LinkedBlockingQueue` 용량 `Integer.MAX_VALUE`. HttpClient 5.6.5 라우트당 5·전체 25, 연결 타임아웃 3분(`ConnectionConfig`), 응답은 `SocketConfig.soTimeout` 3분, 풀 대기(`RequestConfig.connectionRequestTimeout`) 3분. Spring 요청 팩토리 쪽 타임아웃은 -1(없음). Tomcat 최대 스레드 200.
+- 바꾼 파일: `docs/architecture.md`(4-2 기본값 표와 확인 방법), `tasks.md`
+- 확인: `ktlintCheck compileKotlin compileTestKotlin :feed-service:test`, `openspec validate` 통과. 커밋 ef60012(`docs(architecture)` 하나).
+- 다음 반복이 알아 둘 것:
+  - 4.3의 "대기열은 기본값" 검사는 `ThreadPoolTaskExecutor.queueCapacity == Integer.MAX_VALUE`(또는 `threadPoolExecutor.queue.remainingCapacity()`)로 하면 된다. Bean은 `getBean("applicationTaskExecutor", ThreadPoolTaskExecutor::class.java)`.
+  - Tomcat 값은 `(context as WebServerApplicationContext).webServer as org.springframework.boot.tomcat.TomcatWebServer` → `tomcat.connector.protocolHandler`(`AbstractProtocol`)로 읽는다(RANDOM_PORT 필요).
+  - HttpClient의 연결·소켓 설정은 `PoolingHttpClientConnectionManager`에 공개 getter가 없다. 필드 `connectionConfigResolver`·`socketConfigResolver`(`Resolver`)의 `resolve(null)`로 읽었다.
+---
