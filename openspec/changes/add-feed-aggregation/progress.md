@@ -241,3 +241,10 @@
 - 확인: `ktlintCheck :feed-service:test :feed-service:integrationTest --rerun-tasks` 통과. 6.1의 "한 번만 요청한다" 7개도 통과, 실패 0. 커밋 886f98e(`fix(feed)`).
 - 다음 반복이 알아 둘 것: 6.4의 "기본 재시도" 값은 design 결정 3과 6.1 메모(`DefaultHttpRequestRetryStrategy`, 429·503, 1초, 1회)에 있다. 실제 객체로 확인하려면 재시도를 끄기 전 기본값이므로 `HttpClients.custom()`이 아니라 `DefaultHttpRequestRetryStrategy.INSTANCE`의 필드를 본다.
 ---
+
+## 2026-11-04 19:35 - 6.3 like-service의 spring-boot-testcontainers 테스트 의존성을 뺀다
+- `like-service/build.gradle.kts`에서 `testImplementation("org.springframework.boot:spring-boot-testcontainers")`를 뺐다. 테스트 소스에서 이 모듈의 클래스를 쓰는 곳이 없었다(`SpringApplication.from(...).with(...)`는 spring-boot 본체에 있다). `testcontainers-mysql`이 Testcontainers 본체를 끌어온다.
+- 바꾼 파일: `like-service/build.gradle.kts`, `tasks.md`
+- 확인: `:like-service:ktlintCheck :like-service:test :like-service:integrationTest --rerun-tasks` 통과(실패 0, 영속 시나리오와 `TestLikeServiceApplicationTest` 포함). 전체 `ktlintCheck compileKotlin compileTestKotlin test`, `openspec validate` 통과.
+- 다음 반복이 알아 둘 것: 6.4는 architecture 4-2 기록과, 코어 스레드 시간 초과 값을 보는 새 테스트 파일(`TaskExecutorCapacityTest`는 고칠 수 없으니 옆에 새 파일)이다.
+---
