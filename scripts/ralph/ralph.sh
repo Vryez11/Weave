@@ -25,9 +25,14 @@ if [ "$MAX_ITERATIONS" -le 0 ]; then
   exit 0
 fi
 
+# 모델은 별칭(opus) 대신 ID로 고정한다. 새 모델이 나와도 한 change를 도는 동안 반복마다 모델이 바뀌지 않게 하기 위해서다.
+# 한 번만 바꿔 돌릴 때는 환경 변수로 덮어쓴다. 예) RALPH_EFFORT=xhigh scripts/ralph/ralph.sh <change-id>
+MODEL="${RALPH_MODEL:-claude-opus-5-5}"
+EFFORT="${RALPH_EFFORT:-high}"
+
 PROMPT="$(sed "s/{{CHANGE_ID}}/$CHANGE_ID/g" "$SCRIPT_DIR/prompt.md")"
 cd "$ROOT_DIR"
-echo "Ralph 시작: $CHANGE_ID, 최대 ${MAX_ITERATIONS}번"
+echo "Ralph 시작: $CHANGE_ID, 최대 ${MAX_ITERATIONS}번, 모델 $MODEL, effort $EFFORT"
 
 for i in $(seq 1 "$MAX_ITERATIONS"); do
   echo ""
@@ -35,7 +40,7 @@ for i in $(seq 1 "$MAX_ITERATIONS"); do
 
   # 파일 수정은 허용하고, 셸 명령은 .claude/settings.json의 허용 목록 안에서만 쓴다.
   # WEAVE_RALPH=1이면 하네스 훅이 이미 있는 테스트와 실험 시나리오 수정을 막는다
-  OUTPUT=$(WEAVE_RALPH=1 claude --print --permission-mode acceptEdits "$PROMPT" 2>&1 | tee /dev/stderr) || true
+  OUTPUT=$(WEAVE_RALPH=1 claude --print --permission-mode acceptEdits --model "$MODEL" --effort "$EFFORT" "$PROMPT" 2>&1 | tee /dev/stderr) || true
 
   if grep -q "<promise>COMPLETE</promise>" <<<"$OUTPUT"; then
     echo ""
