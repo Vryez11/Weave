@@ -58,6 +58,7 @@ FeedController ─ GET /feed, POST /feed/likes/{postId}/toggle
 - **Apache HttpClient 5를 쓴다.** `httpclient5`가 클래스패스에 있으면 Boot가 그것을 고른다. 커넥션 풀 크기는 `ClientHttpRequestFactoryBuilder` Bean 하나를 `HttpComponentsClientHttpRequestFactoryBuilder.withConnectionManagerCustomizer`로 바꿔 정한다(결정 8). Boot가 그룹마다 이 빌더로 요청 팩토리를 새로 만들어, 그룹마다 HttpClient와 커넥션 풀이 따로 생긴다. 아키텍처 5-1의 "의존성마다 커넥션 풀"이 이것으로 채워진다. 정말 따로 생기는지는 작업 3.1에서 테스트로 확인한다.
 - **풀 크기는 MVP에서 모든 의존성에 같은 값을 쓴다.** 아키텍처 5-1은 의존성마다 값을 정한다고 했지만, MVP는 의존성별 평시 지연이 같다고 두므로(PRD F-007, p99 약 50ms) 계산 결과도 같다. 의존성별로 다르게 둘 필요는 기준선 측정 뒤(고도화 3)에 판단한다.
 - **타임아웃은 설정하지 않는다.** `spring.http.serviceclient.*.connect-timeout`, `read-timeout`을 두지 않아 라이브러리 기본값이 쓰인다(아키텍처 4-2). 실제 값은 작업 4.1에서 확인해 기록한다.
+- **HttpClient 5의 자동 재시도는 끈다.** 기본 재시도 전략(`DefaultHttpRequestRetryStrategy`)은 429와 503에 1초 뒤 한 번 더 보내고, 멱등인지 보지 않아 토글 POST도 다시 보낸다. Boot의 빌더도 이것을 끄지 않는다. MVP의 "재시도 없음"과 어긋나고, 고도화 2의 기준선과 고도화 6의 토글 중복 재현을 흐리므로 `HttpClientBuilder.disableAutomaticRetries()`로 끈다. 보호 장치를 더하는 것이 아니라 라이브러리에 숨어 있던 보호 장치를 빼는 것이다. 구현 뒤 첫 검토에서 찾았다.
 - **Toxiproxy를 거치는 것은 고도화 2부터다.** 아키텍처 2장은 MVP도 Toxiproxy를 거친다고 했지만, Toxiproxy는 고도화 2에서 Docker Compose와 함께 들어온다. 주소를 환경 변수로 덮어쓸 수 있게 해 두면(`POST_BASE_URL` 등) 그때 코드 변경 없이 프록시를 가리키게 할 수 있다. 기준선은 고도화 2에서 Toxiproxy를 거친 상태로 재므로, 결과를 비교할 때 연결 구조가 바뀌지 않는다는 원칙은 지켜진다.
 
 ### 4. 병렬 호출과 공유 스레드 풀
@@ -101,7 +102,7 @@ FeedController ─ GET /feed, POST /feed/likes/{postId}/toggle
 | feed-service | `spring-boot-starter-restclient`, `org.apache.httpcomponents.client5:httpclient5` | HTTP 서비스 그룹, HttpClient 5 |
 | feed-service (테스트) | `org.wiremock:wiremock-standalone:3.13.2` | 하위 서비스 흉내. standalone은 Jetty를 숨겨 Boot의 Tomcat과 부딪히지 않는다. 4.x는 아직 베타다 |
 | like-service | `spring-boot-starter-data-jpa`, `spring-boot-starter-flyway`, `org.flywaydb:flyway-mysql`, `com.mysql:mysql-connector-j`(runtime) | 저장 |
-| like-service (테스트) | `spring-boot-testcontainers`, `org.testcontainers:testcontainers-mysql` | MySQL 컨테이너 |
+| like-service (테스트) | `org.testcontainers:testcontainers-mysql` | MySQL 컨테이너. 처음에는 `spring-boot-testcontainers`(`@ServiceConnection`)도 넣었지만, 결정 9의 이유로 컨테이너를 Bean으로 두지 않게 되어 뺐다 |
 | e2e | `org.testcontainers:testcontainers-mysql`, `tools.jackson.module:jackson-module-kotlin` | MySQL 컨테이너, 응답 읽기 |
 
 MySQL 이미지는 `mysql:9.7`을 쓴다. 드라이버(9.7.0, Boot BOM)와 같은 계열이고, 아키텍처 1장의 "MySQL 9"와 맞다.
@@ -131,7 +132,7 @@ MySQL 이미지는 `mysql:9.7`을 쓴다. 드라이버(9.7.0, Boot BOM)와 같�
 | 모듈 | 시나리오 테스트 | 방식 |
 |---|---|---|
 | post, user, recommendation, ad | 각 스펙의 시나리오 | `@SpringBootTest` + MockMvc. 고정 데이터 시나리오는 결정 1의 식으로 기댓값을 계산해 비교한다. 같은 식으로 만든 값이 매번 오는지 보는 것이므로 "다시 띄워도 같다"를 대신한다 |
-| like | `post-like` 스펙의 시나리오 | `@SpringBootTest` + MockMvc + Testcontainers MySQL(`@ServiceConnection`). 테스트마다 테이블을 비운다. 영속 시나리오는 같은 컨테이너로 `SpringApplicationBuilder`를 두 번 띄운다 |
+| like | `post-like` 스펙의 시나리오 | `@SpringBootTest` + MockMvc + Testcontainers MySQL. 컨테이너는 JVM에 하나를 직접 띄우고 접속 정보만 `JdbcConnectionDetails` Bean으로 내놓는다. 컨테이너를 `@ServiceConnection` Bean으로 두면 Boot가 컨텍스트를 닫을 때 컨테이너도 멈춰, 영속 시나리오의 두 번째 애플리케이션이 빈 DB를 본다(구현 중 2.4에서 찾음). 테스트마다 테이블을 비운다. 영속 시나리오는 같은 컨테이너로 `SpringApplicationBuilder`를 두 번 띄운다 |
 | feed | `feed-aggregation` 스펙에서 종단 간을 뺀 시나리오 | `@SpringBootTest(webEnvironment = RANDOM_PORT)` + WireMock. 하위 서비스 다섯을 WireMock 하나로 흉내 내고, `spring.http.serviceclient.<의존성>.base-url`을 WireMock 주소로 준다. 호출 여부와 파라미터는 WireMock의 요청 기록으로 확인한다 |
 | e2e | 종단 간 시나리오 | 결정 10 |
 
@@ -160,7 +161,7 @@ MySQL 이미지는 `mysql:9.7`을 쓴다. 드라이버(9.7.0, Boot BOM)와 같�
 |---|---|
 | feed-service 하위 서비스 주소 | `spring.http.serviceclient.<의존성>.base-url: ${<의존성>_BASE_URL:http://localhost:<포트>}` (`POST_BASE_URL`, `USER_BASE_URL`, `LIKE_BASE_URL`, `RECOMMENDATION_BASE_URL`, `AD_BASE_URL`) |
 | like-service DB | `spring.datasource.url/username/password: ${LIKE_DB_URL}` 등. 비밀 값이라 `.env.example`에 이름과 설명만 적는다 |
-| like-service 로컬 실행 | `./gradlew :like-service:bootTestRun`. 테스트 소스의 `TestLikeServiceApplication`이 Testcontainers MySQL을 함께 띄운다(Boot의 개발용 Testcontainers 지원). Docker Compose가 고도화 1에서 들어오기 전까지 MySQL을 따로 설치하지 않아도 된다 |
+| like-service 로컬 실행 | `./gradlew :like-service:bootTestRun`. 테스트 소스의 `TestLikeServiceApplication`이 `SpringApplication.from(...).with(...)`로 테스트의 MySQL 구성을 붙여 Testcontainers MySQL을 함께 띄운다. Docker Compose가 고도화 1에서 들어오기 전까지 MySQL을 따로 설치하지 않아도 된다 |
 
 명령은 `CLAUDE.md`와 하네스 규칙 5장에 더한다. `e2e` 모듈은 `scripts/harness/stop-check.sh`의 모듈 목록과 README의 모듈 표에 더한다.
 

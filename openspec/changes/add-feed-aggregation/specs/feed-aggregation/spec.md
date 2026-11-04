@@ -78,13 +78,20 @@ feed-service는 post, recommendation, ad를 서로 기다리지 않고 동시에
 
 ### Requirement: 보호 장치 없는 실패 전파 (F-006)
 
-feed-service는 하위 서비스 호출에 타임아웃, 서킷 브레이커, 벌크헤드, 재시도, fallback을 두지 않아야 한다(SHALL). 하위 서비스 하나라도 실패하면 피드 요청 전체가 500으로 실패하고, 느리면 피드도 그만큼 기다려야 한다(SHALL). 이 상태가 고도화 2의 기준선이고, 고도화 3·4·5에서 이 요구사항을 바꾼다.
+feed-service는 하위 서비스 호출에 직접 정한 타임아웃(라이브러리 기본값만 쓴다), 서킷 브레이커, 벌크헤드, 재시도, fallback을 두지 않아야 한다(SHALL). HTTP 클라이언트 라이브러리가 스스로 하는 재시도도 재시도에 든다. 하위 서비스 하나라도 실패하면 피드 요청 전체가 500으로 실패하고, 느리면 피드도 그만큼 기다려야 한다(SHALL). 이 상태가 고도화 2의 기준선이고, 고도화 3·4·5에서 이 요구사항을 바꾼다.
 
 #### Scenario: 하위 서비스 하나가 5xx
 
 - **GIVEN** post, user, like, recommendation, ad 중 하나가 503을 준다
 - **WHEN** `GET /feed`를 부른다
 - **THEN** 500이 온다. 다섯 의존성 각각에 대해 같다
+- **AND** 실패한 의존성에는 한 번만 요청한다
+
+#### Scenario: 하위 서비스가 속도 조절 응답을 준다
+
+- **GIVEN** ad-service가 429와 `Retry-After: 1`을 준다
+- **WHEN** `GET /feed`를 부른다
+- **THEN** 500이 오고, ad-service에는 한 번만 요청한다
 
 #### Scenario: 하위 서비스 하나에 연결할 수 없다
 
@@ -113,6 +120,17 @@ feed-service는 `POST /feed/likes/{postId}/toggle`을 받으면 같은 게시글
 
 - **WHEN** `X-User-Id` 없이 `POST /feed/likes/5/toggle`을 부른다
 - **THEN** 400이 오고, like-service는 호출하지 않는다
+
+#### Scenario: 사용자 헤더 값이 잘못됐다
+
+- **WHEN** `X-User-Id: 0`이나 `X-User-Id: abc`로 `POST /feed/likes/5/toggle`을 부른다
+- **THEN** 400이 오고, like-service는 호출하지 않는다
+
+#### Scenario: like-service가 토글에 실패한다
+
+- **GIVEN** like-service가 토글에 503을 준다
+- **WHEN** `POST /feed/likes/5/toggle`을 부른다
+- **THEN** 500이 오고, like-service에는 토글을 한 번만 요청한다. 토글은 다시 보내면 상태가 또 뒤집히므로 두 번 보내면 안 된다
 
 ### Requirement: 종단 간 동작 (F-006)
 

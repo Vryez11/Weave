@@ -15,7 +15,7 @@
 - [x] 1.3 `user-profile` 스펙의 시나리오를 user-service 테스트로 옮긴다. 확인: `./gradlew :user-service:integrationTest`가 새 테스트에서 실패하고, `./gradlew :user-service:test`는 통과한다.
 - [x] 1.4 `recommendation`, `ad-serving` 스펙의 시나리오를 각 서비스의 테스트로 옮긴다. 확인: `./gradlew :recommendation-service:integrationTest :ad-service:integrationTest`가 새 테스트에서 실패하고, 두 모듈의 `test`는 통과한다.
 - [x] 1.5 `post-like` 스펙의 시나리오를 like-service 테스트로 옮긴다.
-  - Testcontainers MySQL(`mysql:9.7`, `@ServiceConnection`) 테스트 구성을 테스트 소스에 두고, 테스트마다 테이블을 비운다.
+  - Testcontainers MySQL(`mysql:9.7`) 테스트 구성을 테스트 소스에 두고, 테스트마다 테이블을 비운다.
   - 영속 시나리오는 같은 컨테이너로 애플리케이션을 두 번 띄운다.
   - 확인: `./gradlew :like-service:integrationTest`가 새 테스트에서 실패하고, `./gradlew :like-service:test`는 통과한다.
 - [x] 1.6 `feed-aggregation` 스펙에서 "종단 간 동작"을 뺀 시나리오를 feed-service 테스트로 옮긴다.
@@ -45,7 +45,7 @@
   - 테스트 소스의 `TestLikeServiceApplication`이 1.5의 MySQL 테스트 구성을 함께 띄우게 한다.
   - `.env.example`에 `LIKE_DB_URL`, `LIKE_DB_USERNAME`, `LIKE_DB_PASSWORD`를 설명과 함께 적는다.
   - `bootTestRun`과 같은 방식(`SpringApplication.from(...).with(MySQL 테스트 구성)`)으로 빈 포트에 띄워 `POST /likes/1/toggle`을 부르는 통합 테스트를 더한다. Ralph는 `bootTestRun`처럼 끝나지 않는 명령이나 `curl`을 쓸 수 없다.
-  - 확인: 그 통합 테스트가 `liked` true를 받아 통과한다. `./gradlew :like-service:bootTestRun`으로 직접 띄워 보는 것은 검토(6.1) 때 사람이 한다.
+  - 확인: 그 통합 테스트가 `liked` true를 받아 통과한다. `./gradlew :like-service:bootTestRun`으로 직접 띄워 보는 것은 검토(7.1) 때 사람이 한다.
 
 ## 3. feed-service
 
@@ -86,15 +86,34 @@
 - [x] 5.2 명령과 모듈을 문서에 더한다.
   - `CLAUDE.md`의 명령 표와 하네스 규칙 5장에 `./gradlew :like-service:bootTestRun`, `./gradlew :e2e:integrationTest`를 더한다.
   - `CLAUDE.md` 구조 표와 README 모듈 표에 `e2e`를 더한다.
-  - 확인: 문서에 적은 `./gradlew :e2e:integrationTest`를 그대로 돌려 통과한다. `bootTestRun`은 끝나지 않는 명령이라 6.1에서 사람이 확인한다.
+  - 확인: 문서에 적은 `./gradlew :e2e:integrationTest`를 그대로 돌려 통과한다. `bootTestRun`은 끝나지 않는 명령이라 7.1에서 사람이 확인한다.
 - [x] 5.3 전체 검사를 돌린다. 확인: `./gradlew ktlintCheck build`와 `openspec validate --all --strict --no-interactive`가 통과한다.
 
-## 6. 검토와 change 완료 조건
+## 6. 검토 반영
+
+첫 검토(7.1)의 지적을 고친다. 6.1은 이미 커밋된 테스트를 고치는 일이라 사람이 했다. 6.1에서 더한 테스트 중 "한 번만 요청한다" 검사는 6.2 전까지 실패한다.
+
+- [x] 6.1 검토 지적을 스펙과 테스트로 옮긴다.
+  - 스펙에 "실패한 의존성에는 한 번만 요청한다", "속도 조절 응답(429)", "사용자 헤더 값이 잘못됐다(토글)", "like-service가 토글에 실패한다"를 더했다.
+  - feed-service 시나리오 테스트에 위 시나리오를 더했다. "연결할 수 없다"는 닫힌 포트 대신 포트 1을 쓰고 recommendation 요청이 가지 않았는지도 본다. HTTP 클라이언트는 하나를 같이 쓴다.
+  - 확인: `./gradlew :feed-service:integrationTest`에서 "한 번만 요청한다"를 보는 테스트(5xx 다섯, 429, 토글 503)만 실패하고, 나머지는 통과한다.
+- [ ] 6.2 HttpClient 5의 자동 재시도를 끈다(design 결정 3).
+  - `ClientHttpRequestFactoryBuilder`에 `withHttpClientCustomizer { it.disableAutomaticRetries() }`를 더한다. 커넥션 풀 속성이 없어도 재시도는 꺼져 있어야 하므로, 재시도 끄기를 속성 조건에 묶지 않는다.
+  - `fix(feed)`로 커밋하고, 본문에 기본 재시도(429·503에 1초 뒤 1회, 토글 POST 포함)를 적는다.
+  - 확인: `./gradlew :feed-service:test :feed-service:integrationTest`가 모두 통과한다.
+- [ ] 6.3 like-service에서 쓰지 않는 `spring-boot-testcontainers` 테스트 의존성을 뺀다(design 결정 7). 확인: `./gradlew :like-service:test :like-service:integrationTest`가 통과한다.
+- [ ] 6.4 `docs/architecture.md` 4-2의 기본값 기록을 채운다.
+  - HttpClient 5의 기본 재시도(횟수, 간격, 대상 상태 코드)와, 6.2에서 껐다는 것
+  - `applicationTaskExecutor`의 코어 스레드 시간 초과 허용 여부와 keep-alive 시간. 실제 Bean에서 꺼내 확인한다.
+  - 확인: 4-2에 값과 확인 방법이 있고, 코어 스레드 시간 초과 값을 보는 검사가 4.3의 통합 테스트 옆에 있다.
+- [ ] 6.5 전체 검사를 다시 돌린다. 확인: `./gradlew ktlintCheck build`와 `openspec validate --all --strict --no-interactive`가 통과한다.
+
+## 7. 검토와 change 완료 조건
 
 이 묶음은 Ralph 루프가 하지 않는다([하네스 규칙](../../../conventions/harness.md) 3-3, 4장).
 
-- [ ] 6.1 구현에 참여하지 않은 리뷰어가 하네스 규칙 3-3의 검토 항목으로 change 문서와 diff를 본다. 이 change에 해당하지 않는 항목(3번 격리, 4번 재시도, 6번 traceId)은 "해당 없음"으로 적는다. 확인: 막는 지적이 없다.
-- [ ] 6.2 하네스 규칙 4장의 change 완료 조건을 확인한다. 장애 실험 세트는 아직 없으므로(고도화 2) 해당 없음으로 적는다. 구현하며 요구사항이 바뀌었다면 PRD F-006도 고친다. 확인: 체크리스트가 모두 채워진다.
+- [ ] 7.1 구현에 참여하지 않은 리뷰어가 하네스 규칙 3-3의 검토 항목으로 change 문서와 diff를 본다. 이 change에 해당하지 않는 항목(3번 격리, 4번 재시도, 6번 traceId)은 "해당 없음"으로 적는다. 확인: 막는 지적이 없다.
+- [ ] 7.2 하네스 규칙 4장의 change 완료 조건을 확인한다. 장애 실험 세트는 아직 없으므로(고도화 2) 해당 없음으로 적는다. 구현하며 요구사항이 바뀌었다면 PRD F-006도 고친다. 확인: 체크리스트가 모두 채워진다.
 
 ## Workflow follow-up
 
