@@ -55,7 +55,7 @@
   - `ClientHttpRequestFactoryBuilder` Bean이 `weave.http-client.max-connections-per-route` 속성이 있을 때만 커넥션 풀 크기를 바꾸게 한다. 값은 아직 넣지 않는다.
   - 그룹마다 HttpClient(커넥션 풀)가 따로 생기는지 통합 테스트로 확인하고, 같다면 design의 위험 항목대로 그룹 설정자로 바꾼다.
   - 확인: 그 통합 테스트가 통과하고, `./gradlew :feed-service:test`가 통과한다.
-- [ ] 3.2 Gateway 다섯 개와 FeedAssembler를 만든다.
+- [x] 3.2 Gateway 다섯 개와 FeedAssembler를 만든다.
   - Gateway의 조회 메서드는 `applicationTaskExecutor`에서 도는 `CompletableFuture`를 돌려준다.
   - FeedAssembler는 결정 4의 순서로 부르고 피드 응답을 만든다.
   - FeedAssembler 단위 테스트(MockK)로 아래를 확인한다: 작성자 없음은 null, 좋아요 매핑, 게시글 없음이면 user·like를 부르지 않음, 작성자 ID 중복 제거.
