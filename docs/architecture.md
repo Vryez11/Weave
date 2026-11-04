@@ -9,7 +9,7 @@
 | 영역 | 결정 | 버전 |
 |---|---|---|
 | 언어·프레임워크 | Kotlin, Spring Boot(Spring MVC), JDK 25, Gradle Kotlin DSL 멀티 모듈 | Kotlin 2.3.21, Boot 4.1.2, Gradle 9.8.2 |
-| 동시성 | Tomcat은 플랫폼 스레드. 하위 서비스 병렬 호출은 `CompletableFuture`. 가상 스레드는 고도화 3 뒤 비교 실험으로 한 번 잰다 | — |
+| 동시성 | Tomcat은 플랫폼 스레드. 하위 서비스 병렬 호출은 `CompletableFuture`. 가상 스레드는 고도화 3을 마친 뒤 S-02에서 한 번 비교한다(PRD F-001) | — |
 | HTTP 클라이언트 | `RestClient` + Apache HttpClient 5, 그 위에 HTTP Interface(`@HttpExchange`) | HttpClient 5.6.5 (Boot BOM) |
 | 장애 대응 | Resilience4j Spring Boot 4 스타터, **어노테이션 방식**. 서킷 브레이커, 벌크헤드(Semaphore·ThreadPool), TimeLimiter, Retry, RateLimiter를 모두 설정으로 연다 | `resilience4j-spring-boot4` 2.4.0 |
 | 좋아요 저장 | MySQL + Spring Data JPA + Flyway | MySQL 9, Hibernate 7.4, Flyway 12.4 (Boot BOM) |
@@ -278,6 +278,7 @@ traceId는 스레드에 붙은 컨텍스트(MDC, 관찰 컨텍스트)에 있어�
   - 유니크 제약 위반은 "이미 반영된 요청"으로 처리한다.
   - 늦게 도착한 재시도가 최근 결과를 덮어쓰지 않게 하는 방법(`@Version`, 요청 시각 등)을 정한다.
   - 좋아요 수와 실제 행 수가 어긋났는지 검사하는 쿼리를 둔다.
+  - 인기 글 몰림(PRD S-11): 읽고 고쳐 저장하기, 원자적 UPDATE, 카운터 분할(`post_like_count`를 게시글당 N개 행으로 나누고 쓸 때 하나를 골라 더하고, 읽을 때 합친다)을 같은 몰림 부하로 비교해 처리량, p99, 잠금 대기, 수 불일치를 잰다. 모아서 반영하기는 PRD 8장의 비동기 집계로 보고 다루지 않는다.
 - 스키마는 Flyway로 관리한다.
 
 ## 9. 장애 실험 환경
@@ -335,10 +336,10 @@ traceId는 스레드에 붙은 컨텍스트(MDC, 관찰 컨텍스트)에 있어�
 | `add-feed-aggregation` (F-006) | 4-1 호출 순서, 4-2 MVP 구성과 기본값 기록, 5-1 클라이언트 구성, 8장 토글 좋아요 |
 | `add-trace-logging` (F-004) | 7장 전체, Compose의 관찰 인프라 |
 | `add-fault-experiments` (F-007) | 9장, 기준선 기록, 4-3과 5-6을 채울 측정 |
-| `add-call-isolation` (F-001) | 5-2 ~ 5-6, 7-3의 벌크헤드 전파, Resilience4j 4.1.2 호환 확인 |
+| `add-call-isolation` (F-001) | 5-2 ~ 5-6, 7-3의 벌크헤드 전파, Resilience4j 4.1.2 호환 확인, 가상 스레드 + Semaphore 벌크헤드 비교(S-02) |
 | `add-graceful-degradation` (F-002) | 6장 |
 | `add-retry-policy` (F-005) | 5-5의 429 처리, Retry·RateLimiter 설정 |
-| `add-idempotent-like` (F-003) | 8장의 고도화 6 항목, 10장의 속성 기반 테스트 |
+| `add-idempotent-like` (F-003) | 8장의 고도화 6 항목(카운터 방식 비교 포함), 10장의 속성 기반 테스트 |
 
 ## 13. 남은 것
 
@@ -347,4 +348,5 @@ traceId는 스레드에 붙은 컨텍스트(MDC, 관찰 컨텍스트)에 있어�
 - user 로컬 캐시 TTL·크기, post 캐시 키 구조: `add-graceful-degradation`
 - 429와 Retry-After 처리 방식: `add-retry-policy`
 - 좋아요 순서 판단 방법: `add-idempotent-like`
-- 가상 스레드 비교 실험을 언제, 어떤 시나리오로 할지
+- S-11의 몰림 부하 크기와 카운터 분할 수: `add-idempotent-like`
+- 가상 스레드 비교의 구성(풀 크기를 Semaphore 상한으로 어떻게 옮길지): `add-call-isolation`
