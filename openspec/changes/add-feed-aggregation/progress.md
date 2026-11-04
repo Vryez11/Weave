@@ -28,3 +28,11 @@
 - 확인: `:post-service:integrationTest`에서 새 테스트 7개가 상태 검사(404)에서 실패, `:post-service:test`와 `ktlintCheck compileKotlin compileTestKotlin` 통과.
 - 다음 반복이 알아 둘 것: 2.1 구현은 응답을 `{"posts": [...]}`로, `createdAt`을 `Instant.toString()`과 같은 문자열(예: `2026-01-01T03:20:00Z`)로 내보내야 통과한다. 응답 객체에 필드를 더 넣으면 키 집합 검사가 깨진다.
 ---
+
+## 2026-11-04 18:40 - 1.3 user-profile 시나리오 테스트
+- `UserProfileScenarioTest`(`@SpringBootTest` + MockMvc, `@Tags("Integration")`)에 스펙 시나리오 5개를 옮겼다. "ID가 없거나 너무 많다"는 ids 없음과 101개 두 테스트로 나눴다.
+- 스펙이 순서를 정하지 않아 여러 명이 오는 경우는 `shouldContainExactlyInAnyOrder`로 비교한다. 키 집합이 정확히 `id`, `nickname`, `profileImageUrl`인지도 본다.
+- 바꾼 파일: `user-service/src/test/kotlin/com/weave/user/UserProfileScenarioTest.kt`
+- 확인: `:user-service:integrationTest`에서 새 테스트 6개가 상태 검사(404)에서 실패, `:user-service:test`와 `ktlintCheck compileKotlin compileTestKotlin` 통과.
+- 다음 반복이 알아 둘 것: 2.2 구현은 `{"users": [...]}`로 내보내야 한다. ID 101개 요청은 1~101이라 범위 밖 ID가 섞여 있어도 개수 검사로 400이어야 한다.
+---
