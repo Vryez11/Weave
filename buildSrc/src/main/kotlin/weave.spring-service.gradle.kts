@@ -6,6 +6,7 @@ plugins {
 }
 
 dependencies {
+    implementation(project(":libs:observability"))
     implementation("org.springframework.boot:spring-boot-starter-webmvc")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("tools.jackson.module:jackson-module-kotlin")
