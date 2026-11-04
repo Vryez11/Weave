@@ -23,7 +23,7 @@
   - "연결할 수 없다" 시나리오는 recommendation 주소만 닫힌 포트로 준다.
   - 시간 기준은 스펙의 숫자를 그대로 쓴다.
   - 확인: `./gradlew :feed-service:integrationTest`가 새 테스트에서 실패하고, `./gradlew :feed-service:test`는 통과한다.
-- [ ] 1.7 "종단 간 동작" 시나리오를 `e2e` 테스트로 옮긴다.
+- [x] 1.7 "종단 간 동작" 시나리오를 `e2e` 테스트로 옮긴다.
   - Testcontainers MySQL을 띄우고, 빈 포트로 서비스 6개를 `java -jar`로 띄운다.
   - `/actuator/health` UP을 서비스마다 60초까지 기다린다.
   - 로그는 `e2e/build/e2e-logs/`에 남기고, 끝나면 프로세스를 모두 내린다(결정 10).
