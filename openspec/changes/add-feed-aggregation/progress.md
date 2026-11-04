@@ -257,3 +257,10 @@
 - 확인: `:feed-service:ktlintCheck :feed-service:test :feed-service:integrationTest --rerun-tasks` 통과(실패 0), `openspec validate` 통과. 커밋 fd1e9cc(`test(feed)`), 3f49f05(`docs(architecture)`).
 - 다음 반복이 알아 둘 것: 6.5는 `./gradlew ktlintCheck build --rerun-tasks`(캐시로 UP-TO-DATE면 의미 없음)와 `openspec validate --all --strict --no-interactive`만 돌린다. 끝나면 7번 묶음만 남아 COMPLETE를 낸다.
 ---
+
+## 2026-11-04 20:00 - 6.5 전체 검사를 다시 돌린다
+- `./gradlew ktlintCheck build --rerun-tasks` 통과(121 태스크 실행, 모든 모듈 단위·통합 테스트와 e2e 포함, 실패 0). `integrationTest` 결과의 skipped는 태그 필터로 빠진 단위 테스트(`FeedAssemblerTest`, `HttpClientRetryDefaultsTest`)다.
+- `openspec validate --all --strict --no-interactive` 통과(1개 통과, 실패 0).
+- 바꾼 파일: `tasks.md`, `progress.md`(코드 변경 없음)
+- 다음 반복이 알아 둘 것: 7번 묶음(검토, change 완료 조건)만 남았다. Ralph 루프는 하지 않고 사람에게 넘긴다.
+---

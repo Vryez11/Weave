@@ -106,7 +106,7 @@
   - HttpClient 5의 기본 재시도(횟수, 간격, 대상 상태 코드)와, 6.2에서 껐다는 것
   - `applicationTaskExecutor`의 코어 스레드 시간 초과 허용 여부와 keep-alive 시간. 실제 Bean에서 꺼내 확인한다.
   - 확인: 4-2에 값과 확인 방법이 있고, 코어 스레드 시간 초과 값을 보는 검사가 4.3의 통합 테스트 옆에 있다.
-- [ ] 6.5 전체 검사를 다시 돌린다. 확인: `./gradlew ktlintCheck build`와 `openspec validate --all --strict --no-interactive`가 통과한다.
+- [x] 6.5 전체 검사를 다시 돌린다. 확인: `./gradlew ktlintCheck build`와 `openspec validate --all --strict --no-interactive`가 통과한다.
 
 ## 7. 검토와 change 완료 조건
 
