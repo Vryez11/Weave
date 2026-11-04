@@ -231,11 +231,11 @@ S-10은 부하 실험이 아니라 동시성 통합 테스트와 실험 스크�
 | 항목 | 요구사항 |
 |---|---|
 | 성능 | 2장의 SLO를 따른다 |
-| 관찰 | 서비스마다 메트릭(Prometheus)을 내보내고, 피드 SLO, 의존성별 degrade 비율, 서킷 상태, 벌크헤드 사용량을 Grafana 대시보드로 본다 |
+| 관찰 | 서비스마다 메트릭(Prometheus)과 트레이스(Tempo)를 내보내고, 피드 SLO, 의존성별 degrade 비율, 서킷 상태, 벌크헤드 사용량을 Grafana 대시보드로 본다 |
 | 설정 | 장애 대응 설정값은 코드가 아니라 설정 파일에 두고, 재배포 없이 실험마다 바꿀 수 있다 |
 | 보안 | 비밀 값(DB 계정 등)은 `.env`로 두고 커밋하지 않는다. 이름과 설명만 `.env.example`에 적는다 |
 | 테스트 | 시나리오(WHEN/THEN)마다 자동 테스트를 둔다. 단위 테스트와 통합 테스트(WireMock, Testcontainers)를 나눈다 ([하네스 규칙](../conventions/harness.md) 2-3) |
-| 환경 | 로컬 Docker Compose(MySQL, Redis, Toxiproxy, Loki·Prometheus·Grafana)와 JDK 25. 서비스마다 인스턴스 하나 |
+| 환경 | 로컬 Docker Compose(서비스 6개, MySQL, Redis, Toxiproxy, Alloy·Loki·Tempo·Prometheus·Grafana)와 JDK 25. 서비스마다 인스턴스 하나 ([아키텍처](architecture.md) 9장) |
 
 ## 8. 제외 범위
 
@@ -285,11 +285,10 @@ API와 데이터 구조는 각 change의 설계에서 정한다.
 | 평시 degrade 비율 | 1% 미만 | 장애가 없는데 부분 응답이 나오면 설정 오류다 |
 | 단계 | MVP는 보호 장치 없는 피드 집계, 고도화 1~6은 목표 4가지와 그 검증 기반 (1장) | "문제 → 측정 → 해결 → 재측정"으로, 고친 것마다 효과를 기준선과 비교해 보여 줄 수 있다 |
 | 기능 ID | F-001 ~ F-007 (5장) | 목표 4가지에 재시도·외부 API 정책, MVP 피드 집계, 실험 기반을 더했다 |
+| 기술 스택 | [아키텍처 문서](architecture.md) 1장 | Resilience4j 어노테이션, 플랫폼 스레드 + CompletableFuture, RestClient + HttpClient 5, JPA, logstash-logback-encoder, OTel + Tempo, Kotest |
 
 **남은 것** (아키텍처 문서나 change 설계에서 정한다)
 
-- 기술 스택: HTTP 클라이언트, Resilience4j 연동 방식, 트레이싱·로그 라이브러리, DB 접근 방식, 테스트·실험 도구와 버전
-- 스레드 모델: 플랫폼 스레드와 가상 스레드 중 무엇을 쓸지, 기준선을 둘 다 잴지
 - 실험 부하(RPS)와 시나리오당 실행 시간
 - 타임아웃, 서킷 문턱, 열림 유지 시간, 벌크헤드 크기: 기준선 측정 뒤 근거와 함께
 - user 로컬 캐시 TTL, post 캐시 키 구조
