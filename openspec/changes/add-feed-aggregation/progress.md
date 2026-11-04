@@ -248,3 +248,12 @@
 - 확인: `:like-service:ktlintCheck :like-service:test :like-service:integrationTest --rerun-tasks` 통과(실패 0, 영속 시나리오와 `TestLikeServiceApplicationTest` 포함). 전체 `ktlintCheck compileKotlin compileTestKotlin test`, `openspec validate` 통과.
 - 다음 반복이 알아 둘 것: 6.4는 architecture 4-2 기록과, 코어 스레드 시간 초과 값을 보는 새 테스트 파일(`TaskExecutorCapacityTest`는 고칠 수 없으니 옆에 새 파일)이다.
 ---
+
+## 2026-11-04 19:50 - 6.4 architecture 4-2 기본값 기록을 채운다
+- 새 통합 테스트 `TaskExecutorKeepAliveTest`(4.3 테스트 옆): `applicationTaskExecutor`의 `keepAliveSeconds` 60, `allowsCoreThreadTimeOut()` true, 실제 풀 keep-alive 60초.
+- 새 단위 테스트 `client/HttpClientRetryDefaultsTest`: `DefaultHttpRequestRetryStrategy.INSTANCE`의 공개 메서드로 400~599 중 재시도 대상이 429·503뿐, 두 번째 실행부터 false(1회), `Retry-After` 없을 때 간격 1초. 리플렉션 없이 `retryRequest`·`getRetryInterval`만 쓴다.
+- architecture 4-2 표에 "코어 스레드 시간 초과 허용, keep-alive"와 "자동 재시도" 줄, 설명 두 줄, 확인 방법을 더했다.
+- 바꾼 파일: `feed-service/src/test/kotlin/com/weave/feed/{TaskExecutorKeepAliveTest,client/HttpClientRetryDefaultsTest}.kt`, `docs/architecture.md`, `tasks.md`
+- 확인: `:feed-service:ktlintCheck :feed-service:test :feed-service:integrationTest --rerun-tasks` 통과(실패 0), `openspec validate` 통과. 커밋 fd1e9cc(`test(feed)`), 3f49f05(`docs(architecture)`).
+- 다음 반복이 알아 둘 것: 6.5는 `./gradlew ktlintCheck build --rerun-tasks`(캐시로 UP-TO-DATE면 의미 없음)와 `openspec validate --all --strict --no-interactive`만 돌린다. 끝나면 7번 묶음만 남아 COMPLETE를 낸다.
+---
