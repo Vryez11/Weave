@@ -4,7 +4,7 @@
 
 시나리오 테스트는 HTTP 수준의 블랙박스 테스트로 쓰고 `@Tags("Integration")`을 붙인다(design 결정 9). 구현이 없으니 `integrationTest`에서는 실패하고, `test`(Stop 훅)는 통과해야 한다. 테스트 이름에 `F-006`을 넣는다.
 
-- [ ] 1.1 테스트를 쓰기 위한 준비를 한다.
+- [x] 1.1 테스트를 쓰기 위한 준비를 한다.
   - `buildSrc`와 각 모듈에 design 결정 7의 의존성을 더한다.
   - like-service에 `kotlin("plugin.jpa")`와 `allOpen` 설정을 더한다.
   - `weave.spring-service`가 bootJar를 `bootJarElements` 구성으로 내놓게 한다.

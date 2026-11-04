@@ -15,3 +15,14 @@ dependencies {
     testImplementation("io.kotest:kotest-extensions-spring:6.2.6")
     testImplementation("com.ninja-squad:springmockk:5.0.1")
 }
+
+// 실행 jar(bootJar)를 다른 모듈이 받아 쓸 수 있게 내놓는다. e2e 모듈이 서비스를 프로세스로 띄울 때 쓴다.
+val bootJarElements =
+    configurations.create("bootJarElements") {
+        isCanBeConsumed = true
+        isCanBeResolved = false
+    }
+
+artifacts {
+    add(bootJarElements.name, tasks.named("bootJar"))
+}
