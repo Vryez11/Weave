@@ -1,0 +1,42 @@
+schema: spec-driven
+
+# Project context (optional)
+# Add only constraints that should guide OpenSpec artifacts and workflows.
+# Include constraints an agent cannot infer by reading the code.
+# Keep general project documentation and discoverable codebase facts out.
+context: |
+  모든 문서는 한국어로 쓴다.
+  장애 대응 설정값(타임아웃, 서킷 문턱, 벌크헤드 크기, 재시도 횟수)은 측정값이나 계산 근거 없이 정하지 않는다.
+  하위 서비스끼리 코드를 공유하지 않는다. 서비스 사이 계약은 HTTP 응답 형식뿐이다.
+
+# PRD와 OpenSpec을 기능 ID로 잇는 규칙(conventions/spec.md)과
+# 테스트 먼저, 검사 통과 후 완료하는 하네스 규칙(conventions/harness.md)
+rules:
+  proposal:
+    - '이 change가 맡는 PRD 기능 ID(예: F-001)와 단계(MVP, 고도화 1~6)를 맨 앞에 적는다. 기능 ID는 docs/prd.md를 따른다'
+    - 'PRD에 없는 기능이면 change를 만들기 전에 PRD부터 고쳐야 한다고 알린다'
+  specs:
+    - '요구사항 제목 끝에 관련 기능 ID를 괄호로 붙인다. 예) "### Requirement: 선택 등급 실패 시 부분 응답 (F-002)"'
+    - '목표, SLO, 우선순위는 쓰지 않고 PRD를 가리킨다'
+  design:
+    - 'docs/architecture.md에서 이 change가 가져가는 장(12장 표)을 따르고, 다르게 정하면 이유를 적는다'
+    - '테스트를 어디에 어떤 방식(단위, Integration 태그, 속성 기반)으로 둘지 적는다'
+    - '장애 대응 동작이나 설정값을 바꾸면 영향을 받는 장애 시나리오(S-01~S-10)와 실험 세트로 확인할 방법을 적는다'
+  tasks:
+    - '첫 작업 묶음은 specs의 시나리오(WHEN/THEN)를 실패하는 테스트로 옮기는 일이다. 테스트 이름에 기능 ID를 넣는다'
+    - '작업마다 완료를 확인하는 방법(테스트 이름이나 명령)을 적는다'
+    - '작업 하나는 새 세션 한 번에 끝낼 크기로 나눈다. Ralph 루프가 반복마다 작업 하나씩 처리한다'
+    - '설정값을 바꾸는 작업은 다른 작업과 묶지 않는다(conventions/commit.md 커밋 단위)'
+    - '마지막 작업 묶음은 conventions/harness.md의 검토와 change 완료 조건 확인이다'
+
+# Per-operation guidance (optional)
+# Add advisory guidance for how apply and archive work should be conducted.
+# This is separate from artifact rules above.
+operations:
+  apply:
+    guidance:
+      - 'conventions/harness.md의 흐름을 따른다. 테스트를 먼저 만들고, 자동 검사가 모두 통과해야 작업을 끝낸다'
+      - '진행 메모는 change 폴더의 progress.md에 덧붙인다. 바깥 루프는 scripts/ralph/ralph.sh로 돌린다'
+  archive:
+    guidance:
+      - 'conventions/harness.md의 change 완료 조건을 모두 확인한 뒤 archive한다'
