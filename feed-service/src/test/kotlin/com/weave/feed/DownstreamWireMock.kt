@@ -11,7 +11,6 @@ import com.github.tomakehurst.wiremock.verification.LoggedRequest
 import org.springframework.test.context.DynamicPropertyRegistry
 import tools.jackson.module.kotlin.jacksonObjectMapper
 import tools.jackson.module.kotlin.readValue
-import java.net.ServerSocket
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -40,12 +39,17 @@ object DownstreamWireMock {
 
     private val mapper = jacksonObjectMapper()
 
-    /** 하위 서비스 다섯의 주소를 WireMock으로 준다. [closed]에 든 의존성은 아무것도 떠 있지 않은 포트를 가리킨다. */
+    /**
+     * 하위 서비스 다섯의 주소를 WireMock으로 준다. [closed]에 든 의존성은 아무것도 떠 있지 않은 포트를 가리킨다.
+     *
+     * 닫힌 포트는 1번을 쓴다. 특권 포트라 테스트 중에 다른 프로세스가 잡지 않아 연결이 늘 거부된다.
+     * 빈 포트를 받아 닫은 뒤 쓰면 그사이 다른 서버(RANDOM_PORT의 Tomcat 등)가 그 포트를 잡을 수 있다.
+     */
     fun registerBaseUrls(
         registry: DynamicPropertyRegistry,
         closed: Set<String> = emptySet(),
     ) {
-        val closedUrl = "http://localhost:${closedPort()}"
+        val closedUrl = "http://localhost:$CLOSED_PORT"
         dependencies.forEach { dependency ->
             registry.add("spring.http.serviceclient.$dependency.base-url") {
                 if (dependency in closed) closedUrl else server.baseUrl()
@@ -126,12 +130,18 @@ object DownstreamWireMock {
 
     fun stubAds(delayMs: Int = 0) = stubGet("ad", mapOf("ads" to ads), delayMs)
 
-    /** 의존성 하나의 조회를 [status]로 실패시킨다. 앞서 둔 정상 스텁보다 나중에 둔 스텁이 이긴다. */
+    /**
+     * 의존성 하나의 조회를 [status]로 실패시킨다. 앞서 둔 정상 스텁보다 나중에 둔 스텁이 이긴다.
+     * [retryAfterSeconds]가 있으면 `Retry-After` 헤더를 붙인다(429 흉내).
+     */
     fun stubFailure(
         dependency: String,
         status: Int,
+        retryAfterSeconds: Int? = null,
     ) {
-        server.stubFor(get(urlPathEqualTo(paths.getValue(dependency))).willReturn(aResponse().withStatus(status)))
+        val response = aResponse().withStatus(status)
+        retryAfterSeconds?.let { response.withHeader("Retry-After", it.toString()) }
+        server.stubFor(get(urlPathEqualTo(paths.getValue(dependency))).willReturn(response))
     }
 
     fun stubToggle(
@@ -144,6 +154,13 @@ object DownstreamWireMock {
                 json(mapOf("postId" to postId, "liked" to liked, "likeCount" to likeCount)),
             ),
         )
+    }
+
+    fun stubToggleFailure(
+        postId: Long,
+        status: Int,
+    ) {
+        server.stubFor(post(urlPathEqualTo("/likes/$postId/toggle")).willReturn(aResponse().withStatus(status)))
     }
 
     /** 경로 하나에 온 요청 기록. 쿼리 파라미터는 비교하지 않는다. */
@@ -173,15 +190,13 @@ object DownstreamWireMock {
             .withHeader("Content-Type", "application/json")
             .withBody(mapper.writeValueAsString(body))
 
-    private fun closedPort(): Int = ServerSocket(0).use { it.localPort }
+    private const val CLOSED_PORT = 1
 }
 
-/** RANDOM_PORT로 뜬 feed-service를 실제 HTTP로 부른다. */
+/** RANDOM_PORT로 뜬 feed-service를 실제 HTTP로 부른다. 테스트마다 새로 만들어도 JDK HttpClient는 하나를 같이 쓴다. */
 class FeedHttpClient(
     private val port: Int,
 ) {
-    private val client = HttpClient.newHttpClient()
-
     data class Response(
         val status: Int,
         val body: String,
@@ -192,6 +207,7 @@ class FeedHttpClient(
 
     private companion object {
         val responseMapper = jacksonObjectMapper()
+        val client: HttpClient = HttpClient.newHttpClient()
     }
 
     fun getFeed(

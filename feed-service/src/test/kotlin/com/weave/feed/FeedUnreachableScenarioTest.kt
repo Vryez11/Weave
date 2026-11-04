@@ -4,6 +4,7 @@ import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.extensions.spring.SpringExtension
 import io.kotest.extensions.spring.testContextManager
+import io.kotest.matchers.collections.shouldBeEmpty
 import io.kotest.matchers.shouldBe
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.test.context.DynamicPropertyRegistry
@@ -12,7 +13,7 @@ import org.springframework.test.context.DynamicPropertySource
 /**
  * `feed-aggregation` 스펙의 "하위 서비스 하나에 연결할 수 없다" 시나리오 (F-006).
  *
- * recommendation 주소만 아무것도 떠 있지 않은 포트로 주고, 나머지는 WireMock이 정상으로 응답한다.
+ * recommendation 주소만 아무것도 떠 있지 않은 포트(1번)로 주고, 나머지는 WireMock이 정상으로 응답한다.
  */
 @Tags("Integration")
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
@@ -38,6 +39,8 @@ class FeedUnreachableScenarioTest :
             val response = FeedHttpClient(port).getFeed()
 
             response.status shouldBe 500
+            // 실패 원인이 WireMock의 응답이 아니라 연결 거부임을 확인한다
+            wireMock.requestsTo("/recommendations").shouldBeEmpty()
         }
     }) {
     companion object {

@@ -199,14 +199,25 @@ class FeedAggregationScenarioTest :
 
         context("보호 장치 없는 실패 전파") {
             DownstreamWireMock.dependencies.forEach { dependency ->
-                test("F-006 하위 서비스 하나가 5xx: $dependency 가 503을 주면 피드는 500이다") {
+                test("F-006 하위 서비스 하나가 5xx: $dependency 가 503을 주면 피드는 500이고 $dependency 에는 한 번만 요청한다") {
                     stubAllHealthy()
                     wireMock.stubFailure(dependency, 503)
 
                     val response = feed().getFeed()
 
                     response.status shouldBe 500
+                    wireMock.requestsTo(wireMock.paths.getValue(dependency)) shouldHaveSize 1
                 }
+            }
+
+            test("F-006 하위 서비스가 속도 조절 응답을 준다: ad가 429와 Retry-After 1을 주면 피드는 500이고 ad에는 한 번만 요청한다") {
+                stubAllHealthy()
+                wireMock.stubFailure("ad", 429, retryAfterSeconds = 1)
+
+                val response = feed().getFeed()
+
+                response.status shouldBe 500
+                wireMock.requestsTo("/ads") shouldHaveSize 1
             }
 
             test("F-006 하위 서비스 하나가 느리다: recommendation이 2초 늦으면 2초 넘게 기다린 뒤 추천까지 채워진 200이 온다") {
@@ -242,6 +253,26 @@ class FeedAggregationScenarioTest :
 
                 response.status shouldBe 400
                 wireMock.allRequests().shouldBeEmpty()
+            }
+
+            listOf("0", "abc").forEach { userId ->
+                test("F-006 사용자 헤더 값이 잘못됐다: X-User-Id $userId 로 토글하면 400이 오고 like-service는 부르지 않는다") {
+                    wireMock.stubToggle(postId = 5, liked = true, likeCount = 3)
+
+                    val response = feed().toggleLike("5", userId = userId)
+
+                    response.status shouldBe 400
+                    wireMock.allRequests().shouldBeEmpty()
+                }
+            }
+
+            test("F-006 like-service가 토글에 실패한다: 503이면 500이 오고 like-service에는 토글을 한 번만 요청한다") {
+                wireMock.stubToggleFailure(postId = 5, status = 503)
+
+                val response = feed().toggleLike("5", userId = "1")
+
+                response.status shouldBe 500
+                wireMock.requestsTo("/likes/5/toggle") shouldHaveSize 1
             }
 
             listOf("0", "abc").forEach { postId ->
