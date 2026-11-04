@@ -1,6 +1,18 @@
 spring:
   application:
     name: feed-service
+  http:
+    serviceclient:
+      post:
+        base-url: ${POST_BASE_URL:http://localhost:8081}
+      user:
+        base-url: ${USER_BASE_URL:http://localhost:8082}
+      like:
+        base-url: ${LIKE_BASE_URL:http://localhost:8083}
+      recommendation:
+        base-url: ${RECOMMENDATION_BASE_URL:http://localhost:8084}
+      ad:
+        base-url: ${AD_BASE_URL:http://localhost:8085}
 
 server:
   port: 8080

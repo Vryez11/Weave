@@ -49,7 +49,7 @@
 
 ## 3. feed-service
 
-- [ ] 3.1 하위 서비스 HTTP 클라이언트를 만든다.
+- [x] 3.1 하위 서비스 HTTP 클라이언트를 만든다.
   - 의존성마다 `@HttpExchange` 인터페이스와 응답 DTO(`com.weave.feed.client.<의존성>`)를 만든다.
   - `@ImportHttpServices` 그룹 `post`, `user`, `like`, `recommendation`, `ad`를 만들고, `application.yml`에 결정 11의 주소를 둔다.
   - `ClientHttpRequestFactoryBuilder` Bean이 `weave.http-client.max-connections-per-route` 속성이 있을 때만 커넥션 풀 크기를 바꾸게 한다. 값은 아직 넣지 않는다.
