@@ -79,3 +79,11 @@
 - 확인: `:e2e:integrationTest`에서 서비스 6개가 모두 UP(like-service는 Flyway까지 MySQL 연결)된 뒤 피드 테스트가 404로 실패, 정리 테스트는 통과. `ktlintCheck compileKotlin compileTestKotlin :e2e:test`, `openspec validate` 통과. 1.1의 시스템 속성 전달도 실제로 동작했다.
 - 다음 반복이 알아 둘 것: 지금 like-service는 마이그레이션이 없어 Flyway가 "No migrations found"로 넘어간다. 2.4에서 `ddl-auto: validate`를 넣으면 마이그레이션이 같이 있어야 뜬다. 5.1에서 e2e가 실패하면 먼저 `e2e/build/e2e-logs/`를 본다.
 ---
+
+## 2026-11-04 20:00 - 2.1 post-service 고정 데이터와 GET /posts
+- `PostCatalog`(`@Component`)가 결정 1의 식으로 게시글 200개를 만들어 `createdAt` 내림차순, 같으면 `id` 내림차순으로 들고 있다. `PostController`가 `size`(기본 20, 1~50 밖이면 `ResponseStatusException(BAD_REQUEST)`)로 앞에서 잘라 `{"posts": [...]}`로 준다. `abc`는 Spring MVC 타입 변환이 400으로 처리한다.
+- 단위 테스트 `PostCatalogTest`(태그 없음): 식, 정렬과 자르기, 작성자 범위, 다시 만들어도 같음.
+- 바꾼 파일: `post-service/src/main/kotlin/com/weave/post/{Post,PostCatalog,PostController}.kt`, `post-service/src/test/kotlin/com/weave/post/PostCatalogTest.kt`
+- 확인: `:post-service:ktlintCheck :post-service:test :post-service:integrationTest` 통과(시나리오 7개, 단위 4개, 컨텍스트 1개).
+- 다음 반복이 알아 둘 것: `Instant`는 Jackson 3 기본 설정으로 `2026-01-01T03:20:00Z` 문자열로 나간다(별도 설정 없음). id를 `Long`으로 두어도 JSON 숫자라 시나리오 테스트(Int로 읽음)와 맞는다. 2.2~2.3도 같은 모양(데이터 `@Component` + 컨트롤러 범위 검사)으로 하면 된다.
+---

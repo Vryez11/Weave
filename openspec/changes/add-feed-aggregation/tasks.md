@@ -32,7 +32,7 @@
 
 ## 2. 하위 서비스
 
-- [ ] 2.1 post-service의 고정 데이터와 `GET /posts`를 구현한다. 데이터 생성과 정렬에 단위 테스트를 둔다. 확인: `./gradlew :post-service:test :post-service:integrationTest`가 통과한다.
+- [x] 2.1 post-service의 고정 데이터와 `GET /posts`를 구현한다. 데이터 생성과 정렬에 단위 테스트를 둔다. 확인: `./gradlew :post-service:test :post-service:integrationTest`가 통과한다.
 - [ ] 2.2 user-service의 고정 데이터와 `GET /users`를 구현한다. 없는 ID와 중복 ID 처리에 단위 테스트를 둔다. 확인: `./gradlew :user-service:test :user-service:integrationTest`가 통과한다.
 - [ ] 2.3 recommendation-service의 `GET /recommendations`와 ad-service의 `GET /ads`를 고정 데이터로 구현한다. 확인: `./gradlew :recommendation-service:test :recommendation-service:integrationTest :ad-service:test :ad-service:integrationTest`가 통과한다.
 - [ ] 2.4 like-service의 저장과 토글을 구현한다.
