@@ -203,3 +203,10 @@
 - 확인: `ktlintCheck compileKotlin compileTestKotlin :feed-service:test :feed-service:integrationTest --rerun-tasks` 통과(통합 26개), `openspec validate` 통과. 커밋 d537735(`perf(feed)`, 설정값만).
 - 다음 반복이 알아 둘 것: 5.1은 `./gradlew :e2e:integrationTest`를 돌려 1.1의 Gradle 연결과 `ServiceProcesses` 실행 인자를 고친다. 1.7 테스트 파일은 고칠 수 없다. 실패 원인은 `e2e/build/e2e-logs/<서비스>.log`부터 본다.
 ---
+
+## 2026-11-04 18:25 - 5.1 종단 간 테스트 통과
+- `./gradlew :e2e:integrationTest --rerun-tasks`를 돌렸더니 고칠 곳 없이 통과했다(`FeedEndToEndScenarioTest` 2개: 피드 → 토글 → 다시 피드, 프로세스 6개 정리). 1.1의 Gradle 연결과 `ServiceProcesses` 실행 인자 모두 그대로 동작한다.
+- 바꾼 파일: `tasks.md`, `progress.md`(코드 변경 없음)
+- 확인: 결과 XML에서 테스트 2개, 실패·건너뜀 0. `ktlintCheck compileKotlin compileTestKotlin test`, `openspec validate` 통과.
+- 다음 반복이 알아 둘 것: 5.2는 문서 작업이다. 확인으로 `./gradlew :e2e:integrationTest`를 다시 돌린다(14초 정도 걸린다).
+---

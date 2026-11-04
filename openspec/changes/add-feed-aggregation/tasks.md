@@ -82,7 +82,7 @@
 
 ## 5. 종단 간 확인과 문서
 
-- [ ] 5.1 종단 간 테스트를 통과시킨다. 1.1의 Gradle 연결이나 서비스 실행 인자에서 고칠 곳이 나오면 여기서 고친다. 이미 커밋된 1.7의 테스트는 고치지 않는다. 확인: `./gradlew :e2e:integrationTest`가 프로세스 정리 검사까지 모두 통과한다.
+- [x] 5.1 종단 간 테스트를 통과시킨다. 1.1의 Gradle 연결이나 서비스 실행 인자에서 고칠 곳이 나오면 여기서 고친다. 이미 커밋된 1.7의 테스트는 고치지 않는다. 확인: `./gradlew :e2e:integrationTest`가 프로세스 정리 검사까지 모두 통과한다.
 - [ ] 5.2 명령과 모듈을 문서에 더한다.
   - `CLAUDE.md`의 명령 표와 하네스 규칙 5장에 `./gradlew :like-service:bootTestRun`, `./gradlew :e2e:integrationTest`를 더한다.
   - `CLAUDE.md` 구조 표와 README 모듈 표에 `e2e`를 더한다.
