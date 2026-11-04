@@ -13,7 +13,7 @@
 | `chore/<짧은-설명>` | 기능이 아닌 개발 환경·설정 작업 (하네스, CI, 빌드 설정, 로컬 인프라 등) | `develop` | `develop` |
 | `hotfix/<짧은-설명>` | `main`의 급한 수정 | `main` | `main`과 `develop` 둘 다 |
 
-`<change-id>`는 OpenSpec change 이름을 그대로 쓴다. 예) `change/add-circuit-breaker`
+`<change-id>`는 OpenSpec change 이름을 그대로 쓴다. 예) `change/add-call-isolation`
 `<짧은-설명>`은 영어 소문자와 하이픈으로 쓴다. 예) `fix/missing-trace-id`
 
 ## 흐름
@@ -24,12 +24,12 @@ gitGraph
     branch develop
     checkout develop
     commit id: "문서 수정"
-    branch change-add-circuit-breaker
-    checkout change-add-circuit-breaker
+    branch change-add-call-isolation
+    checkout change-add-call-isolation
     commit id: "test F-001"
     commit id: "feat F-001"
     checkout develop
-    merge change-add-circuit-breaker
+    merge change-add-call-isolation
     checkout main
     merge develop tag: "v0.1.0"
     branch hotfix-retry-storm
@@ -41,7 +41,7 @@ gitGraph
     merge hotfix-retry-storm
 ```
 
-그림에서는 Mermaid 문법 때문에 `/` 대신 `-`로 적었다. 실제 이름은 `change/add-circuit-breaker`, `hotfix/retry-storm`이다.
+그림에서는 Mermaid 문법 때문에 `/` 대신 `-`로 적었다. 실제 이름은 `change/add-call-isolation`, `hotfix/retry-storm`이다.
 
 ## 규칙
 
