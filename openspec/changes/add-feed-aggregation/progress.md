@@ -162,3 +162,10 @@
 - 확인: `:feed-service:ktlintCheck :feed-service:test -Pkotest.filter.tests='*F-006*'` 통과(5개). `:feed-service:integrationTest`에서 컨텍스트·HttpClient 테스트 3개는 통과(Gateway Bean 주입 확인), 시나리오 21개는 컨트롤러가 없어 아직 실패.
 - 다음 반복이 알아 둘 것: 3.3 컨트롤러는 `FeedAssembler.assemble`을 부르기만 하면 된다. `author: null` 키가 응답에 남는지(Jackson 기본은 null 포함), `createdAt`이 `2026-01-01T00:12:00Z` 꼴로 나가는지 시나리오 테스트로 확인한다. 검증 실패는 하위 서비스를 부르기 전에 400으로 끝내야 한다.
 ---
+
+## 2026-11-04 18:20 - 3.3 GET /feed 컨트롤러와 요청 검증
+- `FeedController`(`@RestController`)에 `GET /feed`를 두었다. `@RequestHeader("X-User-Id") userId: Long`, `@RequestParam(defaultValue = "20") size: Int`를 받아 양의 정수·1~50 밖이면 `ResponseStatusException(BAD_REQUEST)`, 통과하면 `FeedAssembler.assemble`. 헤더 없음과 타입 불일치는 Spring MVC가 400으로 처리한다. 하위 서비스 실패는 따로 잡지 않아 500이 된다(결정 5).
+- 바꾼 파일: `feed-service/src/main/kotlin/com/weave/feed/FeedController.kt`
+- 확인: `:feed-service:integrationTest --rerun-tasks`에서 `FeedAggregationScenarioTest` 20개 중 16개 통과(피드 응답 구성, 요청 검증, 호출 순서, 실패 전파 모두), `FeedUnreachableScenarioTest` 통과. 실패 4개는 모두 "좋아요 토글 전달"(3.4 범위). `author: null`과 `createdAt` 문자열은 별도 설정 없이 맞았다. 전체 `ktlintCheck compileKotlin compileTestKotlin`, `:feed-service:test`, `openspec validate` 통과.
+- 다음 반복이 알아 둘 것: 3.4는 같은 `FeedController`에 `POST /feed/likes/{postId}/toggle`을 더해 `LikeGateway.toggle`을 부르면 된다. `X-User-Id`·`postId` 양수 검사가 두 메서드에 생기므로 like-service 컨트롤러처럼 `requirePositive`로 묶는다. 토글 응답은 `ToggleResponse`를 그대로 내보내되 키가 `postId`, `liked`, `likeCount` 셋뿐인지 본다.
+---
