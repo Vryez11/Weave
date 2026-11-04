@@ -36,3 +36,11 @@
 - 확인: `:user-service:integrationTest`에서 새 테스트 6개가 상태 검사(404)에서 실패, `:user-service:test`와 `ktlintCheck compileKotlin compileTestKotlin` 통과.
 - 다음 반복이 알아 둘 것: 2.2 구현은 `{"users": [...]}`로 내보내야 한다. ID 101개 요청은 1~101이라 범위 밖 ID가 섞여 있어도 개수 검사로 400이어야 한다.
 ---
+
+## 2026-11-04 19:10 - 1.4 recommendation, ad-serving 시나리오 테스트
+- `RecommendationScenarioTest`(시나리오 4개, 범위 밖은 size 0·21로 나눔)와 `AdServingScenarioTest`(시나리오 3개, 범위 밖은 size 0·6)를 `@SpringBootTest` + MockMvc, `@Tags("Integration")`으로 썼다.
+- 기댓값은 결정 1의 식(파일 안 private 함수)으로 만들어 응답 전체를 비교하고, 키 집합도 정확히 본다. "사용자와 관계없다"는 `X-User-Id` 1, 2, 없음 세 응답을 비교한다.
+- 바꾼 파일: `recommendation-service/src/test/kotlin/com/weave/recommendation/RecommendationScenarioTest.kt`, `ad-service/src/test/kotlin/com/weave/ad/AdServingScenarioTest.kt`
+- 확인: 두 모듈 `integrationTest`에서 새 테스트 9개가 모두 상태 검사(404)에서 실패, 두 모듈 `test`와 `ktlintCheck compileKotlin compileTestKotlin`, `openspec validate` 통과.
+- 다음 반복이 알아 둘 것: 2.3 구현은 `{"recommendations": [...]}`(필드 `postId`, `title`, `reason`만), `{"ads": [...]}`(필드 `id`, `title`, `imageUrl`, `landingUrl`만)로 내보내야 한다. 기본 size는 각각 5, 2이고 앞에서부터 자른다.
+---
