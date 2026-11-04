@@ -6,7 +6,6 @@ import com.weave.feed.client.post.PostClient
 import com.weave.feed.client.recommendation.RecommendationClient
 import com.weave.feed.client.user.UserClient
 import org.springframework.beans.factory.annotation.Value
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
@@ -26,13 +25,18 @@ import org.springframework.web.service.registry.ImportHttpServices
 @ImportHttpServices(group = "recommendation", types = [RecommendationClient::class])
 @ImportHttpServices(group = "ad", types = [AdClient::class])
 class HttpClientConfig {
-    /** 속성이 있을 때만 그룹마다의 커넥션 풀 크기(라우트당 최대, 전체 최대)를 바꾼다. 없으면 Boot 기본 빌더를 쓴다. */
+    /**
+     * HttpClient 5의 자동 재시도는 늘 끈다(design 결정 3). 기본 전략은 429·503에 1초 뒤 한 번 더 보내고 토글 POST도 다시 보낸다.
+     * 그룹마다의 커넥션 풀 크기(라우트당 최대, 전체 최대)는 속성이 있을 때만 바꾸고, 없으면 HttpClient 기본값을 쓴다.
+     */
     @Bean
-    @ConditionalOnProperty("weave.http-client.max-connections-per-route")
     fun clientHttpRequestFactoryBuilder(
-        @Value("\${weave.http-client.max-connections-per-route}") maxConnectionsPerRoute: Int,
-    ): ClientHttpRequestFactoryBuilder<*> =
-        ClientHttpRequestFactoryBuilder.httpComponents().withConnectionManagerCustomizer {
+        @Value("\${weave.http-client.max-connections-per-route:#{null}}") maxConnectionsPerRoute: Int?,
+    ): ClientHttpRequestFactoryBuilder<*> {
+        val builder = ClientHttpRequestFactoryBuilder.httpComponents().withHttpClientCustomizer { it.disableAutomaticRetries() }
+        if (maxConnectionsPerRoute == null) return builder
+        return builder.withConnectionManagerCustomizer {
             it.setMaxConnPerRoute(maxConnectionsPerRoute).setMaxConnTotal(maxConnectionsPerRoute)
         }
+    }
 }

@@ -97,7 +97,7 @@
   - 스펙에 "실패한 의존성에는 한 번만 요청한다", "속도 조절 응답(429)", "사용자 헤더 값이 잘못됐다(토글)", "like-service가 토글에 실패한다"를 더했다.
   - feed-service 시나리오 테스트에 위 시나리오를 더했다. "연결할 수 없다"는 닫힌 포트 대신 포트 1을 쓰고 recommendation 요청이 가지 않았는지도 본다. HTTP 클라이언트는 하나를 같이 쓴다.
   - 확인: `./gradlew :feed-service:integrationTest`에서 "한 번만 요청한다"를 보는 테스트(5xx 다섯, 429, 토글 503)만 실패하고, 나머지는 통과한다.
-- [ ] 6.2 HttpClient 5의 자동 재시도를 끈다(design 결정 3).
+- [x] 6.2 HttpClient 5의 자동 재시도를 끈다(design 결정 3).
   - `ClientHttpRequestFactoryBuilder`에 `withHttpClientCustomizer { it.disableAutomaticRetries() }`를 더한다. 커넥션 풀 속성이 없어도 재시도는 꺼져 있어야 하므로, 재시도 끄기를 속성 조건에 묶지 않는다.
   - `fix(feed)`로 커밋하고, 본문에 기본 재시도(429·503에 1초 뒤 1회, 토글 POST 포함)를 적는다.
   - 확인: `./gradlew :feed-service:test :feed-service:integrationTest`가 모두 통과한다.
