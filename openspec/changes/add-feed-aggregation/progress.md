@@ -13,6 +13,7 @@
 - feed-service 시나리오 테스트의 하위 서비스 흉내는 `com.weave.feed.DownstreamWireMock`(JVM에 WireMock 하나, 테스트마다 `resetAll`)이고, feed 호출은 `FeedHttpClient`(실제 HTTP, 경과 시간 측정)다. 새 feed 통합 테스트도 이것을 쓴다.
 - e2e는 `ServiceProcesses`가 서비스를 띄운다. feed-service에는 `--spring.http.serviceclient.<그룹>.base-url`, like-service에는 `--spring.datasource.url/username/password`를 명령줄 인자로 넘긴다. 구현 쪽 `application.yml`의 `${LIKE_DB_URL}` 같은 값은 이 인자가 덮어쓴다. 속성 이름을 바꾸면 e2e가 깨진다.
 - 서비스 로그는 `e2e/build/e2e-logs/<서비스>.log`에 남는다(e2e/CLAUDE.md).
+- feed-service의 호출 경로는 `FeedAssembler`(`com.weave.feed`) → `com.weave.feed.gateway`의 `PostGateway` 등 → `client`. 피드 응답 DTO는 `com.weave.feed.FeedResponse.kt`(`FeedPost`, `FeedLike`, `MyLike` 등)에 있다. 토글은 `LikeGateway.toggle`(동기)이다.
 - feed-service의 하위 서비스 클라이언트는 `com.weave.feed.client.<의존성>.<의존성>Client`(PostClient 등) Bean이다. 그룹별 커넥션 풀은 테스트 소스의 `connectionManagersByDependency()`(`HttpClientGroupTest.kt`, 의존성 이름 → `PoolingHttpClientConnectionManager`)로 꺼낸다. 4.2의 "라우트당 20" 검사는 이것을 쓰는 새 테스트 파일로 더한다(3.1 테스트 파일은 고칠 수 없다).
 
 ---
@@ -150,4 +151,14 @@
 - 바꾼 파일: `feed-service/src/main/kotlin/com/weave/feed/client/**`, `feed-service/src/main/resources/application.yml`, `feed-service/src/test/kotlin/com/weave/feed/{HttpClientPools,HttpClientGroupTest}.kt`
 - 확인: 새 통합 테스트 2개, `ktlintCheck compileKotlin compileTestKotlin :feed-service:test`, `openspec validate` 통과.
 - 다음 반복이 알아 둘 것: 3.2 Gateway는 위 클라이언트 Bean을 주입받는다. 4.1에서 HttpClient 기본 풀 크기를 볼 때도 `connectionManagersByDependency()`를 쓸 수 있다(속성 없는 `HttpClientGroupTest` 컨텍스트가 기본값).
+---
+
+## 2026-11-04 18:10 - 3.2 Gateway 다섯 개와 FeedAssembler
+- `com.weave.feed.gateway.Gateways.kt`에 `PostGateway`, `UserGateway`, `LikeGateway`, `RecommendationGateway`, `AdGateway`(`@Component`)를 두었다. 조회 메서드는 `CompletableFuture.supplyAsync(호출, applicationTaskExecutor)`이고 목록만 꺼내 준다(`List<PostResponse>` 등). `LikeGateway.toggle`은 요청 스레드에서 바로 부른다.
+- `FeedAssembler.assemble(userId, size)`: post·recommendation·ad를 함께 시작하고, post의 `thenCompose`에서 user(작성자 ID `distinct`)와 like(게시글 ID, 사용자)를 함께 시작해 `thenCombine`으로 합친 뒤 모두 `join()`. 게시글이 없으면 user·like를 부르지 않는다. like-service가 주지 않은 게시글은 0/`NOT_LIKED`.
+- 피드 응답 DTO는 `FeedResponse.kt`에 클라이언트 DTO와 따로 두었다(`author`는 nullable, `myLike`는 enum `MyLike`).
+- 단위 테스트 `FeedAssemblerTest`(MockK, 태그 없음) 5개: 응답 구성, 작성자 없음 null, 좋아요 없음 기본값, 게시글 없음이면 user·like 안 부름, 작성자 ID 중복 제거와 like 인자.
+- 바꾼 파일: `feed-service/src/main/kotlin/com/weave/feed/{FeedAssembler,FeedResponse}.kt`, `feed-service/src/main/kotlin/com/weave/feed/gateway/Gateways.kt`, `feed-service/src/test/kotlin/com/weave/feed/FeedAssemblerTest.kt`
+- 확인: `:feed-service:ktlintCheck :feed-service:test -Pkotest.filter.tests='*F-006*'` 통과(5개). `:feed-service:integrationTest`에서 컨텍스트·HttpClient 테스트 3개는 통과(Gateway Bean 주입 확인), 시나리오 21개는 컨트롤러가 없어 아직 실패.
+- 다음 반복이 알아 둘 것: 3.3 컨트롤러는 `FeedAssembler.assemble`을 부르기만 하면 된다. `author: null` 키가 응답에 남는지(Jackson 기본은 null 포함), `createdAt`이 `2026-01-01T00:12:00Z` 꼴로 나가는지 시나리오 테스트로 확인한다. 검증 실패는 하위 서비스를 부르기 전에 400으로 끝내야 한다.
 ---
