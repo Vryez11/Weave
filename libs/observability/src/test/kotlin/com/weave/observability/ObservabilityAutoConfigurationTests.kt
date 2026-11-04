@@ -1,16 +1,16 @@
 package com.weave.observability
 
-import org.junit.jupiter.api.Test
+import io.kotest.core.spec.style.FunSpec
+import io.kotest.matchers.collections.shouldContain
 import org.springframework.boot.autoconfigure.AutoConfiguration
 import org.springframework.boot.context.annotation.ImportCandidates
-import kotlin.test.assertContains
 
-class ObservabilityAutoConfigurationTests {
+class ObservabilityAutoConfigurationTests :
+    FunSpec({
+        test("자동 설정 목록에 등록돼 있다") {
+            val classLoader = ObservabilityAutoConfiguration::class.java.classLoader
+            val candidates = ImportCandidates.load(AutoConfiguration::class.java, classLoader)
 
-    @Test
-    fun `자동 설정 목록에 등록돼 있다`() {
-        val candidates = ImportCandidates.load(AutoConfiguration::class.java, javaClass.classLoader)
-
-        assertContains(candidates.candidates, ObservabilityAutoConfiguration::class.java.name)
-    }
-}
+            candidates.candidates shouldContain ObservabilityAutoConfiguration::class.java.name
+        }
+    })
