@@ -87,3 +87,11 @@
 - 확인: `:post-service:ktlintCheck :post-service:test :post-service:integrationTest` 통과(시나리오 7개, 단위 4개, 컨텍스트 1개).
 - 다음 반복이 알아 둘 것: `Instant`는 Jackson 3 기본 설정으로 `2026-01-01T03:20:00Z` 문자열로 나간다(별도 설정 없음). id를 `Long`으로 두어도 JSON 숫자라 시나리오 테스트(Int로 읽음)와 맞는다. 2.2~2.3도 같은 모양(데이터 `@Component` + 컨트롤러 범위 검사)으로 하면 된다.
 ---
+
+## 2026-11-04 20:20 - 2.2 user-service 고정 데이터와 GET /users
+- `UserDirectory`(`@Component`)가 결정 1의 식으로 사용자 50명을 `Map`으로 들고, `findAll(ids)`가 `distinct()` 뒤 없는 ID를 빼고 요청 순서대로 준다. `UserController`는 `@RequestParam ids: List<Long>`(쉼표 구분을 Spring이 나눔)로 받아 개수가 1~100 밖이면 `ResponseStatusException(BAD_REQUEST)`. 개수는 중복을 빼기 전 값으로 센다. `ids` 없음은 Spring MVC가 400으로 처리한다.
+- 단위 테스트 `UserDirectoryTest`(태그 없음): 식, 없는 ID, 중복 ID, 범위, 다시 만들어도 같음.
+- 바꾼 파일: `user-service/src/main/kotlin/com/weave/user/{UserProfile,UserDirectory,UserController}.kt`, `user-service/src/test/kotlin/com/weave/user/UserDirectoryTest.kt`
+- 확인: `:user-service:ktlintCheck :user-service:test :user-service:integrationTest` 통과(시나리오 6개, 단위 5개, 컨텍스트 1개), `openspec validate` 통과.
+- 다음 반복이 알아 둘 것: like-service `GET /likes`의 `ids`도 같은 방식(`List<Long>` + 개수 검사)이면 `ids=3,4`와 `ids=3&ids=4`를 둘 다 받는다.
+---
