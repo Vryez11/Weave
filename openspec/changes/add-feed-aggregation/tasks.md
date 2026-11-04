@@ -18,7 +18,7 @@
   - Testcontainers MySQL(`mysql:9.7`, `@ServiceConnection`) 테스트 구성을 테스트 소스에 두고, 테스트마다 테이블을 비운다.
   - 영속 시나리오는 같은 컨테이너로 애플리케이션을 두 번 띄운다.
   - 확인: `./gradlew :like-service:integrationTest`가 새 테스트에서 실패하고, `./gradlew :like-service:test`는 통과한다.
-- [ ] 1.6 `feed-aggregation` 스펙에서 "종단 간 동작"을 뺀 시나리오를 feed-service 테스트로 옮긴다.
+- [x] 1.6 `feed-aggregation` 스펙에서 "종단 간 동작"을 뺀 시나리오를 feed-service 테스트로 옮긴다.
   - WireMock 하나로 하위 서비스 다섯을 흉내 내고, `spring.http.serviceclient.<의존성>.base-url`을 WireMock 주소로 준다.
   - "연결할 수 없다" 시나리오는 recommendation 주소만 닫힌 포트로 준다.
   - 시간 기준은 스펙의 숫자를 그대로 쓴다.

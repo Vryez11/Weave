@@ -9,6 +9,8 @@
 - Kotest 스펙 클래스의 생성자 주입은 안 된다(`SpecInstantiationException`). Bean은 테스트 안에서 `testContextManager().testContext.applicationContext.getBean(...)`으로 꺼낸다(`io.kotest.extensions.spring.testContextManager`, suspend 함수 안에서만).
 - Boot 4의 MockMvc 어노테이션은 `org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc`다. JSON은 `tools.jackson.module.kotlin.jacksonObjectMapper()`로 `Map`/`List`로 읽어 비교한다(숫자는 `Int`로 읽힌다).
 - Kotest `beforeEach` 안에서도 `testContextManager()`를 쓸 수 있다(like-service 테이블 비우기에서 확인).
+- Kotest 스펙에서 `@DynamicPropertySource`는 `companion object`의 `@JvmStatic` 함수로 둔다(feed-service에서 확인).
+- feed-service 시나리오 테스트의 하위 서비스 흉내는 `com.weave.feed.DownstreamWireMock`(JVM에 WireMock 하나, 테스트마다 `resetAll`)이고, feed 호출은 `FeedHttpClient`(실제 HTTP, 경과 시간 측정)다. 새 feed 통합 테스트도 이것을 쓴다.
 
 ---
 
@@ -53,4 +55,16 @@
 - 바꾼 파일: `like-service/src/test/kotlin/com/weave/like/PostLikeScenarioTest.kt`
 - 확인: `:like-service:integrationTest`에서 새 테스트 16개가 모두 상태 검사(404)에서 실패, `:like-service:test`와 `ktlintCheck compileKotlin compileTestKotlin`, `openspec validate` 통과.
 - 다음 반복이 알아 둘 것: 2.4·2.5 구현은 `GET /likes`를 `{"likes": [...]}`(항목 필드 `postId`, `likeCount`, `liked`만), 토글을 감싸지 않은 `{"postId", "liked", "likeCount"}`(이 세 키만)로 내보내야 한다. 비우기가 테이블 이름에 기대므로 Flyway 테이블 이름은 design 결정 6대로 `post_like`, `post_like_count`여야 한다.
+---
+
+## 2026-11-04 17:40 - 1.6 feed-aggregation 시나리오 테스트
+- `FeedAggregationScenarioTest`(`RANDOM_PORT` + WireMock, `@Tags("Integration")`)에 "종단 간 동작"과 "연결할 수 없다"를 뺀 시나리오를 21개 테스트로 옮겼다(5xx는 의존성 다섯 개로, 범위 밖 size는 0·51로 나눔). 요구사항의 "X-User-Id가 양의 정수"(피드 0), "postId가 양의 정수"(토글 0·abc)도 테스트로 더했다.
+- "연결할 수 없다"는 주소 설정이 달라 `FeedUnreachableScenarioTest`로 나눴다. recommendation만 닫힌 포트(`ServerSocket(0)`으로 받은 뒤 닫은 포트)를 가리킨다.
+- 400ms 병렬 시나리오는 측정 전에 지연 없는 피드 요청을 한 번 보내 첫 요청 비용을 뺀다. 기준(1,200ms 미만, 2초 이상)은 스펙 숫자 그대로다.
+- 바꾼 파일: `feed-service/src/test/kotlin/com/weave/feed/{DownstreamWireMock,FeedAggregationScenarioTest,FeedUnreachableScenarioTest}.kt`
+- 확인: `:feed-service:integrationTest`에서 새 테스트 21개가 모두 404 또는 "호출 없음"으로 실패(기존 컨텍스트 테스트만 통과), `:feed-service:test`, `ktlintCheck`, `openspec validate` 통과.
+- 다음 반복이 알아 둘 것:
+  - 피드 응답은 `posts[]`(키 `id`, `title`, `content`, `createdAt`, `author`, `like` 정확히), `recommendations[]`, `ads[]`를 하위 응답 그대로 내보내야 한다. `createdAt`은 post-service가 준 문자열(`2026-01-01T00:12:00Z` 꼴)과 같아야 하고, 작성자 없음은 `"author": null`로 키가 남아야 한다(Jackson이 null 필드를 빼면 실패).
+  - user·like 파라미터는 `ids=3,4`와 `ids=3&ids=4` 둘 다 받아들이게 읽는다. recommendation·ad에 보내는 쿼리와 헤더는 검사하지 않는다.
+  - 토글 응답은 `postId`, `liked`, `likeCount` 세 키만이어야 한다.
 ---
