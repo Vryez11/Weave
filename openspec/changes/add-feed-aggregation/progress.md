@@ -270,3 +270,9 @@
 - 제안 반영: architecture 4-2에 기본 재시도의 `IOException` 분기(멱등 GET만 1회)를 더했고, 타임아웃·Tomcat 기본값을 다시 확인하는 `MvpTimeoutDefaultsTest`를 남겼다(`HttpClientPools.findAll`). 닫힌 포트 주석의 근거를 고쳤다.
 - 넘긴 제안: 실패 전파 테스트들이 WireMock 하나의 요청 기록을 같이 써서, 앞 테스트의 늦게 끝난 요청이 다음 테스트의 `reset()` 뒤에 기록되면 횟수 검사가 흔들릴 수 있다. 리뷰어도 가능성이 매우 낮다고 봤다. CI에서 흔들리면 테스트마다 요청을 구분하는 표시(예: 다른 `X-User-Id`)로 그 테스트의 요청만 센다.
 ---
+
+## 2026-11-04 - bootTestRun 직접 확인 (2.6, 5.2에서 사람 몫으로 남긴 것)
+- `./gradlew :like-service:bootTestRun`으로 띄웠다. Testcontainers MySQL(`mysql:9.7`)이 함께 뜨고 Flyway가 v1을 적용한 뒤 14초쯤에 8083에서 health UP.
+- `POST /likes/1/toggle`(X-User-Id 1) → `{"postId":1,"likeCount":1,"liked":true}`, `GET /likes?postIds=1` → `likeCount` 1, `liked` true, 다시 토글 → `likeCount` 0, `liked` false.
+- 프로세스를 내리자 8083이 비었고, MySQL 컨테이너는 ryuk가 치웠다.
+---
