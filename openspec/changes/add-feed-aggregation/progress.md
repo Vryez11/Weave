@@ -276,3 +276,12 @@
 - `POST /likes/1/toggle`(X-User-Id 1) → `{"postId":1,"likeCount":1,"liked":true}`, `GET /likes?postIds=1` → `likeCount` 1, `liked` true, 다시 토글 → `likeCount` 0, `liked` false.
 - 프로세스를 내리자 8083이 비었고, MySQL 컨테이너는 ryuk가 치웠다.
 ---
+
+## 2026-11-04 - 7.2 change 완료 조건 (하네스 규칙 4장)
+- [x] tasks.md의 작업이 모두 체크됐다(7.2 포함).
+- [x] 시나리오마다 테스트가 있고 모두 통과한다(7.1 재검토의 시나리오→테스트 대응표).
+- [x] 자동 검사가 로컬에서 모두 통과한다: `./gradlew ktlintCheck build --rerun-tasks` 통과(테스트 155개, 실패 0, skipped 27은 태그 필터로 빠진 것), `openspec validate --all --strict --no-interactive` 통과.
+- [x] 검토에서 막는 지적이 없다(7.1 재검토, 막음 0).
+- [x] 장애 실험 세트: 해당 없음. 장애 대응을 넣지 않는 MVP이고, 실험 세트는 고도화 2(F-007)에서 만든다.
+- [x] PRD: F-006 수용 기준의 "타임아웃·재시도 없음"을 스펙과 같게 "직접 정한 타임아웃 없음(라이브러리 기본값), 라이브러리 자동 재시도도 끔"으로 고치고, F-006 수용 기준을 체크했다.
+---
