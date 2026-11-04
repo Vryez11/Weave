@@ -1,4 +1,6 @@
 // 서비스와 라이브러리가 공유하는 Kotlin 빌드 규칙.
+import org.gradle.api.tasks.testing.logging.TestExceptionFormat
+
 plugins {
     kotlin("jvm")
     kotlin("plugin.spring")
@@ -46,6 +48,10 @@ tasks.withType<Test>().configureEach {
     // Kotest는 Gradle --tests로 중첩 테스트 이름을 거르기 어려워 Kotest 필터를 그대로 넘긴다
     listOf("kotest.filter.specs", "kotest.filter.tests").forEach { key ->
         providers.gradleProperty(key).orNull?.let { systemProperty(key, it) }
+    }
+    // 실패한 테스트의 단언 메시지(기댓값과 실제 값)까지 콘솔에 찍는다. CI 로그만 보고 원인을 알 수 있게 한다
+    testLogging {
+        exceptionFormat = TestExceptionFormat.FULL
     }
 }
 
