@@ -27,7 +27,8 @@
   - Testcontainers MySQL을 띄우고, 빈 포트로 서비스 6개를 `java -jar`로 띄운다.
   - `/actuator/health` UP을 서비스마다 60초까지 기다린다.
   - 로그는 `e2e/build/e2e-logs/`에 남기고, 끝나면 프로세스를 모두 내린다(결정 10).
-  - 확인: `./gradlew :e2e:integrationTest`가 서비스는 모두 뜬 뒤 피드 요청에서 실패하고, 테스트가 끝난 뒤 `java` 프로세스가 남지 않는다.
+  - 스펙이 끝날 때 띄운 프로세스가 모두 내려갔는지(`Process.isAlive()`가 false) 테스트 안에서 검사한다.
+  - 확인: `./gradlew :e2e:integrationTest`가 서비스는 모두 뜬 뒤 피드 요청에서 실패하고, 프로세스 정리 검사는 통과한다.
 
 ## 2. 하위 서비스
 
@@ -43,7 +44,8 @@
 - [ ] 2.6 like-service를 로컬에서 띄울 수 있게 한다.
   - 테스트 소스의 `TestLikeServiceApplication`이 1.5의 MySQL 테스트 구성을 함께 띄우게 한다.
   - `.env.example`에 `LIKE_DB_URL`, `LIKE_DB_USERNAME`, `LIKE_DB_PASSWORD`를 설명과 함께 적는다.
-  - 확인: `./gradlew :like-service:bootTestRun`으로 띄운 뒤, `curl -X POST -H 'X-User-Id: 1' localhost:8083/likes/1/toggle`이 `liked` true를 준다.
+  - `bootTestRun`과 같은 방식(`SpringApplication.from(...).with(MySQL 테스트 구성)`)으로 빈 포트에 띄워 `POST /likes/1/toggle`을 부르는 통합 테스트를 더한다. Ralph는 `bootTestRun`처럼 끝나지 않는 명령이나 `curl`을 쓸 수 없다.
+  - 확인: 그 통합 테스트가 `liked` true를 받아 통과한다. `./gradlew :like-service:bootTestRun`으로 직접 띄워 보는 것은 검토(6.1) 때 사람이 한다.
 
 ## 3. feed-service
 
@@ -80,11 +82,11 @@
 
 ## 5. 종단 간 확인과 문서
 
-- [ ] 5.1 종단 간 테스트를 통과시킨다. 1.1의 Gradle 연결이나 서비스 실행 인자에서 고칠 곳이 나오면 여기서 고친다. 이미 커밋된 1.7의 테스트는 고치지 않는다. 확인: `./gradlew :e2e:integrationTest`가 통과하고, 끝난 뒤 `java` 프로세스가 남지 않는다.
+- [ ] 5.1 종단 간 테스트를 통과시킨다. 1.1의 Gradle 연결이나 서비스 실행 인자에서 고칠 곳이 나오면 여기서 고친다. 이미 커밋된 1.7의 테스트는 고치지 않는다. 확인: `./gradlew :e2e:integrationTest`가 프로세스 정리 검사까지 모두 통과한다.
 - [ ] 5.2 명령과 모듈을 문서에 더한다.
   - `CLAUDE.md`의 명령 표와 하네스 규칙 5장에 `./gradlew :like-service:bootTestRun`, `./gradlew :e2e:integrationTest`를 더한다.
   - `CLAUDE.md` 구조 표와 README 모듈 표에 `e2e`를 더한다.
-  - 확인: 문서에 적은 명령을 그대로 돌려 동작한다.
+  - 확인: 문서에 적은 `./gradlew :e2e:integrationTest`를 그대로 돌려 통과한다. `bootTestRun`은 끝나지 않는 명령이라 6.1에서 사람이 확인한다.
 - [ ] 5.3 전체 검사를 돌린다. 확인: `./gradlew ktlintCheck build`와 `openspec validate --all --strict --no-interactive`가 통과한다.
 
 ## 6. 검토와 change 완료 조건
