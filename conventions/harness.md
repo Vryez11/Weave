@@ -208,7 +208,8 @@ PR 템플릿(`.github/pull_request_template.md`)의 "확인한 것"이 이 목�
 | 전체 테스트 (CI용) | `./gradlew ktlintCheck build`. `build`가 `test`와 `integrationTest`를 모두 돌린다 |
 | 기능 ID로 테스트 거르기 | `./gradlew test -Pkotest.filter.tests='*F-003*'`. 테스트 이름에 기능 ID를 넣어 둔다 |
 | 스펙 검사 | `openspec validate --all --strict --no-interactive` |
-| 서비스 하나 실행 | `./gradlew :<모듈>:bootRun` |
+| 종단 간 테스트 | `./gradlew :e2e:integrationTest`. 서비스 6개를 bootJar 프로세스로 띄운다. Docker가 필요하다 |
+| 서비스 하나 실행 | `./gradlew :<모듈>:bootRun`. like-service는 `./gradlew :like-service:bootTestRun`(Testcontainers MySQL을 함께 띄운다) |
 | Ralph 루프 | `scripts/ralph/ralph.sh <change-id> [최대 반복 수]` |
 | 로컬 인프라 | `docker compose up -d`. 고도화 1(`add-trace-logging`)에서 만든다 |
 | 장애 실험 시나리오 하나 | 고도화 2(`add-fault-experiments`)에서 만든다 |

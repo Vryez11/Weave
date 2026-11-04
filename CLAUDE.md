@@ -16,6 +16,7 @@
 | `feed-service/` (8080) | 피드 집계. 하위 서비스 호출과 장애 대응이 여기에 있다 |
 | `post-service/` (8081), `user-service/` (8082), `like-service/` (8083), `recommendation-service/` (8084) | 하위 서비스 |
 | `ad-service/` (8085) | 광고. 통제할 수 없는 외부 API 역할 |
+| `e2e/` | 서비스 6개를 bootJar 프로세스로 띄우는 종단 간 테스트 |
 | `libs/observability/` | 모든 서비스에 자동 적용되는 로그·트레이싱 설정 |
 | `buildSrc/` | 컨벤션 플러그인. 의존성과 테스트 설정은 여기서 정한다 |
 | `scripts/harness/` | Claude Code 훅 (`.claude/settings.json`에서 연결) |
@@ -33,7 +34,8 @@
 | 통합 테스트 | `./gradlew integrationTest` |
 | 기능 ID로 거르기 | `./gradlew test -Pkotest.filter.tests='*F-003*'` |
 | 스펙 검사 | `openspec validate --all --strict --no-interactive` |
-| 서비스 실행 | `./gradlew :feed-service:bootRun` |
+| 종단 간 테스트 | `./gradlew :e2e:integrationTest` (서비스 6개를 프로세스로 띄운다. Docker 필요) |
+| 서비스 실행 | `./gradlew :feed-service:bootRun` (like-service는 `./gradlew :like-service:bootTestRun`으로 MySQL과 함께 띄운다) |
 
 훅은 `jq`를 쓴다.
 

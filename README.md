@@ -32,6 +32,10 @@ Kotlin 2.3 · Spring Boot 4.1 · JDK 25 · Gradle 9 (Kotlin DSL)
 |---|---|
 | `libs/observability` | 모든 서비스에 자동 적용되는 공통 로깅·트레이싱 설정 |
 
+| 테스트 모듈 | 역할 |
+|---|---|
+| `e2e` | 서비스 6개를 bootJar 프로세스로 띄우는 종단 간 테스트 (`./gradlew :e2e:integrationTest`) |
+
 비즈니스 DTO를 공유하는 공통 모듈은 두지 않는다. 서비스끼리는 HTTP 계약으로만 통신한다.
 
 ## 규칙
@@ -44,7 +48,7 @@ Kotlin 2.3 · Spring Boot 4.1 · JDK 25 · Gradle 9 (Kotlin DSL)
 ./gradlew :feed-service:bootRun
 ```
 
-모듈 이름만 바꿔서 각각 띄운다. 헬스 체크: `GET /actuator/health`
+모듈 이름만 바꿔서 각각 띄운다. like-service는 MySQL이 필요하므로 `./gradlew :like-service:bootTestRun`으로 Testcontainers MySQL과 함께 띄운다(Docker 필요). 헬스 체크: `GET /actuator/health`
 
 ## 진행 상황
 

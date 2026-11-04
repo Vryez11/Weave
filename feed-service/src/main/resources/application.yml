@@ -1,6 +1,28 @@
 spring:
   application:
     name: feed-service
+  http:
+    serviceclient:
+      post:
+        base-url: ${POST_BASE_URL:http://localhost:8081}
+      user:
+        base-url: ${USER_BASE_URL:http://localhost:8082}
+      like:
+        base-url: ${LIKE_BASE_URL:http://localhost:8083}
+      recommendation:
+        base-url: ${RECOMMENDATION_BASE_URL:http://localhost:8084}
+      ad:
+        base-url: ${AD_BASE_URL:http://localhost:8085}
+  task:
+    execution:
+      pool:
+        # 200 RPS × 호출 5번 × 50ms = 동시 50개, 여유 2배 (design 결정 8). 대기열은 기본값(무제한)
+        core-size: 100
+
+weave:
+  http-client:
+    # 200 RPS × 50ms = 동시 10개, 여유 2배 (design 결정 8)
+    max-connections-per-route: 20
 
 server:
   port: 8080

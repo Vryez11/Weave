@@ -8,4 +8,5 @@ include(
     "recommendation-service",
     "ad-service",
     "libs:observability",
+    "e2e",
 )
