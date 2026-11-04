@@ -1,5 +1,12 @@
+# Claude Code 설정. 같이 쓰는 하네스(.claude/settings.json)만 커밋하고,
+# 개인 설정과 OpenSpec이 만든 명령·스킬은 제외한다
+.claude/*
+!.claude/settings.json
+CLAUDE.local.md
+
 # Gradle
 .gradle/
+.kotlin/
 build/
 !gradle/wrapper/gradle-wrapper.jar
 
@@ -11,12 +18,17 @@ out/
 # VS Code
 .vscode/
 
-# Logs
+# 로그와 하네스 기록
 *.log
+logs/
 
-# Env / secrets
+# 장애 실험 원본 결과 (요약만 PR과 문서에 적는다)
+experiments/results/
+
+# 비밀 값
 .env
 .env.*
+!.env.example
 application-local.yml
 
 # OS

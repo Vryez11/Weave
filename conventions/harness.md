@@ -10,7 +10,7 @@ weave는 OpenSpec으로 만든 스펙을 AI 에이전트(Claude Code)에게 맡�
 
 스펙이 끝나는 조건을 정하고, 하네스가 그 조건을 자동으로 판정하고, 루프가 판정이 날 때까지 에이전트를 돌린다.
 
-> 상태: 규칙만 정한 단계다. 이 문서에 나오는 `.claude/settings.json`, `scripts/harness/`, `scripts/git-hooks/`, `scripts/ralph/`, `experiments/`, CI는 아직 없고, 로드맵의 하네스 구성 단계에서 만든다. 5장의 명령도 그때 확정한다.
+> 상태: 하네스 구성(2026-11-04)에서 `CLAUDE.md`, `openspec/`, `scripts/harness/`, `scripts/git-hooks/`, `scripts/ralph/`, CI, PR 템플릿을 만들었다. `experiments/`는 고도화 2에서 만든다.
 
 ## 1. 전체 흐름
 
@@ -63,7 +63,7 @@ flowchart TD
 
 ### 2-2. 퍼미션 하네스
 
-에이전트가 할 수 있는 범위를 정한다. 설정은 `.claude/settings.json`에 두고 커밋해 Ralph 루프와 같이 쓴다.
+에이전트가 할 수 있는 범위를 정한다. 설정은 `.claude/settings.json`에 두고 커밋해 Ralph 루프와 같이 쓴다. 이 파일은 에이전트 자신의 권한과 훅을 정하므로 **사람이 직접 고치고 커밋한다.** 에이전트는 바꿀 내용을 제안만 한다.
 
 | 단계 | 대상 |
 |---|---|
@@ -196,17 +196,20 @@ PR 템플릿(`.github/pull_request_template.md`)의 "확인한 것"이 이 목�
 
 ## 5. 명령
 
-지금 쓸 수 있는 명령과, 하네스 구성 단계에서 만들 명령이다. 훅, CI, Ralph 지시문이 모두 이 명령을 쓴다.
+하네스 구성(2026-11-04)에서 정했다. 훅, CI, Ralph 지시문이 모두 이 명령을 쓴다.
 
-| 항목 | 명령 | 상태 |
-|---|---|---|
-| 전체 빌드와 테스트 | `./gradlew build` | 있음 |
-| 모듈 하나 테스트 | `./gradlew :<모듈>:test` (예: `:feed-service:test`, `:libs:observability:test`) | 있음 |
-| 서비스 하나 실행 | `./gradlew :<모듈>:bootRun` | 있음 |
-| 타입 검사 | `./gradlew compileKotlin compileTestKotlin` | 있음 |
-| 스펙 검사 | `openspec validate --all --strict --no-interactive` | `openspec/`를 만든 뒤 |
-| Kotlin 린트 / 자동 고치기 | `./gradlew ktlintCheck` / `./gradlew ktlintFormat` | 하네스 구성 때 ktlint를 붙인다 |
-| 빠른 단위 테스트 (Stop 훅용) | 바뀐 모듈의 단위 테스트만 | 하네스 구성 때 단위·통합 테스트 태스크를 나눈다 |
-| 전체 테스트 (CI용) | `./gradlew ktlintCheck build` (통합 테스트 포함) | 하네스 구성 때 |
-| 로컬 인프라 | `docker compose up -d` | 관찰 기반 단계에서 만든다 |
-| 장애 실험 시나리오 하나 | 기준선 측정 단계에서 만든다 | — |
+| 항목 | 명령 |
+|---|---|
+| Kotlin 린트 / 자동 고치기 | `./gradlew ktlintCheck` / `./gradlew ktlintFormat` |
+| 타입 검사 | `./gradlew compileKotlin compileTestKotlin` |
+| 단위 테스트 (Stop 훅용) | `./gradlew test`, 모듈 하나는 `./gradlew :<모듈>:test` (예: `:feed-service:test`, `:libs:observability:test`). `Integration` 태그가 없는 테스트만 돈다 |
+| 통합 테스트 | `./gradlew integrationTest`. `@Tags("Integration")`이 붙은 테스트만 돈다 |
+| 전체 테스트 (CI용) | `./gradlew ktlintCheck build`. `build`가 `test`와 `integrationTest`를 모두 돌린다 |
+| 기능 ID로 테스트 거르기 | `./gradlew test -Pkotest.filter.tests='*F-003*'`. 테스트 이름에 기능 ID를 넣어 둔다 |
+| 스펙 검사 | `openspec validate --all --strict --no-interactive` |
+| 서비스 하나 실행 | `./gradlew :<모듈>:bootRun` |
+| Ralph 루프 | `scripts/ralph/ralph.sh <change-id> [최대 반복 수]` |
+| 로컬 인프라 | `docker compose up -d`. 고도화 1(`add-trace-logging`)에서 만든다 |
+| 장애 실험 시나리오 하나 | 고도화 2(`add-fault-experiments`)에서 만든다 |
+
+Stop 훅은 ktlint가 위반을 보고하면 증분 결과를 버리고(`--rerun-tasks`) 한 번 더 돌린다. ktlint-gradle이 지운 파일의 예전 위반을 계속 보고할 때가 있어서다.
