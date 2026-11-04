@@ -73,7 +73,7 @@
   - feed-service Tomcat 최대 스레드
   - 확인 방법(테스트에서 Bean을 꺼내 읽기, 또는 Actuator `configprops`)도 함께 적는다. design 결정 8 표의 예상과 다르면 계산 비교를 다시 한다.
   - 확인: 4-2에 값과 확인 방법이 있고, `docs(architecture)` 커밋 하나로 남는다.
-- [ ] 4.2 feed-service의 `weave.http-client.max-connections-per-route`를 20으로 둔다.
+- [x] 4.2 feed-service의 `weave.http-client.max-connections-per-route`를 20으로 둔다.
   - 커밋 본문에 결정 8의 계산(200 RPS × 50ms = 10, 여유 2배)과 4.1에서 확인한 기본값을 적는다.
   - 확인: 3.1의 통합 테스트에 라우트당 최대 커넥션이 20인지 보는 검사를 더해 통과한다.
 - [ ] 4.3 feed-service의 `spring.task.execution.pool.core-size`를 100으로 둔다. 대기열은 바꾸지 않는다.

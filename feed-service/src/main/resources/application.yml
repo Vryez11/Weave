@@ -14,6 +14,11 @@ spring:
       ad:
         base-url: ${AD_BASE_URL:http://localhost:8085}
 
+weave:
+  http-client:
+    # 200 RPS × 50ms = 동시 10개, 여유 2배 (design 결정 8)
+    max-connections-per-route: 20
+
 server:
   port: 8080
 
