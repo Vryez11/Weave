@@ -1,6 +1,14 @@
 spring:
   application:
     name: like-service
+  datasource:
+    url: ${LIKE_DB_URL}
+    username: ${LIKE_DB_USERNAME}
+    password: ${LIKE_DB_PASSWORD}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
 
 server:
   port: 8083
