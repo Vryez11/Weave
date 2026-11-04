@@ -234,3 +234,10 @@
 - "연결할 수 없다"의 닫힌 포트는 이제 1번이다(`DownstreamWireMock.CLOSED_PORT`).
 - 다음 반복이 알아 둘 것: 6.2~6.5는 Ralph 몫이다. 이미 커밋된 테스트는 고치지 않는다.
 ---
+
+## 2026-11-04 19:35 - 6.2 HttpClient 5의 자동 재시도를 끈다
+- `HttpClientConfig.clientHttpRequestFactoryBuilder`에서 `@ConditionalOnProperty`를 빼 Bean을 늘 등록하고, `withHttpClientCustomizer { it.disableAutomaticRetries() }`를 건다. 풀 크기 속성은 `@Value("\${...:#{null}}") Int?`로 받아 있을 때만 `withConnectionManagerCustomizer`를 더한다.
+- 바꾼 파일: `feed-service/src/main/kotlin/com/weave/feed/client/HttpClientConfig.kt`, `tasks.md`
+- 확인: `ktlintCheck :feed-service:test :feed-service:integrationTest --rerun-tasks` 통과. 6.1의 "한 번만 요청한다" 7개도 통과, 실패 0. 커밋 886f98e(`fix(feed)`).
+- 다음 반복이 알아 둘 것: 6.4의 "기본 재시도" 값은 design 결정 3과 6.1 메모(`DefaultHttpRequestRetryStrategy`, 429·503, 1초, 1회)에 있다. 실제 객체로 확인하려면 재시도를 끄기 전 기본값이므로 `HttpClients.custom()`이 아니라 `DefaultHttpRequestRetryStrategy.INSTANCE`의 필드를 본다.
+---
