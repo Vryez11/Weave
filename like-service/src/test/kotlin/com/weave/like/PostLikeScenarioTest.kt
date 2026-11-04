@@ -231,11 +231,11 @@ private fun likeOf(
 /**
  * 테스트 컨텍스트와 별개로 애플리케이션을 빈 포트에 띄운다.
  * `MySqlTestConfiguration`이 컴포넌트 스캔에 잡혀 테스트와 같은 컨테이너를 쓴다.
+ * 포트는 명령줄 인자로 넘긴다. `properties(...)`는 기본 속성이라 `application.yml`의 `server.port`에 덮인다.
  */
 private fun startApplication(): ConfigurableApplicationContext =
     SpringApplicationBuilder(LikeServiceApplication::class.java)
-        .properties("server.port=0")
-        .run()
+        .run("--server.port=0")
 
 private val httpClient: HttpClient = HttpClient.newHttpClient()
 
