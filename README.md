@@ -11,6 +11,30 @@
 - **의존성 등급별 Graceful Degradation**: 하위 서비스를 필수/선택 등급으로 나누고, 등급에 따라 실패 시 응답 전략을 다르게 설계
 - **좋아요 정합성**: 상태 기반 API와 멱등성 설계로 재시도·중복 요청에도 좋아요 상태를 정확하게 유지
 
+## 기술 스택
+
+Kotlin 2.3 · Spring Boot 4.1 · JDK 25 · Gradle 9 (Kotlin DSL)
+
+## 모듈 구성
+
+각 모듈은 독립적으로 띄울 수 있는 Spring Boot 애플리케이션이다. 공통 빌드 규칙은 `buildSrc`의 `weave.spring-service` 컨벤션 플러그인에 있다.
+
+| 모듈 | 포트 | 역할 |
+|---|---|---|
+| `feed-service` | 8080 | 피드 집계 (하위 서비스 호출 · 장애 격리) |
+| `post-service` | 8081 | 게시글 |
+| `user-service` | 8082 | 작성자 프로필 |
+| `like-service` | 8083 | 좋아요 (상태 기반 · 멱등) |
+| `recommendation-service` | 8084 | 추천 |
+
+## 실행
+
+```bash
+./gradlew :feed-service:bootRun
+```
+
+모듈 이름만 바꿔서 각각 띄운다. 헬스 체크: `GET /actuator/health`
+
 ## 진행 상황
 
-프로젝트 초기화 단계.
+멀티 모듈 뼈대 구성 완료.
