@@ -264,3 +264,9 @@
 - 바꾼 파일: `tasks.md`, `progress.md`(코드 변경 없음)
 - 다음 반복이 알아 둘 것: 7번 묶음(검토, change 완료 조건)만 남았다. Ralph 루프는 하지 않고 사람에게 넘긴다.
 ---
+
+## 2026-11-04 - 7.1 재검토 (사람, 독립 리뷰어)
+- 새 리뷰어가 3331506..HEAD를 하네스 규칙 3-3으로 봤다. 막는 지적 0개, 제안 4개. 이전 지적(6.1~6.5)은 모두 고쳐졌다. `ktlintCheck build --rerun-tasks`, `openspec validate --strict` 통과.
+- 제안 반영: architecture 4-2에 기본 재시도의 `IOException` 분기(멱등 GET만 1회)를 더했고, 타임아웃·Tomcat 기본값을 다시 확인하는 `MvpTimeoutDefaultsTest`를 남겼다(`HttpClientPools.findAll`). 닫힌 포트 주석의 근거를 고쳤다.
+- 넘긴 제안: 실패 전파 테스트들이 WireMock 하나의 요청 기록을 같이 써서, 앞 테스트의 늦게 끝난 요청이 다음 테스트의 `reset()` 뒤에 기록되면 횟수 검사가 흔들릴 수 있다. 리뷰어도 가능성이 매우 낮다고 봤다. CI에서 흔들리면 테스트마다 요청을 구분하는 표시(예: 다른 `X-User-Id`)로 그 테스트의 요청만 센다.
+---
