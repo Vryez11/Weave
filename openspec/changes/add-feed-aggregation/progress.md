@@ -104,3 +104,23 @@
 - 확인: 두 모듈 `ktlintCheck test integrationTest` 통과(시나리오 recommendation 5개·ad 4개, 단위 각 4개, 컨텍스트 각 1개), `openspec validate` 통과.
 - 다음 반복이 알아 둘 것: 2.4는 like-service다. Flyway 테이블 이름은 `post_like`, `post_like_count`(1.5 기록 참고).
 ---
+
+## 2026-11-04 17:50 - 2.4 like-service 저장과 토글 (멈춤)
+- 한 일(커밋하지 않고 작업 트리에 둠):
+  - Flyway `V1__create_like_tables.sql`(결정 6 표대로), 엔티티 `PostLike`·`PostLikeCount`, 리포지토리, `LikeService`(읽고 고쳐 저장하는 토글 + 배치 조회), `LikeController`(`X-User-Id`·`postId` 양수 검사, `postIds` 1~100개), `application.yml`(`${LIKE_DB_URL}` 등, `ddl-auto: validate`, `open-in-view: false`).
+  - 2.4의 확인 항목(사용자 식별의 `GET /likes` 헤더 없음, 영속 시나리오의 `GET /likes`)이 `GET /likes` 없이는 통과할 수 없어서 배치 조회도 같이 만들었다. 2.5는 남은 확인과 커밋만 하면 된다.
+- 결과: `:like-service:ktlintCheck :like-service:test` 통과. `:like-service:integrationTest`는 17개 중 16개 통과, **영속 시나리오("다시 띄운 뒤") 하나가 실패**한다(두 번째 애플리케이션에서 `likeCount` 0, `liked` false).
+- 원인: 첫 애플리케이션을 `use`로 닫을 때 MySQL 컨테이너가 멈춘다. 두 번째 애플리케이션이 같은 `MySQLContainer` 객체에 `start()`를 다시 불러 **새 컨테이너(빈 DB)**가 뜬다. 테스트 로그에 두 번째 컨텍스트에서 `Creating container for image: mysql:9.7`, 다른 포트(51178), Flyway의 `<< Empty Schema >>`가 찍힌다. `MySqlTestConfiguration`의 `@Bean(destroyMethod = "")`는 이것을 막지 못한다. Boot의 Testcontainers 수명 관리(`TestcontainersLifecycleBeanPostProcessor`)가 `Startable` Bean을 컨텍스트 종료 때 따로 멈추는 것으로 보인다.
+- **멈춘 이유:** 고치려면 이미 커밋된 테스트 보조 코드 `like-service/src/test/kotlin/com/weave/like/MySqlTestConfiguration.kt`를 바꿔야 한다(pre-file 훅과 지시문의 멈춤 조건). 구현 쪽으로 우회할 방법이 없다.
+- 사람에게 제안하는 수정: 컨테이너를 Bean으로 내놓지 않는다. companion의 `lazy`에서 `start()`까지 하고, `@Bean`으로 `JdbcConnectionDetails`(container의 `jdbcUrl`, `username`, `password`)를 직접 내놓는다. 그러면 Boot가 컨테이너 수명에 관여하지 않아 JVM이 끝날 때까지 하나가 유지된다. 2.6의 `TestLikeServiceApplication`(`SpringApplication.from(...).with(MySqlTestConfiguration::class)`)도 그대로 쓸 수 있다. 고친 뒤 like-service/CLAUDE.md의 "컨텍스트가 닫혀도 멈추지 않는다" 설명도 맞춘다.
+- 함께 본 것: `PostLikeScenarioTest.startApplication()`의 `.properties("server.port=0")`는 기본 속성이라 `application.yml`의 `server.port: 8083`에 덮인다. 로그상 실제로 8083으로 떴다. 8083이 비어 있으면 통과하지만, like-service를 따로 띄워 둔 채 테스트하면 포트 충돌로 실패한다. 사람이 고칠 때 `.run("--server.port=0")`처럼 명령줄 인자로 바꾸는 것을 권한다.
+- 바꾼 파일(커밋 안 함): `like-service/src/main/kotlin/com/weave/like/{PostLike,PostLikeCount,LikeRepositories,LikeService,LikeController}.kt`, `like-service/src/main/resources/application.yml`, `like-service/src/main/resources/db/migration/V1__create_like_tables.sql`
+- 다음 반복이 알아 둘 것: 테스트 수정이 커밋되면 `./gradlew :like-service:integrationTest`를 다시 돌려 17개가 모두 통과하는지 보고, 2.4를 체크하고 커밋한다. `Instant` 열(`created_at DATETIME(6)`)은 `ddl-auto: validate`를 통과했다.
+---
+
+## 2026-11-04 17:58 - 2.4 like-service 저장과 토글 (마무리)
+- 사람이 7630995에서 `MySqlTestConfiguration`(컨테이너 대신 `JdbcConnectionDetails` Bean)과 영속 시나리오의 포트 인자를 고쳤다. 작업 트리에 둔 구현은 그대로 썼다.
+- 확인: `:like-service:test :like-service:integrationTest --rerun-tasks` 통과(통합 17개: 시나리오 16개 + 컨텍스트 1개, 영속 시나리오 포함). `ktlintCheck compileKotlin compileTestKotlin test`, `openspec validate` 통과.
+- 바꾼 파일: `like-service/src/main/kotlin/com/weave/like/{PostLike,PostLikeCount,LikeRepositories,LikeService,LikeController}.kt`, `like-service/src/main/resources/application.yml`, `like-service/src/main/resources/db/migration/V1__create_like_tables.sql`
+- 다음 반복이 알아 둘 것: `GET /likes`는 이 커밋에 이미 들어 있다. 2.5는 `./gradlew :like-service:test :like-service:integrationTest`가 모두 통과하는지 다시 확인하고 체크만 하면 된다(배치 조회 단위 테스트를 더할지는 2.5에서 판단).
+---
