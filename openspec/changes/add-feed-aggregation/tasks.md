@@ -41,7 +41,7 @@
   - `application.yml`에 DB 설정(`${LIKE_DB_URL}` 등), `ddl-auto: validate`, `open-in-view: false`를 둔다.
   - 확인: like-service 통합 테스트 중 토글, 사용자 식별, 영속 시나리오가 통과한다.
 - [x] 2.5 like-service의 `GET /likes` 배치 조회를 구현한다. 확인: `./gradlew :like-service:test :like-service:integrationTest`가 모두 통과한다.
-- [ ] 2.6 like-service를 로컬에서 띄울 수 있게 한다.
+- [x] 2.6 like-service를 로컬에서 띄울 수 있게 한다.
   - 테스트 소스의 `TestLikeServiceApplication`이 1.5의 MySQL 테스트 구성을 함께 띄우게 한다.
   - `.env.example`에 `LIKE_DB_URL`, `LIKE_DB_USERNAME`, `LIKE_DB_PASSWORD`를 설명과 함께 적는다.
   - `bootTestRun`과 같은 방식(`SpringApplication.from(...).with(MySQL 테스트 구성)`)으로 빈 포트에 띄워 `POST /likes/1/toggle`을 부르는 통합 테스트를 더한다. Ralph는 `bootTestRun`처럼 끝나지 않는 명령이나 `curl`을 쓸 수 없다.
