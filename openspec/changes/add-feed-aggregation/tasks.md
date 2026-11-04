@@ -87,7 +87,7 @@
   - `CLAUDE.md`의 명령 표와 하네스 규칙 5장에 `./gradlew :like-service:bootTestRun`, `./gradlew :e2e:integrationTest`를 더한다.
   - `CLAUDE.md` 구조 표와 README 모듈 표에 `e2e`를 더한다.
   - 확인: 문서에 적은 `./gradlew :e2e:integrationTest`를 그대로 돌려 통과한다. `bootTestRun`은 끝나지 않는 명령이라 6.1에서 사람이 확인한다.
-- [ ] 5.3 전체 검사를 돌린다. 확인: `./gradlew ktlintCheck build`와 `openspec validate --all --strict --no-interactive`가 통과한다.
+- [x] 5.3 전체 검사를 돌린다. 확인: `./gradlew ktlintCheck build`와 `openspec validate --all --strict --no-interactive`가 통과한다.
 
 ## 6. 검토와 change 완료 조건
 
