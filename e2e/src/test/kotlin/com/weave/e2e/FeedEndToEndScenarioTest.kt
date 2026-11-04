@@ -1,5 +1,6 @@
 package com.weave.e2e
 
+import io.kotest.assertions.withClue
 import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldBeEmpty
@@ -55,7 +56,8 @@ class FeedEndToEndScenarioTest :
 
         test("F-006 종단 간: 사용자 1이 피드를 받고 첫 게시글에 좋아요를 누르면 다음 피드에 반영된다") {
             val (firstStatus, firstFeed) = getFeed()
-            firstStatus shouldBe 200
+            // 실패하면 응답 본문을 함께 보여 준다. 서비스 로그는 e2e/build/e2e-logs/에 있다(CI에서는 artifact)
+            withClue("첫 피드 응답: $firstFeed") { firstStatus shouldBe 200 }
             firstFeed.list("posts") shouldHaveSize 20
             firstFeed.list("recommendations").shouldNotBeEmpty()
             firstFeed.list("ads").shouldNotBeEmpty()
@@ -66,11 +68,11 @@ class FeedEndToEndScenarioTest :
             val countBefore = (firstPost.like()["count"] as Number).toLong()
 
             val (toggleStatus, toggled) = toggleLike(postId)
-            toggleStatus shouldBe 200
+            withClue("토글 응답: $toggled") { toggleStatus shouldBe 200 }
             toggled["liked"] shouldBe true
 
             val (secondStatus, secondFeed) = getFeed()
-            secondStatus shouldBe 200
+            withClue("두 번째 피드 응답: $secondFeed") { secondStatus shouldBe 200 }
             val samePost = secondFeed.list("posts").single { it["id"] == postId }
             samePost.like()["myLike"] shouldBe "LIKED"
             (samePost.like()["count"] as Number).toLong() shouldBe countBefore + 1
