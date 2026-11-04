@@ -95,3 +95,12 @@
 - 확인: `:user-service:ktlintCheck :user-service:test :user-service:integrationTest` 통과(시나리오 6개, 단위 5개, 컨텍스트 1개), `openspec validate` 통과.
 - 다음 반복이 알아 둘 것: like-service `GET /likes`의 `ids`도 같은 방식(`List<Long>` + 개수 검사)이면 `ids=3,4`와 `ids=3&ids=4`를 둘 다 받는다.
 ---
+
+## 2026-11-04 20:40 - 2.3 recommendation-service, ad-service 고정 데이터와 API
+- post-service와 같은 모양으로 만들었다. `RecommendationCatalog`(k = 1~20, `postId = 10k`)와 `RecommendationController`(`GET /recommendations`, 기본 5, 1~20), `AdCatalog`(id 1~5)와 `AdController`(`GET /ads`, 기본 2, 1~5). 범위 밖은 `ResponseStatusException(BAD_REQUEST)`.
+- recommendation 컨트롤러는 `X-User-Id`를 받지 않는다. 헤더가 있어도 무시되므로 "사용자와 관계없다"가 그대로 성립한다.
+- 단위 테스트 `RecommendationCatalogTest`, `AdCatalogTest`(태그 없음): 식, 순서와 자르기, 개수, 다시 만들어도 같음.
+- 바꾼 파일: `recommendation-service/src/main/kotlin/com/weave/recommendation/{Recommendation,RecommendationCatalog,RecommendationController}.kt`, `recommendation-service/src/test/kotlin/com/weave/recommendation/RecommendationCatalogTest.kt`, `ad-service/src/main/kotlin/com/weave/ad/{Ad,AdCatalog,AdController}.kt`, `ad-service/src/test/kotlin/com/weave/ad/AdCatalogTest.kt`
+- 확인: 두 모듈 `ktlintCheck test integrationTest` 통과(시나리오 recommendation 5개·ad 4개, 단위 각 4개, 컨텍스트 각 1개), `openspec validate` 통과.
+- 다음 반복이 알아 둘 것: 2.4는 like-service다. Flyway 테이블 이름은 `post_like`, `post_like_count`(1.5 기록 참고).
+---
