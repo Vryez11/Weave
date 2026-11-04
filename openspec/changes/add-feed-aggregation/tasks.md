@@ -14,7 +14,7 @@
 - [x] 1.2 `post-catalog` 스펙의 시나리오를 post-service 테스트로 옮긴다. 고정 데이터의 기댓값은 결정 1의 식으로 계산한다. 확인: `./gradlew :post-service:integrationTest`가 새 테스트에서 실패하고(404 등), `./gradlew :post-service:test`는 통과한다.
 - [x] 1.3 `user-profile` 스펙의 시나리오를 user-service 테스트로 옮긴다. 확인: `./gradlew :user-service:integrationTest`가 새 테스트에서 실패하고, `./gradlew :user-service:test`는 통과한다.
 - [x] 1.4 `recommendation`, `ad-serving` 스펙의 시나리오를 각 서비스의 테스트로 옮긴다. 확인: `./gradlew :recommendation-service:integrationTest :ad-service:integrationTest`가 새 테스트에서 실패하고, 두 모듈의 `test`는 통과한다.
-- [ ] 1.5 `post-like` 스펙의 시나리오를 like-service 테스트로 옮긴다.
+- [x] 1.5 `post-like` 스펙의 시나리오를 like-service 테스트로 옮긴다.
   - Testcontainers MySQL(`mysql:9.7`, `@ServiceConnection`) 테스트 구성을 테스트 소스에 두고, 테스트마다 테이블을 비운다.
   - 영속 시나리오는 같은 컨테이너로 애플리케이션을 두 번 띄운다.
   - 확인: `./gradlew :like-service:integrationTest`가 새 테스트에서 실패하고, `./gradlew :like-service:test`는 통과한다.

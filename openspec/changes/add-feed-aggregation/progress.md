@@ -8,6 +8,7 @@
 - Gradle 9.8에서 `by configurations.creating`, `by tasks.registering`은 deprecated다. `configurations.create(name)`, `tasks.register<T>(name)`을 쓴다.
 - Kotest 스펙 클래스의 생성자 주입은 안 된다(`SpecInstantiationException`). Bean은 테스트 안에서 `testContextManager().testContext.applicationContext.getBean(...)`으로 꺼낸다(`io.kotest.extensions.spring.testContextManager`, suspend 함수 안에서만).
 - Boot 4의 MockMvc 어노테이션은 `org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc`다. JSON은 `tools.jackson.module.kotlin.jacksonObjectMapper()`로 `Map`/`List`로 읽어 비교한다(숫자는 `Int`로 읽힌다).
+- Kotest `beforeEach` 안에서도 `testContextManager()`를 쓸 수 있다(like-service 테이블 비우기에서 확인).
 
 ---
 
@@ -43,4 +44,13 @@
 - 바꾼 파일: `recommendation-service/src/test/kotlin/com/weave/recommendation/RecommendationScenarioTest.kt`, `ad-service/src/test/kotlin/com/weave/ad/AdServingScenarioTest.kt`
 - 확인: 두 모듈 `integrationTest`에서 새 테스트 9개가 모두 상태 검사(404)에서 실패, 두 모듈 `test`와 `ktlintCheck compileKotlin compileTestKotlin`, `openspec validate` 통과.
 - 다음 반복이 알아 둘 것: 2.3 구현은 `{"recommendations": [...]}`(필드 `postId`, `title`, `reason`만), `{"ads": [...]}`(필드 `id`, `title`, `imageUrl`, `landingUrl`만)로 내보내야 한다. 기본 size는 각각 5, 2이고 앞에서부터 자른다.
+---
+
+## 2026-11-04 17:35 - 1.5 post-like 시나리오 테스트
+- `PostLikeScenarioTest`(`@SpringBootTest` + MockMvc, `@Tags("Integration")`)에 스펙 시나리오 12개를 16개 테스트로 옮겼다(헤더 없음 GET·POST, 잘못된 헤더 abc·0, ID 없음·101개, 잘못된 postId 0·abc로 나눔). 요구사항의 "같은 ID 여러 번이면 한 번만"도 테스트로 더했다.
+- GIVEN은 토글 API로 만든다. `beforeEach`가 `information_schema`로 있는 테이블(`post_like`, `post_like_count`)만 `DELETE`로 비운다.
+- 영속 시나리오는 `SpringApplicationBuilder(LikeServiceApplication)`를 `server.port=0`으로 두 번 띄워(`use`로 닫음) `java.net.http.HttpClient`로 부른다. 컴포넌트 스캔으로 같은 MySQL 컨테이너를 쓴다.
+- 바꾼 파일: `like-service/src/test/kotlin/com/weave/like/PostLikeScenarioTest.kt`
+- 확인: `:like-service:integrationTest`에서 새 테스트 16개가 모두 상태 검사(404)에서 실패, `:like-service:test`와 `ktlintCheck compileKotlin compileTestKotlin`, `openspec validate` 통과.
+- 다음 반복이 알아 둘 것: 2.4·2.5 구현은 `GET /likes`를 `{"likes": [...]}`(항목 필드 `postId`, `likeCount`, `liked`만), 토글을 감싸지 않은 `{"postId", "liked", "likeCount"}`(이 세 키만)로 내보내야 한다. 비우기가 테이블 이름에 기대므로 Flyway 테이블 이름은 design 결정 6대로 `post_like`, `post_like_count`여야 한다.
 ---
