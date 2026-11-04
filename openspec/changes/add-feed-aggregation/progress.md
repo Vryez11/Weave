@@ -195,3 +195,11 @@
 - 확인: `ktlintCheck compileKotlin compileTestKotlin :feed-service:test :feed-service:integrationTest --rerun-tasks` 통과(통합 25개, 단위 5개), `openspec validate` 통과. 커밋 89886ef(`perf(feed)`, 설정값만).
 - 다음 반복이 알아 둘 것: 4.3은 `spring.task.execution.pool.core-size: 100`을 같은 `application.yml`에 두고 별도 커밋한다. 검사는 4.1 메모대로 `getBean("applicationTaskExecutor", ThreadPoolTaskExecutor::class.java)`의 `corePoolSize == 100`, `queueCapacity == Integer.MAX_VALUE`. 새 테스트 파일로 만든다.
 ---
+
+## 2026-11-04 18:20 - 4.3 공유 스레드 풀 코어 100
+- feed-service `application.yml`에 `spring.task.execution.pool.core-size: 100`(결정 8 계산을 주석으로)을 두었다. 대기열(`queue-capacity`)은 건드리지 않아 무제한 그대로다.
+- 새 통합 테스트 `TaskExecutorCapacityTest`가 `applicationTaskExecutor`의 `corePoolSize == 100`, `queueCapacity`와 실제 대기열 `remainingCapacity()`가 `Int.MAX_VALUE`인지 본다.
+- 바꾼 파일: `feed-service/src/main/resources/application.yml`, `feed-service/src/test/kotlin/com/weave/feed/TaskExecutorCapacityTest.kt`, `tasks.md`
+- 확인: `ktlintCheck compileKotlin compileTestKotlin :feed-service:test :feed-service:integrationTest --rerun-tasks` 통과(통합 26개), `openspec validate` 통과. 커밋 d537735(`perf(feed)`, 설정값만).
+- 다음 반복이 알아 둘 것: 5.1은 `./gradlew :e2e:integrationTest`를 돌려 1.1의 Gradle 연결과 `ServiceProcesses` 실행 인자를 고친다. 1.7 테스트 파일은 고칠 수 없다. 실패 원인은 `e2e/build/e2e-logs/<서비스>.log`부터 본다.
+---
