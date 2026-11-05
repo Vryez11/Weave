@@ -89,7 +89,7 @@
   - 서비스에 `MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT`를 준다.
   - Grafana 데이터 소스에 Loki의 traceId → Tempo 링크와 Tempo의 trace-to-logs를 둔다.
   - 확인: 5.1과 같은 명령으로 모든 컨테이너가 healthy(헬스 체크가 없는 이미지는 running)다. Prometheus `/api/v1/targets`에서 서비스 6개가 `up`이다. 이 확인에 쓴 명령을 progress.md에 적는다.
-- [ ] 5.3 `:e2e:composeTest` 태스크를 만든다(design 결정 10).
+- [x] 5.3 `:e2e:composeTest` 태스크를 만든다(design 결정 10).
   - 서비스 6개의 `bootJar`에 기댄다.
   - 시작 전에 임의 계정으로 `e2e/build/compose-test.env`를 만들고, 프로젝트 이름 `weave-compose-test`로 `up -d --build --wait`를 돈다. 끝나면 성공·실패와 관계없이 `down -v`를 돈다.
   - `Compose` 태그 테스트만 돌리고, 주소를 시스템 속성으로 넘긴다.

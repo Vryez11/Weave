@@ -27,6 +27,7 @@
 - `eclipse-temurin:25-jre`에는 curl·wget이 없다. `docker/service.Dockerfile`이 curl을 설치한다. 새 헬스 체크도 curl로 쓴다.
 - Compose 서비스 이름은 모듈 이름과 같다(`feed-service` 등). 서비스끼리는 `http://<모듈 이름>:<포트>`로 부른다. 공통값은 `x-service`(라벨, `environment: &service-environment`, `depends_on: &service-depends-on`), 헬스 체크 공통값은 `x-service-healthcheck` 앵커다. 병합이 얕아 feed·like처럼 `environment`/`depends_on`을 따로 두는 서비스는 안쪽 앵커를 다시 `<<:`로 병합한다.
 - 호스트에 열린 포트: feed 8080, 그리고 127.0.0.1에만 Grafana 3000, Loki 3100, Tempo 3200, Prometheus 9090, Alloy UI 12345. 5.3의 시스템 속성 주소는 `http://localhost:8080`, `http://localhost:3100`, `http://localhost:3200`이다.
+- `:e2e:composeTest`는 e2e `build.gradle.kts`의 `composeTestEnv` → `composeTestUp` → `composeTest` → `composeTestDown`(finalizer)이다. CI 단계(5.4)는 `./gradlew :e2e:composeTest` 하나면 되고, 실패 시 로그는 `docker compose -p weave-compose-test logs`로 받되 `down -v`가 이미 돈 뒤라 컨테이너가 없다는 점에 주의한다(로그를 먼저 받으려면 down 전에 받는 방법이 필요하다).
 - 웹 조회(WebSearch, WebFetch)와 `docker run`·`docker image ls`는 허가가 없다. 이미지 태그는 임시 Compose 파일(`e2e/build/tag-probe.yaml`)을 `docker compose -f ... pull`해 있는지 본다. 관찰 인프라 확인 명령은 5.2 기록에 있다.
 
 ---
@@ -215,4 +216,19 @@
 - `./gradlew ktlintCheck compileKotlin compileTestKotlin test`, `openspec validate --all --strict --no-interactive` 통과. Kotlin 변경이 없어 `build`(e2e 포함)는 다시 돌리지 않았다.
 - 바꾼 파일: `compose.yaml`, `docker/alloy/config.alloy`, `docker/loki/loki.yaml`, `docker/tempo/tempo.yaml`, `docker/prometheus/prometheus.yml`, `docker/grafana/provisioning/datasources/datasources.yaml`, `docker/CLAUDE.md`(새로)
 - 다음 반복(5.3)이 알아 둘 것: `composeTest`는 프로젝트 이름 `weave-compose-test`로 같은 `compose.yaml`을 띄운다. 호스트 포트가 고정이라 손으로 띄운 `weave` 프로젝트가 떠 있으면 포트가 부딪힌다. Loki `/ready`는 시작 뒤 한동안 503이어도 push와 조회는 된다. 테스트는 `eventually`가 있으니 Loki 준비를 따로 기다리지 않아도 된다.
+---
+
+## 2026-11-05 16:04 - 5.3 `:e2e:composeTest` 태스크
+- e2e `build.gradle.kts`에 태스크 넷을 더했다.
+  - `composeTestEnv`: 실행할 때마다 `UUID`로 `LIKE_DB_USERNAME`(`weave_` + 8자), `LIKE_DB_PASSWORD`, `MYSQL_ROOT_PASSWORD`를 `e2e/build/compose-test.env`에 쓴다(항상 다시 돈다).
+  - `composeTestUp`(Exec): `docker compose -p weave-compose-test -f <루트>/compose.yaml --env-file <위 파일> up -d --build --wait`. `inputs.files(serviceJars)`로 서비스 6개 `bootJar`에 기댄다. `finalizedBy(composeTestDown)`이라 띄우다 실패해도 내린다.
+  - `composeTest`(Test): `kotest.tags=Compose`, 시스템 속성 `weave.compose.feed-url`·`loki-url`·`tempo-url`(localhost 8080·3100·3200), 항상 다시 돈다, `dependsOn(composeTestUp)`, `finalizedBy(composeTestDown)`.
+  - `composeTestDown`(Exec): 같은 인자로 `down -v`.
+- 처음에 `by tasks.registering`으로 썼다가 Gradle 9.6 deprecation이 스크립트 컴파일 오류가 되어 `tasks.register`로 바꿨다. 스크립트 안에서 `java.util.UUID`는 `java` 확장과 부딪혀 `import java.util.UUID`로 썼다.
+- 확인:
+  - `./gradlew :e2e:composeTest` 성공(42초). `e2e/build/test-results/composeTest/`에서 `TraceLookupComposeScenarioTest` 2개 통과(Loki 1.2초, Tempo 4.2초), Integration 스펙 4개는 skipped. 끝난 뒤 `docker compose -p weave-compose-test ps -a` 비어 있음, 볼륨·네트워크도 지워짐.
+  - 실패 경로: `./gradlew :e2e:composeTest -x composeTestUp`(환경 없이 테스트만) → 두 테스트 실패 뒤 `composeTestDown`이 돌았다.
+  - `./gradlew ktlintCheck compileKotlin compileTestKotlin :e2e:test :e2e:integrationTest` 통과(`integrationTest` XML timestamp로 다시 돈 것 확인, 4개 통과·Compose 2개 skipped), `:e2e:ktlintKotlinScriptCheck --rerun` 통과, `openspec validate` 통과.
+- 바꾼 파일: `e2e/build.gradle.kts`, `e2e/CLAUDE.md`, `openspec/changes/add-trace-logging/tasks.md`, `progress.md`
+- 다음 반복(5.4)이 알아 둘 것: `composeTestDown`이 같은 Gradle 실행 안에서 돌아, CI에서 `./gradlew :e2e:composeTest` 다음 단계로 `docker compose -p weave-compose-test logs`를 부르면 컨테이너가 이미 없다. 실패 로그를 artifact로 올리려면 down 전에 로그를 파일로 떠 두는 방법(예: `composeTestDown` 앞에 로그를 `e2e/build/`에 쓰는 태스크를 두거나, CI에서 down을 끄는 속성)이 필요하다. 태스크 설계를 바꾸는 판단이니 범위 안인지 보고 정한다.
 ---
