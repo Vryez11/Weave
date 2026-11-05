@@ -141,3 +141,12 @@
 - 바꾼 파일: `buildSrc/.../weave.spring-service.gradle.kts`, `libs/observability/src/main/resources/observability-defaults.properties`, 서비스 6개 `application.yml`, `post-service/src/test/.../PostPrometheusEndpointTest.kt`, `libs/observability/CLAUDE.md`
 - 다음 반복(2.8)이 알아 둘 것: 아키텍처 7-3에 적을 테스트 이름은 `ExecutorTracePropagationTest`의 네 테스트와 `FeedTracePropagationOffTest`다(2.5 기록). 5.2의 Prometheus 긁기 경로는 `/actuator/prometheus`.
 ---
+
+## 2026-11-05 15:40 - 2.8 아키텍처 7-1, 7-3
+- 7-1: JSON 로그 필드 표(`@timestamp`~`stack_trace`, 이벤트 필드는 key-value), 비동기 appender 값과 근거, 트레이싱(모듈 선택, OTLP 주소 없으면 내보내지 않음), `TraceLoggingFilter`(헤더, 오류 디스패치, `http_request` 줄, `/actuator` 제외), 기본 속성 방식과 세 속성 표.
+- 7-3: 방법 표의 Spring `TaskExecutor`를 `spring.task.execution.propagate-context`로 확정(벌크헤드는 후보로 둠). 재현 결과 표에 무엇이 어디서 끊겼는지와 테스트 이름(`FeedTracePropagationOffTest`, `FeedTraceLogScenarioTest`의 전파 둘, `ExecutorTracePropagationTest` 넷)을 적었다. 테스트 이름은 grep으로 실제 이름과 맞췄다.
+- 7-2(Loki 라벨, 구조화 메타데이터), 1장 이미지 버전, 12장은 5.5 몫이라 건드리지 않았다.
+- 확인: `openspec validate --all --strict --no-interactive` 통과. 문서만 바꿔 빌드는 돌리지 않았다.
+- 바꾼 파일: `docs/architecture.md`
+- 다음 반복(3.1)이 알아 둘 것: `cause` 분류는 `com.weave.feed.gateway`의 함수 하나로 두고 단위 테스트(태그 없음) 이름에 `F-004`를 넣는다.
+---

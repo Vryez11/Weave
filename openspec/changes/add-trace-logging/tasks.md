@@ -59,7 +59,7 @@
   - `weave.spring-service`에 `micrometer-registry-prometheus`를 더하고, 기본 속성에 `management.endpoints.web.exposure.include=health,info,prometheus`를 넣는다.
   - 서비스 6개의 `application.yml`에서 `management.endpoints.web.exposure.include`를 지운다(design 결정 2).
   - 확인: post-service 통합 테스트에서 `GET /actuator/prometheus`가 200이다. `./gradlew test integrationTest`가 1.5, 1.6의 아직 구현하지 않은 시나리오 말고는 모두 통과한다.
-- [ ] 2.8 `docs/architecture.md` 7-1, 7-3을 정한 방식으로 고친다.
+- [x] 2.8 `docs/architecture.md` 7-1, 7-3을 정한 방식으로 고친다.
   - 7-1: 로그 필드, `X-Trace-Id`, 요청 완료 로그, 기본 속성을 넣는 방식
   - 7-3: Spring `TaskExecutor`는 `spring.task.execution.propagate-context`. 2.4, 2.5의 재현 결과(무엇이 어디서 끊겼는지)와 그 테스트 이름
   - 확인: `docs(architecture)` 커밋 하나로 남고, 적은 테스트 이름이 실제로 있다.

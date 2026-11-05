@@ -261,12 +261,32 @@ Retry-After 동안 호출을 막는 방법(서킷을 그 시간만큼 열어 두
 
 ### 7-1. `libs/observability`가 하는 일
 
-서비스는 의존성만 추가하면 아래가 모두 적용된다(서비스 컨벤션 플러그인이 이미 넣는다).
+서비스는 의존성만 추가하면 아래가 모두 적용된다(서비스 컨벤션 플러그인이 이미 넣는다). 서비스는 로그·트레이싱 설정을 따로 두지 않는다.
 
-- `logback-spring.xml`: logstash-logback-encoder로 JSON을 stdout에 쓴다. 필드는 시각, 레벨, 서비스 이름, traceId, spanId, 로거, 메시지, 예외. 비동기 appender를 쓰고, 긴 스택 트레이스는 줄인다.
-- 트레이싱: Micrometer Tracing의 OTel 브리지와 OTLP 내보내기 설정. 로컬 실험에서는 모든 요청을 수집한다(샘플링 100%).
-- 응답 헤더에 traceId를 넣는 필터.
-- 스레드가 바뀔 때 컨텍스트를 넘기는 설정(7-3).
+- **JSON 로그:** `logback-spring.xml` 하나가 정한다. logstash-logback-encoder로 로그 한 건을 stdout에 JSON 한 줄로 쓴다.
+
+  | 필드 | 내용 |
+  |---|---|
+  | `@timestamp` | ISO-8601, 밀리초까지(`timestampPattern`으로 고정) |
+  | `level`, `logger`, `thread`, `message` | 인코더 기본 필드. `logger_name`·`thread_name`을 이름만 바꿨다 |
+  | `service` | `spring.application.name` |
+  | `traceId`, `spanId` | 요청 처리 중일 때. MDC에서 이 두 키만 내보낸다 |
+  | `stack_trace` | 예외가 있을 때. 예외당 30프레임, 원인 먼저, 리플렉션·프록시·필터 체인 프레임 생략 |
+  | 이벤트 필드(`event` 등) | SLF4J 2 key-value(`addKeyValue`)로 넣으면 최상위 필드가 된다 |
+
+  비동기 appender(대기열 8192, `discardingThreshold` 0, `neverBlock` false)가 콘솔 appender를 감싼다. 200 RPS에서 서비스 하나의 로그가 초당 400줄 이하라 출력이 멈춰도 약 20초를 버티고, 가득 차도 로그를 버리지 않는다.
+- **트레이싱:** Micrometer Tracing의 OTel 브리지와 OTLP 내보내기. 스타터(`spring-boot-starter-opentelemetry`) 대신 모듈을 골라 넣어 메트릭 OTLP 레지스트리를 들이지 않는다. 하위 서비스 호출에는 Boot가 `RestClient.Builder`에 붙인 관찰로 클라이언트 스팬과 `traceparent`(W3C)가 붙는다. OTLP 주소는 기본값에 없어서, 주소를 주지 않으면(테스트, `bootRun`) 스팬을 내보내지 않는다.
+- **`X-Trace-Id` 응답 헤더와 요청 완료 로그:** `TraceLoggingFilter` 하나가 맡는다. Boot의 `ServerHttpObservationFilter` 뒤(order `HIGHEST_PRECEDENCE + 2`)에서 현재 스팬의 traceId를 읽는다.
+  - 체인을 부르기 전에 `X-Trace-Id`를 넣는다. Tomcat의 `/error` 오류 디스패치에서도 같은 값을 다시 넣어 400·500 응답에도 헤더가 있다.
+  - 첫 디스패치가 끝날 때 INFO로 한 줄 남긴다: `event=http_request`, `method`, `path`(쿼리 제외), `status`(체인에서 예외가 올라오면 500), `durationMs`.
+  - `/actuator`로 시작하는 경로는 로그만 건너뛴다(헤더는 넣는다). 헬스 체크와 Prometheus 수집이 로그를 덮지 않게 한다.
+- **기본 속성:** 라이브러리는 `application.yml`을 두지 않는다. `EnvironmentPostProcessor`가 `observability-defaults.properties`를 속성 소스 뒤쪽에 붙여, 서비스의 `application.yml`과 환경 변수가 언제나 이긴다.
+
+  | 속성 | 값 | 이유 |
+  |---|---|---|
+  | `management.tracing.sampling.probability` | `1.0` | 로컬 실험에서 모든 요청을 본다. Boot 기본값은 0.1 |
+  | `spring.task.execution.propagate-context` | `true` | 7-3 |
+  | `management.endpoints.web.exposure.include` | `health,info,prometheus` | 7-2. 서비스 `application.yml`에 두면 서비스 값이 이겨 `prometheus`가 닫히므로 두지 않는다 |
 
 ### 7-2. 수집 경로
 
@@ -282,11 +302,21 @@ Grafana에서 로그의 traceId를 누르면 Tempo의 트레이스로, 트레이
 
 traceId는 스레드에 붙은 컨텍스트(MDC, 관찰 컨텍스트)에 있어서, `CompletableFuture`나 벌크헤드 스레드 풀로 일이 넘어가면 그냥은 따라가지 않는다. 고도화 1에서 MVP의 공유 스레드 풀에, 고도화 3에서 ThreadPool 벌크헤드에 각각 전파를 붙이고, 끊기지 않는 것을 테스트로 확인한다.
 
-| 넘어가는 곳 | 방법 (후보) |
+| 넘어가는 곳 | 방법 |
 |---|---|
-| Spring `TaskExecutor` | `ContextPropagatingTaskDecorator` |
-| Resilience4j ThreadPool 벌크헤드 | `context-propagators` 설정에 MDC·관찰 컨텍스트 전파 클래스 등록 |
-| 직접 만든 `Executor` | Micrometer Context Propagation으로 감싼다 |
+| Spring `TaskExecutor` (`applicationTaskExecutor`) | `spring.task.execution.propagate-context=true`(라이브러리 기본값, 7-1). Boot가 `ContextPropagatingTaskDecorator`를 붙인다. `TaskDecorator` Bean을 직접 두지 않는다 |
+| Resilience4j ThreadPool 벌크헤드 | (후보) `context-propagators` 설정에 MDC·관찰 컨텍스트 전파 클래스 등록. 고도화 3에서 정한다 |
+| 직접 만든 `Executor` | Micrometer Context Propagation의 `ContextExecutorService.wrap(executor, ContextSnapshotFactory)`로 감싼다 |
+
+고치기 전에 끊기는 것을 테스트로 먼저 보였고, 고친 뒤에도 "전파가 없으면 끊긴다"를 기록으로 남겨 두었다.
+
+| 넘어가는 곳 | 전파 없이 | 고친 뒤 | 테스트 |
+|---|---|---|---|
+| feed-service의 공유 풀(`applicationTaskExecutor`) | 풀 스레드의 RestClient가 새 trace를 시작해, post·recommendation·ad·user·like 다섯 요청의 `traceparent` traceId가 모두 응답의 `X-Trace-Id`와 달랐다. 요청 스레드에서 부르는 좋아요 토글은 처음부터 이어졌다 | 다섯 요청 모두 `X-Trace-Id`와 같다. post가 끝난 뒤 `thenCompose`로 시작한 user·like도 같다 | 끊김: `FeedTracePropagationOffTest`의 "F-004 전파를 끄면 끊긴다: …"(`propagate-context=false`를 테스트에 명시해, 기본값이 바뀌어도 기록으로 남는다). 이어짐: `FeedTraceLogScenarioTest`의 "F-004 피드 요청의 다섯 호출: …", "F-004 post가 끝난 뒤 시작한 호출: …" |
+| `Executors.newFixedThreadPool` | 작업 스레드의 MDC에 `traceId`가 없다 | `ContextExecutorService.wrap`으로 감싸면 요청 스레드와 같은 `traceId` | `ExecutorTracePropagationTest`의 "F-004 직접 만든 고정 스레드 풀에서는 MDC의 traceId가 끊긴다", "F-004 고정 스레드 풀을 ContextExecutorService.wrap으로 감싸면 같은 traceId가 이어진다" |
+| `CompletableFuture` 기본 풀(`ForkJoinPool.commonPool()`) | 같음 | 같음 | 같은 파일의 "F-004 CompletableFuture의 기본 풀(ForkJoinPool.commonPool)에서는 MDC의 traceId가 끊긴다", "F-004 ForkJoinPool.commonPool을 ContextExecutorService.wrap으로 감싸면 같은 traceId가 이어진다" |
+
+`supplyAsync`에 실행기를 넘기지 않으면 commonPool로 가서 끊긴다. 하위 서비스 호출은 `applicationTaskExecutor`나 감싼 실행기에서 돌린다. F-001의 ThreadPool 벌크헤드도 직접 만든 실행기와 같은 방식으로 끊김과 이어짐을 테스트로 남긴다.
 
 ### 7-4. 대시보드
 
