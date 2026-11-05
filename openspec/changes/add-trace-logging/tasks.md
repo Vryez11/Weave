@@ -100,7 +100,7 @@
   - `docs/architecture.md`: 1장 표에 Compose 이미지 버전, 7-2에 Loki 라벨과 구조화 메타데이터, 12장 표에서 대시보드(7-4)를 `add-fault-experiments`로 옮긴다.
   - README의 실행 방법을 고친다.
   - 확인: 문서에 적은 명령을 그대로 돌려 5.1의 확인과 같은 결과가 나온다.
-- [ ] 5.6 전체 검사를 돌린다. 확인: `./gradlew ktlintCheck build`, `./gradlew :e2e:composeTest`, `openspec validate --all --strict --no-interactive`가 통과한다.
+- [x] 5.6 전체 검사를 돌린다. 확인: `./gradlew ktlintCheck build`, `./gradlew :e2e:composeTest`, `openspec validate --all --strict --no-interactive`가 통과한다.
 
 ## 6. 검토와 change 완료 조건
 

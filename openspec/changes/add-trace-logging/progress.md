@@ -249,3 +249,13 @@
 - 바꾼 파일: `CLAUDE.md`, `conventions/harness.md`, `docs/architecture.md`, `README.md`, `openspec/changes/add-trace-logging/tasks.md`, `progress.md`
 - 다음 반복(5.6)이 알아 둘 것: 전체 검사 작업이다. `./gradlew ktlintCheck build`, `./gradlew :e2e:composeTest`, `openspec validate`를 돌린다. `composeTest` 전에 `docker compose ls`로 손으로 띄운 `weave` 프로젝트가 없는지 본다(포트가 부딪힌다).
 ---
+
+## 2026-11-05 16:16 - 5.6 전체 검사
+- 코드는 고치지 않았다. `docker compose ls -a`에 `weave` 프로젝트는 없었다. 떠 있던 다른 프로젝트(dandi-backend)는 3307·6380만 써서 weave 포트와 겹치지 않았다.
+- 확인:
+  - `./gradlew ktlintCheck build`는 모두 UP-TO-DATE라 `--rerun-tasks`로 다시 돌려 통과(1분 5초). 모든 모듈 `test-results` XML 64개 스위트에서 failures·errors 0(skipped는 태그로 걸러진 스펙).
+  - `./gradlew :e2e:composeTest` 통과(39초). `TraceLookupComposeScenarioTest` 2개 통과(timestamp 07:14Z), 끝난 뒤 `docker compose -p weave-compose-test ps -a` 비어 있음.
+  - `openspec validate --all --strict --no-interactive` 7개 통과.
+- 바꾼 파일: `openspec/changes/add-trace-logging/tasks.md`, `progress.md`
+- 다음은 6장(검토와 change 완료 조건)이다. Ralph 루프가 하지 않으니 사람에게 넘긴다. 검토 때 볼 것: design 결정 6에 3.2에서 더한 오류 본문 없는 예외 메시지(`HttpClientConfig`), 5.2의 관찰 인프라 이미지 버전(최신 여부 미확인).
+---
