@@ -99,7 +99,8 @@ PRD F-004의 순서대로 간다.
 - **요청 완료 로그:** `finally`에서 `event=http_request`, `method`, `path`(`requestURI`, 쿼리 제외), `status`, `durationMs`를 INFO로 한 줄 남긴다. 체인에서 예외가 올라왔으면 `status`는 500으로 적는다. 그 시점의 응답 상태는 아직 오류 처리 전이라 200이다.
 - **처리되지 않은 예외(검토에서 더함):** 필터가 예외를 다시 던진 뒤 서버 스팬의 scope가 닫히고, 그다음 Tomcat이 `Servlet.service() ... threw exception` ERROR 줄을 남긴다. 이 줄에는 MDC가 비어 `traceId`가 없어, traceId로 조회하면 정작 스택 트레이스가 빠진다. 그래서 예외가 올라오면 필터가 scope 안에서 `http_request` 줄을 ERROR로 올리고 예외를 함께 담아 남긴 뒤 다시 던진다. Tomcat의 같은 내용 줄(`org.apache.catalina.core.ContainerBase.[<엔진>].[<호스트>].[<경로>].[dispatcherServlet]` 로거, 엔진 이름은 `Tomcat` 또는 테스트의 `Tomcat-N`)은 logback에서 막아 중복으로 남기지 않는다. 오류 응답(본문, 상태)은 바뀌지 않는다.
   - 대안: 별도 `http_request_failed` 줄을 더하기. 요청 하나에 한 줄이라는 요청 완료 로그의 규칙이 깨지고, 장애 실험에서 로그량만 는다.
-- `/actuator`, 또는 `/actuator/`로 시작하는 경로는 로그만 건너뛴다(헤더는 넣는다). Compose 헬스 체크와 Prometheus 수집이 몇 초마다 와서 로그를 덮는다.
+  - actuator 경로(2차 검토에서 더함): 요청 완료 줄은 남기지 않지만, Tomcat 줄을 막았으므로 예외는 필터가 남겨야 한다. 예외가 올라오면 scope 안에서 `event=unhandled_exception`, `method`, `path`를 담은 ERROR 줄을 예외와 함께 남기고 다시 던진다. 막지 않으면 `/actuator/prometheus` 수집이 500으로 실패해도 원인 줄이 어디에도 없다.
+- `/actuator`, 또는 `/actuator/`로 시작하는 경로는 요청 완료 로그만 건너뛴다(헤더는 넣는다). Compose 헬스 체크와 Prometheus 수집이 몇 초마다 와서 로그를 덮는다.
 - **비동기 디스패치는 다루지 않는다.** 지금 컨트롤러는 모두 동기로 응답한다. 컨트롤러가 `CompletableFuture`를 돌려주게 바뀌면(F-001 후보) 첫 디스패치가 끝난 시점의 `status`·`durationMs`가 남으므로, 그때 필터가 비동기 디스패치 완료에 맞춰 로그를 남기도록 고친다. 필터 KDoc에 적어 둔다.
 - 헤더 이름은 `X-Trace-Id`. W3C의 `traceresponse` 헤더는 아직 초안이고, 클라이언트가 값을 그대로 오류 리포트에 붙이기에는 traceId만 담은 헤더가 쉽다.
 - **오류 디스패치:** 처리되지 않은 예외는 Tomcat이 `/error`로 다시 디스패치한다. 이때 응답이 초기화되며 헤더가 사라질 수 있다. 오류 디스패치에서도 필터를 돌려(`shouldNotFilterErrorDispatch` false) 헤더를 다시 넣되, 요청 완료 로그는 첫 디스패치에서만 남긴다. 실제로 헤더가 사라지는지는 오류 응답 시나리오 테스트가 판정한다.

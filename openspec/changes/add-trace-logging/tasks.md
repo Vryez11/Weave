@@ -137,13 +137,29 @@
   - 확인: `/actuatorx` 경로는 `http_request` 줄을 남기는 단위 테스트가 통과한다. `./gradlew :e2e:composeTest`가 통과하고, 일부러 `composeTestUp`만 돌려 둔 뒤 다시 `./gradlew :e2e:composeTest`를 돌려도 통과한다.
 - [x] 6.8 전체 검사를 돌린다. 확인: `./gradlew ktlintCheck build`, `./gradlew :e2e:composeTest`, `openspec validate --all --strict --no-interactive`가 통과한다.
 
+2차 검토(2026-11-05)에서 나온 막음 1건(B2)과 받아들인 제안이다. 커밋된 테스트는 고치지 않는다(새 파일에 둔다).
+
+- [ ] 6.9 actuator 경로의 처리되지 않은 예외를 남긴다(design 결정 5의 "actuator 경로").
+  - 지금은 actuator 분기가 예외를 잡지 않고, Tomcat 줄은 6.2의 logback 필터가 막아 예외가 어디에도 남지 않는다.
+  - `TraceLoggingFilter`의 actuator 분기에서 예외가 올라오면 `event=unhandled_exception`, `method`, `path`를 담은 ERROR 줄을 예외와 함께 남기고 다시 던진다. 요청 완료(`http_request`) 줄은 계속 남기지 않는다.
+  - 확인: 새 단위 테스트 파일에서 예외를 던지는 `FilterChain`으로 `/actuator/x`를 부르면 ERROR 줄 하나(`unhandled_exception`, 예외 포함)가 남고 예외가 다시 던져지며, `http_request` 줄은 없다. `./gradlew :libs:observability:test`가 통과한다.
+- [ ] 6.10 문서를 코드에 맞춘다.
+  - `docs/architecture.md` 7-1: 예외로 끝난 요청은 `http_request`를 ERROR로 올리고 Tomcat의 `[dispatcherServlet]` 줄을 막는다는 것, actuator 경로의 `unhandled_exception`을 적는다.
+  - `docs/architecture.md` 7-3 표, design 결정 4의 4번, tasks 2.5의 문장과 테스트 이름을 4318f20 뒤의 `ExecutorTracePropagationTest`(OTel 현재 스팬으로 읽는다, MDC 연결은 feed 시나리오 테스트가 본다)에 맞춘다.
+  - `libs/observability/CLAUDE.md`의 `ContextStorage.addWrapper` 권장을 지우고, 전역 래퍼가 실행 순서에 기대게 만들어 쓰지 않는다는 것과 지금 방식을 적는다.
+  - design 결정 6 표의 "`ConnectException`(`NoRouteToHostException` 포함)"을 따로 나열하는 문구로 고친다(`NoRouteToHostException`은 `SocketException`의 하위다).
+  - design Risks에 한 줄: 하위 서비스가 200과 잘못된 JSON을 주면 Jackson 파싱 예외 메시지에 본문 토큰이 실려 ERROR 줄의 `stack_trace`에 남을 수 있다. 스펙은 오류 응답 본문만 다루므로 F-005에서 응답 파싱 실패를 다룰 때 본다.
+  - `e2e/build.gradle.kts`의 `composeTestUp` 미리 내리기가 `inheritIO()`로 Gradle 데몬 출력에 쓰는 것을, 실패 원인이 보이게 고친다(파일로 쓰거나 Gradle exec로).
+  - 확인: 문서에 적은 테스트 이름이 실제로 있고(`grep`), `./gradlew ktlintCheck :e2e:ktlintKotlinScriptCheck`가 통과한다.
+- [ ] 6.11 전체 검사를 돌린다. 확인: `./gradlew ktlintCheck build`, `./gradlew :e2e:composeTest`, `openspec validate --all --strict --no-interactive`가 통과한다.
+
 ## 7. 검토와 change 완료 조건
 
 이 묶음은 Ralph 루프가 하지 않는다([하네스 규칙](../../../conventions/harness.md) 3-3, 4장).
 
 - [ ] 7.1 구현에 참여하지 않은 리뷰어가 하네스 규칙 3-3의 검토 항목으로 change 문서와 diff를 본다.
   - 이 change에 해당하지 않는 항목(3번 격리, 4번 재시도)은 "해당 없음"으로 적는다. 6번 traceId는 이 change의 중심이니 공유 풀, `thenCompose` 뒤, 토글 경로를 모두 본다.
-  - 첫 검토(2026-11-05)의 막음 B1과 받아들인 제안은 묶음 6에서 고쳤다. 다시 볼 때는 묶음 6의 diff를 중심으로 본다. 받아들이지 않은 제안: 커밋 type이 어긋난 커밋 두 개(`80cb03a`, `e4f210e`)와 design 수정이 섞인 `7488c8e`는 이력을 다시 쓰지 않고 둔다.
+  - 첫 검토(2026-11-05)의 막음 B1과 받아들인 제안은 묶음 6에서 고쳤다. 2차 검토의 막음 B2와 문서 지적은 6.9~6.11에서 고친다. 다시 볼 때는 6.9 뒤의 diff를 중심으로 본다. 2차 검토에서 받아들이지 않은 제안: 커밋 섞임(`5b2d0f9`, `60bd114`)은 이력을 다시 쓰지 않는다. 받아들이지 않은 제안: 커밋 type이 어긋난 커밋 두 개(`80cb03a`, `e4f210e`)와 design 수정이 섞인 `7488c8e`는 이력을 다시 쓰지 않고 둔다.
   - 사람이 `docker compose up` 환경의 Grafana에서 로그의 traceId 링크로 Tempo 트레이스를 열고, 트레이스에서 로그로 돌아오는 것을 한 번 확인한다.
   - 확인: 막는 지적이 없다.
 - [ ] 7.2 하네스 규칙 4장의 change 완료 조건을 확인한다.
