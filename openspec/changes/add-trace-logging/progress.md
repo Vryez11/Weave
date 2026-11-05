@@ -13,6 +13,7 @@
 - e2e 테스트는 커밋 scope를 비운다(`test: ...`). commit.md scope 표에 `e2e`가 없다.
 - `progress.md`는 작업 커밋에 함께 넣는다. 따로 커밋해도 `commit-msg` 훅이 본문 `- ` 항목을 요구한다.
 - Compose 테스트 주소는 시스템 속성 `weave.compose.feed-url`, `weave.compose.loki-url`, `weave.compose.tempo-url`이다(`TraceLookupComposeScenarioTest` KDoc). 5.3의 `composeTest`가 이 이름으로 넘긴다.
+- `./gradlew build`는 `integrationTest`까지 돈다(e2e 포함). 아직 구현하지 않은 시나리오가 실패하는 동안에는 `--continue`로 돌려 실패한 태스크·테스트가 그 시나리오뿐인지 본다.
 - 처리되지 않은 예외의 Tomcat 로그는 요청 완료 로그(필터 `finally`)보다 늦게 쓰인다. "남기지 않는다"를 판정할 때는 그 요청의 줄이 아니라 뒤에 보낸 확인용 요청의 줄을 기다린다.
 
 ---
@@ -74,4 +75,12 @@
 - 확인: `:e2e:ktlintCheck`, `:e2e:compileTestKotlin`, `openspec validate` 통과. `./gradlew :e2e:test :e2e:integrationTest`에서 이 테스트는 실행되지 않았다. 다만 "리포트에 없다"를 글자 그대로 채우지는 못했다. `integrationTest` 리포트에 테스트 2개가 skipped(0ms)로 나온다. `test` 리포트에도 기존 `Integration` 스펙들과 똑같이 클래스 이름만 나온다. Kotest가 걸러 낸 스펙도 리포트에 남기는 기본 동작이라, 태그 식(buildSrc)을 고치지 않고 두었다. 같은 실행에서 1.6의 2개는 여전히 X-Trace-Id 헤더로 실패하고, F-006 2개는 통과했다.
 - 바꾼 파일: `e2e/src/test/kotlin/com/weave/e2e/TraceLookupComposeScenarioTest.kt`, `e2e/CLAUDE.md`
 - 다음 반복(2.1)은 `libs/observability`의 JSON 로그다.
+---
+
+## 2026-11-05 15:15 - 2.1 JSON 로그
+- `libs/observability`에 `logstash-logback-encoder:9.0`을 더하고 `logback-spring.xml`을 만들었다. Boot `defaults.xml`을 include하고, `LogstashEncoder`(필드 이름 `logger`·`thread`, `@version`·`level_value` 뺌, `customFields`로 `service`, `includeContext` false, MDC는 `traceId`·`spanId`만, `ShortenedThrowableConverter` 깊이 30·원인 먼저·리플렉션/프록시/필터 체인 프레임 생략)를 `AsyncAppender`(8192, `discardingThreshold` 0, `neverBlock` false)로 감쌌다.
+- `@timestamp`는 `timestampPattern` `yyyy-MM-dd'T'HH:mm:ss.SSSXXX`로 밀리초까지 고정했다. 기본값은 나노초까지 나와 스펙(밀리초)과 1.2의 정규식에 맞지 않는다.
+- 확인: `:libs:observability:integrationTest`에서 "예외가 있는 로그"는 통과, "요청 처리 중의 로그"는 "Map did not contain the keys traceId, spanId"로만 실패. `./gradlew ktlintCheck build --continue`에서 실패한 것은 아직 구현하지 않은 1.2~1.6 시나리오 테스트뿐이고(e2e F-006 2개 등 기존 테스트는 JSON 로그로도 통과), `openspec validate` 통과.
+- 바꾼 파일: `libs/observability/build.gradle.kts`, `libs/observability/src/main/resources/logback-spring.xml`, `libs/observability/CLAUDE.md`
+- 다음 반복이 알아 둘 것: Spring의 commons-logging 브리지를 거친 로그에는 `"tags":["COMMONS-LOGGING"]`가 붙는다(마커). 스펙 필드와 부딪히지 않아 두었다. 2.2에서 트레이싱을 켜면 MDC에 `traceId`·`spanId`가 들어와 1.2 첫 시나리오가 통과해야 한다.
 ---

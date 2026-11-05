@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  모든 서비스의 로그 설정 (design 결정 1). 서비스는 이 파일을 따로 두지 않는다.
+  로그 한 건을 표준 출력에 JSON 한 줄로 쓰고, 비동기 appender로 요청 스레드가 출력을 기다리지 않게 한다.
+-->
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+
+    <springProperty scope="context" name="serviceName" source="spring.application.name"/>
+
+    <appender name="CONSOLE_JSON" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+            <!-- 기본값(ISO_OFFSET_DATE_TIME)은 나노초까지 찍혀 자릿수가 들쭉날쭉하다. 스펙대로 밀리초까지만 -->
+            <timestampPattern>yyyy-MM-dd'T'HH:mm:ss.SSSXXX</timestampPattern>
+            <fieldNames>
+                <logger>logger</logger>
+                <thread>thread</thread>
+                <version>[ignore]</version>
+                <levelValue>[ignore]</levelValue>
+            </fieldNames>
+            <customFields>{"service":"${serviceName}"}</customFields>
+            <!-- 서비스 이름은 customFields로 넣는다. 컨텍스트 속성과 다른 MDC 키는 내보내지 않는다 -->
+            <includeContext>false</includeContext>
+            <includeMdcKeyName>traceId</includeMdcKeyName>
+            <includeMdcKeyName>spanId</includeMdcKeyName>
+            <throwableConverter class="net.logstash.logback.stacktrace.ShortenedThrowableConverter">
+                <maxDepthPerThrowable>30</maxDepthPerThrowable>
+                <rootCauseFirst>true</rootCauseFirst>
+                <!-- 원인을 가리는 데 쓸모없는 리플렉션·프록시·필터 체인 프레임 -->
+                <exclude>^jdk\.internal\.reflect\.</exclude>
+                <exclude>^java\.lang\.reflect\.Method\.invoke</exclude>
+                <exclude>^org\.springframework\.cglib\.</exclude>
+                <exclude>^org\.springframework\.aop\.</exclude>
+                <exclude>^org\.apache\.catalina\.core\.ApplicationFilterChain\.</exclude>
+                <exclude>^org\.springframework\.web\.filter\.OncePerRequestFilter\.doFilter</exclude>
+            </throwableConverter>
+        </encoder>
+    </appender>
+
+    <!--
+      대기열 8192: 실험 부하 200 RPS에서 서비스 하나의 로그는 초당 400줄 이하라 출력이 멈춰도 약 20초를 버틴다.
+      discardingThreshold 0: 가득 차도 INFO 이하를 버리지 않는다. 장애 실험 중의 요청 로그가 조용히 빠지지 않게 한다.
+    -->
+    <appender name="ASYNC" class="ch.qos.logback.classic.AsyncAppender">
+        <queueSize>8192</queueSize>
+        <discardingThreshold>0</discardingThreshold>
+        <neverBlock>false</neverBlock>
+        <appender-ref ref="CONSOLE_JSON"/>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="ASYNC"/>
+    </root>
+</configuration>

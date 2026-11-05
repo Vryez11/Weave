@@ -30,7 +30,7 @@
 
 ## 2. libs/observability
 
-- [ ] 2.1 JSON 로그를 만든다.
+- [x] 2.1 JSON 로그를 만든다.
   - logstash-logback-encoder 의존성을 더한다.
   - `logback-spring.xml`에 design 결정 1의 인코더 설정(필드 이름, `service`, 스택 트레이스 줄이기)과 비동기 appender(대기열 8192, `discardingThreshold` 0, `neverBlock` false)를 둔다.
   - 확인: 1.2의 "예외가 있는 로그"가 통과한다. "요청 처리 중의 로그"는 `traceId`·`spanId`만 빠져 실패한다.
