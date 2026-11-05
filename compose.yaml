@@ -1,11 +1,20 @@
-# 서비스 6개와 MySQL을 띄운다 (add-trace-logging design 결정 7).
+# 서비스 6개, MySQL, 관찰 인프라(Alloy, Loki, Tempo, Prometheus, Grafana)를 띄운다 (add-trace-logging design 결정 7).
 # 띄우는 법: `./gradlew bootJar` 뒤 `docker compose up -d --build --wait`. MySQL 계정은 `.env`에서 읽는다(.env.example).
-# 호스트에는 feed-service(8080)만 연다. 서비스끼리는 Compose 서비스 이름으로 부른다.
+# 호스트에는 feed-service(8080)와 관찰 인프라만 연다. 관찰 인프라는 로컬에서만 보도록 127.0.0.1에 묶는다.
+# 서비스끼리는 Compose 서비스 이름으로 부른다. 관찰 인프라의 설정은 docker/<이름>/에 있다.
 
+# 서비스 공통값. 병합 키(<<)는 얕아서, environment나 depends_on을 따로 두는 서비스는 아래 앵커를 다시 병합한다
 x-service: &service
   labels:
     # Alloy가 stdout을 모아 Loki로 보낼 컨테이너 표시
     weave.logs: "true"
+  environment: &service-environment
+    # 스팬을 Alloy로 보낸다. 이 값이 없으면 스팬을 내보내지 않는다(라이브러리 기본값에 두지 않음, design 결정 2)
+    MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://alloy:4318/v1/traces
+  depends_on: &service-depends-on
+    # 시작 로그와 첫 스팬부터 모이도록 Alloy를 먼저 띄운다
+    alloy:
+      condition: service_started
 
 # 헬스 체크 공통값. start_period 동안은 2초마다 보고, 실패해도 횟수에 세지 않는다
 x-service-healthcheck: &service-healthcheck
@@ -22,6 +31,7 @@ services:
       context: ./feed-service/build/libs
       dockerfile: ../../../docker/service.Dockerfile
     environment:
+      <<: *service-environment
       POST_BASE_URL: http://post-service:8081
       USER_BASE_URL: http://user-service:8082
       LIKE_BASE_URL: http://like-service:8083
@@ -57,10 +67,12 @@ services:
       context: ./like-service/build/libs
       dockerfile: ../../../docker/service.Dockerfile
     environment:
+      <<: *service-environment
       LIKE_DB_URL: jdbc:mysql://mysql:3306/weave_like
       LIKE_DB_USERNAME: ${LIKE_DB_USERNAME:?.env에 LIKE_DB_USERNAME을 채운다}
       LIKE_DB_PASSWORD: ${LIKE_DB_PASSWORD:?.env에 LIKE_DB_PASSWORD를 채운다}
     depends_on:
+      <<: *service-depends-on
       mysql:
         condition: service_healthy
     healthcheck:
@@ -100,6 +112,78 @@ services:
       # ping은 인증 실패여도 서버가 살아 있으면 0으로 끝나 계정이 필요 없다
       <<: *service-healthcheck
       test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "--silent"]
+
+  # ---------- 관찰 인프라 (아키텍처 7-2) ----------
+  # 이미지에 셸이나 HTTP 클라이언트가 없는 Alloy, Loki는 헬스 체크를 두지 않는다(running이면 된다)
+
+  alloy:
+    image: grafana/alloy:v1.11.0
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - --disable-reporting
+      - /etc/alloy/config.alloy
+    volumes:
+      - ./docker/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      # weave.logs=true 컨테이너를 찾고 stdout을 읽는다. 읽기만 한다
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      # Alloy UI(파이프라인 상태)
+      - "127.0.0.1:12345:12345"
+    depends_on:
+      - loki
+      - tempo
+
+  loki:
+    image: grafana/loki:3.6.0
+    command: ["-config.file=/etc/loki/loki.yaml"]
+    volumes:
+      - ./docker/loki/loki.yaml:/etc/loki/loki.yaml:ro
+    ports:
+      - "127.0.0.1:3100:3100"
+
+  tempo:
+    image: grafana/tempo:2.9.0
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    volumes:
+      - ./docker/tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro
+    ports:
+      - "127.0.0.1:3200:3200"
+    healthcheck:
+      <<: *service-healthcheck
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:3200/ready"]
+
+  prometheus:
+    image: prom/prometheus:v3.7.0
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "127.0.0.1:9090:9090"
+    healthcheck:
+      <<: *service-healthcheck
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:9090/-/ready"]
+
+  grafana:
+    image: grafana/grafana:12.2.0
+    environment:
+      # 로컬 실험용이라 로그인 없이 연다. 포트는 127.0.0.1에만 묶는다
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+    volumes:
+      # 데이터 소스 폴더만 덮는다. 폴더 전체를 덮으면 이미지의 빈 provisioning 폴더(dashboards 등)가 없어져 오류 로그가 난다
+      - ./docker/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      - loki
+      - tempo
+      - prometheus
+    healthcheck:
+      <<: *service-healthcheck
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:3000/api/health"]
 
 volumes:
   mysql-data:

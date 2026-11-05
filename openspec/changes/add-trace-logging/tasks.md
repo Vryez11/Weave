@@ -83,7 +83,7 @@
   - `docker/service.Dockerfile`과 루트 `compose.yaml`을 만들고, 서비스마다 헬스 체크와 로그 수집 라벨(`weave.logs=true`)을 단다.
   - `.env.example`에 MySQL 항목을 설명과 함께 더한다.
   - 확인: `./gradlew bootJar` 뒤 `docker compose --env-file <임의 값으로 만든 파일> up -d --build --wait`가 0으로 끝나고, `docker compose ps`에서 7개 컨테이너가 모두 healthy다. 끝나면 `docker compose down -v`로 내린다. `./gradlew :e2e:integrationTest`도 계속 통과한다.
-- [ ] 5.2 관찰 인프라를 더한다.
+- [x] 5.2 관찰 인프라를 더한다.
   - Alloy(로그·OTLP), Loki, Tempo, Prometheus, Grafana를 `compose.yaml`에 더하고, 설정을 `docker/<이름>/`에 둔다.
   - 이미지 태그는 버전으로 고정한다.
   - 서비스에 `MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT`를 준다.

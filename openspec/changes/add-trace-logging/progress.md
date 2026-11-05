@@ -25,7 +25,9 @@
 - Compose 확인용 env 파일은 `e2e/build/compose-check.env`(임의 값의 `LIKE_DB_USERNAME`, `LIKE_DB_PASSWORD`, `MYSQL_ROOT_PASSWORD`)로 Write 도구로 만든다. 이름이 `.env.`로 시작하지 않아 pre-file 훅에 걸리지 않는다. 명령: `docker compose --env-file e2e/build/compose-check.env up -d --build --wait` → `... ps -a` → `... down -v`.
 - 이 환경에서 `docker run`과 호스트 `curl`은 허가가 필요하다. `docker compose`만 허용이라 컨테이너 안 요청은 `docker compose ... exec feed-service curl ...`로 한다(서비스 이미지에 curl이 있다).
 - `eclipse-temurin:25-jre`에는 curl·wget이 없다. `docker/service.Dockerfile`이 curl을 설치한다. 새 헬스 체크도 curl로 쓴다.
-- Compose 서비스 이름은 모듈 이름과 같다(`feed-service` 등). 서비스끼리는 `http://<모듈 이름>:<포트>`로 부르고, 호스트에는 8080만 열려 있다. 공통 라벨은 `x-service`, 헬스 체크 공통값은 `x-service-healthcheck` 앵커다.
+- Compose 서비스 이름은 모듈 이름과 같다(`feed-service` 등). 서비스끼리는 `http://<모듈 이름>:<포트>`로 부른다. 공통값은 `x-service`(라벨, `environment: &service-environment`, `depends_on: &service-depends-on`), 헬스 체크 공통값은 `x-service-healthcheck` 앵커다. 병합이 얕아 feed·like처럼 `environment`/`depends_on`을 따로 두는 서비스는 안쪽 앵커를 다시 `<<:`로 병합한다.
+- 호스트에 열린 포트: feed 8080, 그리고 127.0.0.1에만 Grafana 3000, Loki 3100, Tempo 3200, Prometheus 9090, Alloy UI 12345. 5.3의 시스템 속성 주소는 `http://localhost:8080`, `http://localhost:3100`, `http://localhost:3200`이다.
+- 웹 조회(WebSearch, WebFetch)와 `docker run`·`docker image ls`는 허가가 없다. 이미지 태그는 임시 Compose 파일(`e2e/build/tag-probe.yaml`)을 `docker compose -f ... pull`해 있는지 본다. 관찰 인프라 확인 명령은 5.2 기록에 있다.
 
 ---
 
@@ -192,4 +194,25 @@
 - 확인: `./gradlew bootJar` 뒤 `docker compose --env-file e2e/build/compose-check.env up -d --build --wait`가 0으로 끝남, `ps -a`에서 7개 모두 healthy. `exec feed-service curl -H "X-User-Id: 1" localhost:8080/feed?size=2`가 200과 `X-Trace-Id`, 게시글·좋아요·추천·광고를 돌려줌. `down -v` 뒤 `ps -a` 비어 있음. `./gradlew ktlintCheck build --continue` 통과(`:e2e:integrationTest` 다시 돌아 4개 통과, Compose 2개 skipped). `openspec validate` 통과.
 - 바꾼 파일: `buildSrc/src/main/kotlin/weave.spring-service.gradle.kts`, `docker/service.Dockerfile`, `docker/service.Dockerfile.dockerignore`, `compose.yaml`, `.env.example`
 - 다음 반복(5.2)이 알아 둘 것: 관찰 인프라는 같은 `compose.yaml`에 더하고 설정은 `docker/<이름>/`에 둔다. Loki 라벨 `service`는 Compose 서비스 이름(=모듈 이름)이다. OTLP 주소 환경 변수는 `x-service` 앵커에 `environment`로 넣으면 feed·like의 `environment`가 덮어쓰므로(병합 키는 얕다) 서비스마다 넣거나 앵커 구조를 바꿔야 한다. Prometheus는 `<모듈 이름>:<포트>/actuator/prometheus`를 긁는다.
+---
+
+## 2026-11-05 16:00 - 5.2 관찰 인프라
+- `compose.yaml`에 Alloy·Loki·Tempo·Prometheus·Grafana를 더했다. 설정은 `docker/alloy/config.alloy`, `docker/loki/loki.yaml`, `docker/tempo/tempo.yaml`, `docker/prometheus/prometheus.yml`, `docker/grafana/provisioning/datasources/datasources.yaml`.
+  - 이미지 태그: `grafana/alloy:v1.11.0`, `grafana/loki:3.6.0`, `grafana/tempo:2.9.0`, `prom/prometheus:v3.7.0`, `grafana/grafana:12.2.0`. 웹 조회 허가가 없어 최신 안정 버전인지는 확인하지 못했다. 설정 형식을 아는 버전을 골라 `docker compose pull`로 있는지만 확인했다. 5.5에서 아키텍처 1장에 적을 때나 검토 때 더 새 버전으로 올릴지 볼 것.
+  - 서비스 6개에 `MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT=http://alloy:4318/v1/traces`(OTLP HTTP)와 `depends_on: alloy`를 `x-service` 앵커에 넣고, feed·like는 안쪽 앵커를 다시 병합했다.
+  - Alloy: `discovery.docker`(라벨 `weave.logs=true`) → `loki.source.docker`(라벨 `service` = Compose 서비스 이름) → `loki.process`(JSON에서 `level`은 라벨, `traceId`·`spanId`는 구조화 메타데이터, `@timestamp`를 로그 시각으로) → Loki. OTLP HTTP 4318 → batch → Tempo gRPC 4317. 사용 통계는 껐다(`--disable-reporting`).
+  - Loki·Tempo는 단일 프로세스, 저장소는 컨테이너 안 `/tmp`(볼륨 없음, design Non-Goals). Loki는 구조화 메타데이터를 위해 tsdb + v13 스키마.
+  - Grafana: 익명 Admin, 로그인 폼 끔, 포트는 127.0.0.1. Loki derived field(`matcherType: label`, `traceId` → Tempo), Tempo `tracesToLogsV2`(`{service=~".+"} | traceId="${__trace.traceId}"`). 관찰 인프라 포트는 모두 127.0.0.1에만 묶었다.
+  - 헬스 체크: Tempo `/ready`, Prometheus `/-/ready`, Grafana `/api/health`(wget). Loki·Alloy 이미지는 셸이 없어 헬스 체크 없음(running).
+- 고친 문제: Alloy가 서비스보다 먼저 떠서 첫 Docker 탐색에 서비스가 없으면, 기본 탐색 주기(60초)만큼 로그 수집이 늦었다(시작 직후 요청이 70초쯤 Loki에 없었다). `refresh_interval = "5s"`로 줄여 시작 직후 요청도 5초 안에 6개 서비스 줄이 나왔다. 늦게 찾아도 컨테이너 로그를 처음부터 읽어 시작 로그가 빠지지 않는 것도 확인했다. Grafana는 provisioning 폴더 전체를 덮으면 빈 폴더 오류 로그가 나서 `datasources`만 마운트한다.
+- 확인 명령(모두 `docker compose --env-file e2e/build/compose-check.env` 뒤에 붙인다):
+  - `./gradlew bootJar` 뒤 `up -d --build --wait` → 0으로 끝남. `ps -a`에서 12개 모두 Up, 헬스 체크가 있는 10개는 healthy, Alloy·Loki는 running.
+  - `exec prometheus wget -qO- "http://localhost:9090/api/v1/targets?state=active" | jq -r '.data.activeTargets[] | "\(.labels.instance) \(.health)"'` → 서비스 6개 모두 `up`.
+  - `exec feed-service curl -s -i -H "X-User-Id: 4" "localhost:8080/feed?size=2"`로 `X-Trace-Id`를 얻고, `exec grafana wget -qO- 'http://loki:3100/loki/api/v1/query_range?query=<{service=~".+"} | traceId="<id>" 를 URL 인코딩>&since=30m&limit=1000'` → 6개 서비스 스트림. Loki 항목 시각(ns)이 줄의 `@timestamp`와 같다.
+  - `exec grafana wget -qO- http://tempo:3200/api/traces/<id>` → `service.name` 6개.
+  - `exec grafana wget -qO- http://localhost:3000/api/datasources` → Loki derived field url `${__value.raw}`, Tempo trace-to-logs 쿼리가 `$$` 없이 풀려 있다. Grafana·Alloy 로그에 `level=error` 0줄.
+  - `down -v` 뒤 `ps -a` 비어 있음.
+- `./gradlew ktlintCheck compileKotlin compileTestKotlin test`, `openspec validate --all --strict --no-interactive` 통과. Kotlin 변경이 없어 `build`(e2e 포함)는 다시 돌리지 않았다.
+- 바꾼 파일: `compose.yaml`, `docker/alloy/config.alloy`, `docker/loki/loki.yaml`, `docker/tempo/tempo.yaml`, `docker/prometheus/prometheus.yml`, `docker/grafana/provisioning/datasources/datasources.yaml`, `docker/CLAUDE.md`(새로)
+- 다음 반복(5.3)이 알아 둘 것: `composeTest`는 프로젝트 이름 `weave-compose-test`로 같은 `compose.yaml`을 띄운다. 호스트 포트가 고정이라 손으로 띄운 `weave` 프로젝트가 떠 있으면 포트가 부딪힌다. Loki `/ready`는 시작 뒤 한동안 503이어도 push와 조회는 된다. 테스트는 `eventually`가 있으니 Loki 준비를 따로 기다리지 않아도 된다.
 ---

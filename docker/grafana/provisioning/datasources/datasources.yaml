@@ -1,0 +1,40 @@
+# Grafana 데이터 소스 (add-trace-logging design 결정 7, 아키텍처 7-2).
+# 로그의 traceId → Tempo 트레이스, 트레이스 → 같은 traceId의 로그로 오갈 수 있게 잇는다.
+# 이 파일에서 `$`는 환경 변수로 풀리므로, Grafana 변수는 `$$`로 적는다.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+
+  - name: Loki
+    uid: loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    jsonData:
+      derivedFields:
+        # traceId는 라벨이 아니라 구조화 메타데이터로 들어온다(docker/alloy/config.alloy)
+        - name: traceId
+          matcherType: label
+          matcherRegex: traceId
+          datasourceUid: tempo
+          url: "$${__value.raw}"
+          urlDisplayLabel: Tempo에서 보기
+
+  - name: Tempo
+    uid: tempo
+    type: tempo
+    access: proxy
+    url: http://tempo:3200
+    jsonData:
+      tracesToLogsV2:
+        datasourceUid: loki
+        spanStartTimeShift: -5m
+        spanEndTimeShift: 5m
+        customQuery: true
+        query: '{service=~".+"} | traceId="$${__trace.traceId}"'
