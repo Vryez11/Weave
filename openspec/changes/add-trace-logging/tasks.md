@@ -55,7 +55,7 @@
 - [x] 2.6 라이브러리 기본값에 `spring.task.execution.propagate-context=true`를 넣는다.
   - 설정값 커밋이라 다른 변경과 섞지 않는다. 커밋 본문에 2.4의 재현 결과를 적는다.
   - 확인: 1.4의 전파 시나리오 세 개와 2.4의 재현 테스트가 모두 통과한다.
-- [ ] 2.7 Prometheus 엔드포인트를 연다.
+- [x] 2.7 Prometheus 엔드포인트를 연다.
   - `weave.spring-service`에 `micrometer-registry-prometheus`를 더하고, 기본 속성에 `management.endpoints.web.exposure.include=health,info,prometheus`를 넣는다.
   - 서비스 6개의 `application.yml`에서 `management.endpoints.web.exposure.include`를 지운다(design 결정 2).
   - 확인: post-service 통합 테스트에서 `GET /actuator/prometheus`가 200이다. `./gradlew test integrationTest`가 1.5, 1.6의 아직 구현하지 않은 시나리오 말고는 모두 통과한다.

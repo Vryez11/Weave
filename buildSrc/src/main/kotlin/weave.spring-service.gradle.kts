@@ -9,6 +9,7 @@ dependencies {
     implementation(project(":libs:observability"))
     implementation("org.springframework.boot:spring-boot-starter-webmvc")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
+    implementation("io.micrometer:micrometer-registry-prometheus")
     implementation("tools.jackson.module:jackson-module-kotlin")
     testImplementation(testFixtures(project(":libs:observability")))
     testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")

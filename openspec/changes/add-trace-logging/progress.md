@@ -17,6 +17,8 @@
 - 라이브러리 기본 속성은 `libs/observability/src/main/resources/observability-defaults.properties`에 한 줄 더하면 된다(2.6 `propagate-context`, 2.7 노출 엔드포인트). 우선순위 테스트는 `ObservabilityDefaultsTest`에 있다.
 - `X-Trace-Id`·`http_request` 로그는 `TraceLoggingFilter`(order `HIGHEST_PRECEDENCE + 2`)가 맡는다. traceId는 micrometer `Tracer.currentSpan()`에서 읽고 요청 속성에 담아 오류 디스패치에서 다시 쓴다.
 - 처리되지 않은 예외의 Tomcat 로그는 요청 완료 로그(필터 `finally`)보다 늦게 쓰인다. "남기지 않는다"를 판정할 때는 그 요청의 줄이 아니라 뒤에 보낸 확인용 요청의 줄을 기다린다.
+- `@SpringBootTest`에서는 메트릭 내보내기가 꺼져 `/actuator/prometheus`가 404다. 테스트에 `@AutoConfigureMetrics`를 붙인다(`PostPrometheusEndpointTest`).
+- 셸 훅은 `;`·`>`·`xargs`로 이은 명령이나 `$(...)`가 든 명령을 막는다. 빌드 결과는 `./gradlew ... 2>&1 | grep ...` 파이프 하나로 본다. `~/.gradle` 아래는 읽을 수 없다.
 
 ---
 
@@ -130,4 +132,12 @@
 - e2e `TraceLogEndToEndScenarioTest`(1.6) 두 개도 이 속성으로 통과했다(`:e2e:integrationTest` 4개 모두 통과).
 - 바꾼 파일: `libs/observability/src/main/resources/observability-defaults.properties`
 - 다음 반복이 알아 둘 것: 4.1은 고칠 것 없이 `./gradlew :e2e:integrationTest` 통과 확인만 하면 될 수 있다(3.2의 Gateway 로그가 붙은 뒤 다시 본다). 2.7은 같은 properties 파일에 노출 엔드포인트를 더한다.
+---
+
+## 2026-11-05 15:34 - 2.7 Prometheus 엔드포인트
+- `weave.spring-service`에 `io.micrometer:micrometer-registry-prometheus`(Boot BOM으로 1.17.2)를 더하고, `observability-defaults.properties`에 `management.endpoints.web.exposure.include=health,info,prometheus`를 넣었다. 서비스 6개의 `application.yml`에서 `management` 블록(노출 설정뿐이었다)을 통째로 지웠다.
+- `PostPrometheusEndpointTest`(`Integration`, F-004): `GET /actuator/prometheus`가 200이고 본문에 `# TYPE`이 있다. 구현 전 404로 실패를 확인했다. 구현 뒤에도 404였는데, `@SpringBootTest`가 메트릭 내보내기를 꺼 `PrometheusMeterRegistry`가 없어서였다. `@AutoConfigureMetrics`를 붙여 통과.
+- 확인: `./gradlew ktlintCheck build --continue`에서 실패는 3.x 몫 5개뿐(feed 1.5 넷, 1.4 오류 본문). e2e·like(Testcontainers) 포함 나머지 통과. `openspec validate` 통과.
+- 바꾼 파일: `buildSrc/.../weave.spring-service.gradle.kts`, `libs/observability/src/main/resources/observability-defaults.properties`, 서비스 6개 `application.yml`, `post-service/src/test/.../PostPrometheusEndpointTest.kt`, `libs/observability/CLAUDE.md`
+- 다음 반복(2.8)이 알아 둘 것: 아키텍처 7-3에 적을 테스트 이름은 `ExecutorTracePropagationTest`의 네 테스트와 `FeedTracePropagationOffTest`다(2.5 기록). 5.2의 Prometheus 긁기 경로는 `/actuator/prometheus`.
 ---
