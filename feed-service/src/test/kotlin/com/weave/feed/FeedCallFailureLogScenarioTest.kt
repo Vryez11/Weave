@@ -91,11 +91,11 @@ class FeedCallFailureLogScenarioTest :
             wireMock.stubToggleFailure(postId = 5, status = 503)
 
             LogCapture().use { capture ->
-                feed().toggleLike(5)
+                val traceId = feed().toggleLike(5).traceId()
 
                 eventually(5.seconds) {
-                    withClue("like의 http_503 downstream_call_failed 줄") {
-                        capture.failureLines("like").filter { it["cause"] == "http_503" }.shouldNotBeEmpty()
+                    withClue("traceId가 X-Trace-Id와 같은 like의 http_503 downstream_call_failed 줄") {
+                        capture.failureLines("like", traceId).filter { it["cause"] == "http_503" }.shouldNotBeEmpty()
                     }
                 }
             }
@@ -131,13 +131,13 @@ class FeedCallFailureLogUnreachableScenarioTest :
 
             LogCapture().use { capture ->
                 val environment = testContextManager().testContext.applicationContext.environment
-                TracedFeedHttp(environment.getRequiredProperty("local.server.port").toInt()).getFeed()
+                val traceId = TracedFeedHttp(environment.getRequiredProperty("local.server.port").toInt()).getFeed().traceId()
 
                 // 실패 원인이 WireMock의 응답이 아니라 연결 거부임을 확인한다
                 wireMock.requestsTo("/recommendations").shouldBeEmpty()
                 eventually(5.seconds) {
-                    withClue("recommendation의 connect_failure downstream_call_failed 줄") {
-                        capture.failureLines("recommendation").filter { it["cause"] == "connect_failure" }.shouldNotBeEmpty()
+                    withClue("traceId가 X-Trace-Id와 같은 recommendation의 connect_failure downstream_call_failed 줄") {
+                        capture.failureLines("recommendation", traceId).filter { it["cause"] == "connect_failure" }.shouldNotBeEmpty()
                     }
                 }
             }

@@ -313,3 +313,12 @@
   - 또는 6.5를 체크하고 다음 Ralph 반복이 6.6부터 하게 한다. 6.6(대기열 계산), 6.7(Compose·필터 지적)은 커밋된 테스트를 고치지 않아도 되는 일로 보인다(6.7의 `/actuatorx` 단위 테스트는 새 파일에 둘 수 있다).
 - 바꾼 파일: `progress.md`
 ---
+
+## 2026-11-05 17:20 - 6.5 테스트를 단단하게 한다 (사람 세션)
+- Ralph가 pre-file 훅(`WEAVE_RALPH=1`의 커밋된 테스트 보호)에 막혀 BLOCKED로 넘긴 것을 Ralph 밖 세션에서 했다. 훅은 고치지 않았다.
+- `FeedCallFailureLogScenarioTest`: 토글 시나리오는 토글 응답의 `X-Trace-Id`로, 연결 실패 시나리오는 피드 응답의 `X-Trace-Id`로 실패 줄을 거른다.
+- `ExecutorTracePropagationTest`: 전역 `ContextStorage.addWrapper`를 없애고, 작업 스레드의 traceId를 OTel 현재 스팬(`tracer.currentSpan()`)에서 읽는다. 감싼 실행기의 단언(요청 스레드와 같은 traceId)은 그대로다. MDC 연결은 feed 시나리오 테스트가 실제 로그로 본다는 것을 KDoc에 적었다.
+- `TraceLookupComposeScenarioTest`: Loki 항목마다 Loki 시각(ns)이 `@timestamp`와 같다고 직접 단언한다.
+- 확인: `./gradlew ktlintCheck :libs:observability:test :feed-service:integrationTest` 통과(실패 로그 스펙 3개 5개 테스트), `./gradlew :e2e:composeTest` 통과(2개).
+- 다음 반복(6.6)이 알아 둘 것: 6.6, 6.7은 커밋된 테스트를 고치지 않아도 된다. 6.7의 `/actuatorx` 단위 테스트는 새 파일에 둔다.
+---

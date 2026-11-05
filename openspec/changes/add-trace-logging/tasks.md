@@ -121,7 +121,7 @@
 - [x] 6.4 HTTP 서비스 그룹 클라이언트의 오류 상태 처리기를 보완한다(design 결정 6 끝).
   - 기본 처리기처럼 메시지 변환기로 본문 변환 함수(`setBodyConvertFunction`)를 넣는다. 닿지 않는 `UnknownHttpStatusCodeException` 분기는 정리한다.
   - 확인: 하위 서비스 503 응답에서 만든 예외의 `getResponseBodyAs(String::class.java)`가 본문을 돌려주는 테스트가 통과하고, 예외 메시지에는 본문이 없다.
-- [ ] 6.5 테스트를 단단하게 한다.
+- [x] 6.5 테스트를 단단하게 한다. (훅이 Ralph의 커밋된 테스트 수정을 막아 사람 세션에서 했다)
   - `FeedCallFailureLogScenarioTest`의 "토글 전달이 실패한다", "하위 서비스에 연결할 수 없다"가 응답의 `X-Trace-Id`로 줄을 거른다. 앞 테스트의 늦은 줄로 거짓 통과하지 않게 한다.
   - `ExecutorTracePropagationTest`가 `ContextStorage.addWrapper`를 전역에 더하는 것이 같은 JVM의 다른 테스트 순서에 기대지 않게 한다(예: 래퍼 없이 확인할 수 있게 바꾸거나, 그 스펙만 따로 fork에서 돌린다). 어느 쪽으로 했는지 테스트 KDoc에 적는다.
   - `TraceLookupComposeScenarioTest`의 Loki 시나리오가 항목마다 Loki 시각(ns)과 줄의 `@timestamp`가 같음을 직접 단언한다.

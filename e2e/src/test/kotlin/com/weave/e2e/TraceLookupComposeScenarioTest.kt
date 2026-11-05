@@ -106,12 +106,18 @@ class TraceLookupComposeScenarioTest :
                         .flatMap { stream -> stream.asMap()["values"].asList().map { it.asList() } }
                         .map { (nanos, line) -> (nanos as String).toLong() to mapper.readValue<Map<String, Any?>>(line as String) }
                         .sortedBy { it.first }
-                        .map { it.second }
 
                 withClue("Loki에서 traceId $traceId 로 조회한 로그의 service") {
-                    entries.map { it["service"] }.distinct() shouldContainAll expectedServices
+                    entries.map { it.second["service"] }.distinct() shouldContainAll expectedServices
                 }
-                val timestamps = entries.map { OffsetDateTime.parse(it["@timestamp"] as String).toInstant() }
+                // Loki 시각이 줄의 @timestamp여야 Loki 시각 순서가 곧 @timestamp 순서다
+                entries.forEach { (nanos, entry) ->
+                    val timestamp = OffsetDateTime.parse(entry["@timestamp"] as String).toInstant()
+                    withClue("Loki 시각(ns)과 @timestamp: $entry") {
+                        nanos shouldBe timestamp.epochSecond * 1_000_000_000 + timestamp.nano
+                    }
+                }
+                val timestamps = entries.map { OffsetDateTime.parse(it.second["@timestamp"] as String).toInstant() }
                 withClue("Loki 조회 결과의 @timestamp 순서: $timestamps") {
                     timestamps shouldBe timestamps.sorted()
                 }

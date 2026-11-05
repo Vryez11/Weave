@@ -10,36 +10,41 @@ import io.micrometer.observation.Observation
 import io.micrometer.observation.ObservationRegistry
 import io.micrometer.observation.contextpropagation.ObservationThreadLocalAccessor
 import io.micrometer.tracing.handler.DefaultTracingObservationHandler
-import io.micrometer.tracing.otel.bridge.EventPublishingContextWrapper
 import io.micrometer.tracing.otel.bridge.OtelCurrentTraceContext
 import io.micrometer.tracing.otel.bridge.OtelTracer
-import io.micrometer.tracing.otel.bridge.Slf4JEventListener
-import io.opentelemetry.context.ContextStorage
 import io.opentelemetry.sdk.OpenTelemetrySdk
 import io.opentelemetry.sdk.trace.SdkTracerProvider
-import org.slf4j.MDC
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.ForkJoinPool
 
 /**
- * 직접 만든 실행기에서 MDC의 traceId가 끊기는 것과, Context Propagation으로 감싸면 이어지는 것을 남긴다(design 결정 4의 4번).
- * Spring Boot가 트레이싱 자동 설정으로 만드는 연결(OTel 컨텍스트 → 이벤트 → MDC, 관찰 → 스팬)을 Spring 없이 똑같이 짠다.
+ * 직접 만든 실행기에서 traceId가 끊기는 것과, Context Propagation으로 감싸면 이어지는 것을 남긴다(design 결정 4의 4번).
  * F-001의 ThreadPool 벌크헤드처럼 Spring `TaskExecutor`가 아닌 실행기는 `spring.task.execution.propagate-context`가 닿지 않는다.
+ *
+ * 작업 스레드의 traceId는 MDC가 아니라 OTel 현재 컨텍스트에서 읽는다. MDC를 채우려면 `ContextStorage.addWrapper`를
+ * 전역에 더해야 하는데, 이 래퍼는 OTel 컨텍스트를 처음 쓰기 전에만 먹혀 같은 JVM의 다른 테스트 순서에 기대게 된다.
+ * 로그의 MDC는 Boot가 같은 OTel 컨텍스트를 따라 채우고, 그 연결은 feed-service의 시나리오 테스트가 실제 로그로 확인한다.
  */
 class ExecutorTracePropagationTest :
     FunSpec({
         val previousRegistry = ObservationThreadLocalAccessor.getInstance().observationRegistry
         val registry = ObservationRegistry.create()
         val snapshots = ContextSnapshotFactory.builder().build()
+        val tracer =
+            OtelTracer(
+                OpenTelemetrySdk
+                    .builder()
+                    .setTracerProvider(SdkTracerProvider.builder().build())
+                    .build()
+                    .getTracer("executor-test"),
+                OtelCurrentTraceContext(),
+            ) { }
+
+        fun currentTraceId(): String? = tracer.currentSpan()?.context()?.traceId()
 
         beforeSpec {
-            val publisher = Slf4JEventListener().let { listener -> OtelTracer.EventPublisher(listener::onEvent) }
-            // OTel 컨텍스트 저장소를 처음 쓰기 전에 감싸야 범위가 바뀔 때 MDC가 채워진다
-            ContextStorage.addWrapper(EventPublishingContextWrapper(publisher))
-            val openTelemetry = OpenTelemetrySdk.builder().setTracerProvider(SdkTracerProvider.builder().build()).build()
-            val tracer = OtelTracer(openTelemetry.getTracer("executor-test"), OtelCurrentTraceContext(), publisher)
             registry.observationConfig().observationHandler(DefaultTracingObservationHandler(tracer))
             ObservationThreadLocalAccessor.getInstance().observationRegistry = registry
         }
@@ -53,7 +58,7 @@ class ExecutorTracePropagationTest :
             val observation = Observation.start("feed-request", registry)
             try {
                 return observation.openScope().use {
-                    MDC.get("traceId").shouldNotBeNull() to block()
+                    currentTraceId().shouldNotBeNull() to block()
                 }
             } finally {
                 observation.stop()
@@ -62,19 +67,19 @@ class ExecutorTracePropagationTest :
 
         fun ExecutorService.traceIdOnWorker(): String? =
             try {
-                submit<String?> { MDC.get("traceId") }.get()
+                submit<String?> { currentTraceId() }.get()
             } finally {
                 shutdown()
             }
 
-        test("F-004 직접 만든 고정 스레드 풀에서는 MDC의 traceId가 끊긴다") {
+        test("F-004 직접 만든 고정 스레드 풀에서는 traceId가 끊긴다") {
             val (_, onWorker) = inObservation { Executors.newFixedThreadPool(1).traceIdOnWorker() }
 
             onWorker.shouldBeNull()
         }
 
-        test("F-004 CompletableFuture의 기본 풀(ForkJoinPool.commonPool)에서는 MDC의 traceId가 끊긴다") {
-            val (_, onWorker) = inObservation { CompletableFuture.supplyAsync { MDC.get("traceId") }.get() }
+        test("F-004 CompletableFuture의 기본 풀(ForkJoinPool.commonPool)에서는 traceId가 끊긴다") {
+            val (_, onWorker) = inObservation { CompletableFuture.supplyAsync { currentTraceId() }.get() }
 
             onWorker.shouldBeNull()
         }
@@ -90,7 +95,7 @@ class ExecutorTracePropagationTest :
             val (onRequest, onWorker) =
                 inObservation {
                     val executor = ContextExecutorService.wrap(ForkJoinPool.commonPool(), snapshots)
-                    CompletableFuture.supplyAsync({ MDC.get("traceId") }, executor).get()
+                    CompletableFuture.supplyAsync({ currentTraceId() }, executor).get()
                 }
 
             onWorker shouldBe onRequest
