@@ -19,6 +19,7 @@
 | 메트릭 | Micrometer → Prometheus → Grafana | Boot BOM |
 | 장애 실험 | Toxiproxy(네트워크 장애) + 앱 수준 장애 주입, 부하는 k6 | k6 2.3 |
 | 실행 환경 | 실험 때는 서비스 6개와 인프라를 모두 Docker Compose로, CPU·메모리 상한을 건다. 개발 중에는 서비스 하나만 `bootRun`으로 띄워도 된다 | — |
+| Compose 이미지 | 루트 `compose.yaml`. 서비스는 `docker/service.Dockerfile`로 bootJar를 담고, 그 밖의 이미지는 태그를 버전으로 고정한다(`latest` 금지) | 서비스 `eclipse-temurin:25-jre`, `mysql:9.7`, `grafana/alloy:v1.11.0`, `grafana/loki:3.6.0`, `grafana/tempo:2.9.0`, `prom/prometheus:v3.7.0`, `grafana/grafana:12.2.0` |
 | 테스트 | Kotest + MockK(springmockk), 하위 서비스는 WireMock, MySQL·Redis는 Testcontainers | Kotest 6.2.6, MockK 1.14.11, springmockk 5.0.1, WireMock 3.13, Testcontainers 2.0.5 |
 | 린트·CI | ktlint, GitHub Actions | 하네스 구성 때 정한다 |
 
@@ -261,12 +262,34 @@ Retry-After 동안 호출을 막는 방법(서킷을 그 시간만큼 열어 두
 
 ### 7-1. `libs/observability`가 하는 일
 
-서비스는 의존성만 추가하면 아래가 모두 적용된다(서비스 컨벤션 플러그인이 이미 넣는다).
+서비스는 의존성만 추가하면 아래가 모두 적용된다(서비스 컨벤션 플러그인이 이미 넣는다). 서비스는 로그·트레이싱 설정을 따로 두지 않는다.
 
-- `logback-spring.xml`: logstash-logback-encoder로 JSON을 stdout에 쓴다. 필드는 시각, 레벨, 서비스 이름, traceId, spanId, 로거, 메시지, 예외. 비동기 appender를 쓰고, 긴 스택 트레이스는 줄인다.
-- 트레이싱: Micrometer Tracing의 OTel 브리지와 OTLP 내보내기 설정. 로컬 실험에서는 모든 요청을 수집한다(샘플링 100%).
-- 응답 헤더에 traceId를 넣는 필터.
-- 스레드가 바뀔 때 컨텍스트를 넘기는 설정(7-3).
+- **JSON 로그:** `logback-spring.xml` 하나가 정한다. logstash-logback-encoder로 로그 한 건을 stdout에 JSON 한 줄로 쓴다.
+
+  | 필드 | 내용 |
+  |---|---|
+  | `@timestamp` | ISO-8601, 밀리초까지(`timestampPattern`으로 고정) |
+  | `level`, `logger`, `thread`, `message` | 인코더 기본 필드. `logger_name`·`thread_name`을 이름만 바꿨다 |
+  | `service` | `spring.application.name` |
+  | `traceId`, `spanId` | 요청 처리 중일 때. MDC에서 이 두 키만 내보낸다 |
+  | `stack_trace` | 예외가 있을 때. 예외당 30프레임, 원인 먼저, 리플렉션·프록시·필터 체인 프레임 생략 |
+  | 이벤트 필드(`event` 등) | SLF4J 2 key-value(`addKeyValue`)로 넣으면 최상위 필드가 된다 |
+
+  비동기 appender(대기열 8192, `discardingThreshold` 0, `neverBlock` false)가 콘솔 appender를 감싼다. 200 RPS에서 서비스 하나의 로그가 초당 400줄 이하라 출력이 멈춰도 약 20초를 버티고, 가득 차도 로그를 버리지 않는다. 하위 서비스가 실패하는 feed 요청은 요청당 6줄까지(스택 트레이스 줄 하나가 최대 약 9 KB)라 장애 경로에서는 약 6.8초다.
+- **트레이싱:** Micrometer Tracing의 OTel 브리지와 OTLP 내보내기. 스타터(`spring-boot-starter-opentelemetry`) 대신 모듈을 골라 넣어 메트릭 OTLP 레지스트리를 들이지 않는다. 하위 서비스 호출에는 Boot가 `RestClient.Builder`에 붙인 관찰로 클라이언트 스팬과 `traceparent`(W3C)가 붙는다. OTLP 주소는 기본값에 없어서, 주소를 주지 않으면(테스트, `bootRun`) 스팬을 내보내지 않는다.
+- **`X-Trace-Id` 응답 헤더와 요청 완료 로그:** `TraceLoggingFilter` 하나가 맡는다. Boot의 `ServerHttpObservationFilter` 뒤(order `HIGHEST_PRECEDENCE + 2`)에서 현재 스팬의 traceId를 읽는다.
+  - 체인을 부르기 전에 `X-Trace-Id`를 넣는다. Tomcat의 `/error` 오류 디스패치에서도 같은 값을 다시 넣어 400·500 응답에도 헤더가 있다.
+  - 첫 디스패치가 끝날 때 INFO로 한 줄 남긴다: `event=http_request`, `method`, `path`(쿼리 제외), `status`(체인에서 예외가 올라오면 500), `durationMs`.
+  - 체인에서 처리되지 않은 예외가 올라오면 같은 `http_request` 줄을 ERROR로 올려 예외(`stack_trace`)와 함께 남기고 다시 던진다. 서버 스팬 scope 안이라 `traceId`가 있다. Tomcat이 같은 예외로 남기는 `org.apache.catalina.core.ContainerBase.[<엔진>].[<호스트>].[<경로>].[dispatcherServlet]` 줄은 scope가 닫힌 뒤라 `traceId`가 없어, logback 필터(`TomcatServletExceptionLogFilter`)로 막는다. 엔진 이름이 `Tomcat`이든 `Tomcat-N`이든 막는다. 오류 응답(상태, 본문)은 바뀌지 않는다.
+  - `/actuator`와 `/actuator/`로 시작하는 경로는 로그만 건너뛴다(헤더는 넣는다). 헬스 체크와 Prometheus 수집이 로그를 덮지 않게 한다. `/actuatorx`처럼 글자만 같은 경로는 남긴다. 이 경로에서 예외가 올라오면 요청 완료 줄 대신 `event=unhandled_exception`, `method`, `path`를 담은 ERROR 줄을 예외와 함께 남기고 다시 던진다. Tomcat 줄을 막았으므로 이 줄이 없으면 `/actuator/prometheus` 수집이 500으로 실패해도 원인이 어디에도 남지 않는다(`TraceLoggingFilterActuatorExceptionTest`).
+  - 비동기 디스패치는 다루지 않는다. 컨트롤러가 비동기로 응답하게 바뀌면(F-001 후보) 비동기 디스패치 완료에 맞춰 남기도록 고친다.
+- **기본 속성:** 라이브러리는 `application.yml`을 두지 않는다. `EnvironmentPostProcessor`가 `observability-defaults.properties`를 속성 소스 뒤쪽에 붙여, 서비스의 `application.yml`과 환경 변수가 언제나 이긴다.
+
+  | 속성 | 값 | 이유 |
+  |---|---|---|
+  | `management.tracing.sampling.probability` | `1.0` | 로컬 실험에서 모든 요청을 본다. Boot 기본값은 0.1 |
+  | `spring.task.execution.propagate-context` | `true` | 7-3 |
+  | `management.endpoints.web.exposure.include` | `health,info,prometheus` | 7-2. 서비스 `application.yml`에 두면 서비스 값이 이겨 `prometheus`가 닫히므로 두지 않는다 |
 
 ### 7-2. 수집 경로
 
@@ -276,21 +299,49 @@ Retry-After 동안 호출을 막는 방법(서킷을 그 시간만큼 열어 두
 | 스팬 | 서비스 → OTLP → Alloy → Tempo | Grafana. 피드 요청 하나의 호출 폭포도 |
 | 메트릭 | Prometheus가 `/actuator/prometheus`를 긁는다 | Grafana 대시보드 |
 
-Grafana에서 로그의 traceId를 누르면 Tempo의 트레이스로, 트레이스에서 로그로 이동하도록 데이터 소스를 연결한다. 데이터 소스와 대시보드는 `docker/grafana/`에 파일로 두고 자동으로 불러온다.
+- **로그 수집:** Alloy가 Docker 소켓으로 `weave.logs=true` 라벨이 붙은 컨테이너(서비스 6개)를 찾아 stdout을 읽는다(`docker/alloy/config.alloy`). 탐색 주기는 5초다. 기본값 60초로 두면 서비스보다 먼저 뜬 Alloy가 첫 탐색에서 서비스를 놓쳐 시작 직후 요청의 로그가 1분 가까이 Loki에 없었다.
+- **Loki 라벨과 구조화 메타데이터:** 라벨은 `service`(Compose 서비스 이름 = 모듈 이름)와 `level` 둘만 둔다. `traceId`·`spanId`는 요청마다 달라 라벨로 두면 스트림이 폭증하므로, Alloy가 JSON을 풀어 구조화 메타데이터로 붙인다(Loki tsdb + v13 스키마). 로그 시각은 컨테이너 출력 시각이 아니라 줄의 `@timestamp`라, 비동기 appender가 출력을 미뤄도 앱 시각 순서로 남는다. JSON이 아닌 줄(logback보다 먼저 찍힌 JVM 출력 등)은 필드 없이 그대로 들어간다.
+
+  ```logql
+  {service=~".+"} | traceId="<traceId>"
+  ```
+
+- **스팬:** 서비스는 `MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT=http://alloy:4318/v1/traces`(Compose에서만 준다, 7-1)로 OTLP HTTP를 보내고, Alloy가 묶어 Tempo(gRPC 4317)로 넘긴다. Tempo에서는 `/api/traces/<traceId>`로 조회한다.
+- **메트릭:** Prometheus가 서비스 6개의 `/actuator/prometheus`를 15초마다 긁는다(`docker/prometheus/prometheus.yml`).
+- **저장:** Loki·Tempo는 단일 프로세스이고 컨테이너 안에만 저장한다. 내리면 지워진다.
+- **포트:** 호스트에는 feed-service 8080과 관찰 인프라만 연다. 모두 `127.0.0.1`에만 묶는다(feed-service 8080, Grafana 3000, Loki 3100, Tempo 3200, Prometheus 9090, Alloy UI 12345). Grafana는 로그인 없이 연다.
+
+Grafana에서 로그의 traceId를 누르면 Tempo의 트레이스로(Loki derived field), 트레이스에서 같은 traceId의 로그로(Tempo trace-to-logs) 이동하도록 데이터 소스를 연결한다. 데이터 소스는 `docker/grafana/provisioning/datasources/`에 파일로 두고 자동으로 불러온다. 대시보드(7-4)는 `add-fault-experiments`에서 같은 방식으로 더한다.
+
+Loki·Tempo 조회는 `./gradlew :e2e:composeTest`가 Compose 환경을 띄워 확인한다(하네스 규칙 5장).
 
 ### 7-3. 스레드가 바뀔 때의 traceId
 
 traceId는 스레드에 붙은 컨텍스트(MDC, 관찰 컨텍스트)에 있어서, `CompletableFuture`나 벌크헤드 스레드 풀로 일이 넘어가면 그냥은 따라가지 않는다. 고도화 1에서 MVP의 공유 스레드 풀에, 고도화 3에서 ThreadPool 벌크헤드에 각각 전파를 붙이고, 끊기지 않는 것을 테스트로 확인한다.
 
-| 넘어가는 곳 | 방법 (후보) |
+| 넘어가는 곳 | 방법 |
 |---|---|
-| Spring `TaskExecutor` | `ContextPropagatingTaskDecorator` |
-| Resilience4j ThreadPool 벌크헤드 | `context-propagators` 설정에 MDC·관찰 컨텍스트 전파 클래스 등록 |
-| 직접 만든 `Executor` | Micrometer Context Propagation으로 감싼다 |
+| Spring `TaskExecutor` (`applicationTaskExecutor`) | `spring.task.execution.propagate-context=true`(라이브러리 기본값, 7-1). Boot가 `ContextPropagatingTaskDecorator`를 붙인다. `TaskDecorator` Bean을 직접 두지 않는다 |
+| Resilience4j ThreadPool 벌크헤드 | (후보) `context-propagators` 설정에 MDC·관찰 컨텍스트 전파 클래스 등록. 고도화 3에서 정한다 |
+| 직접 만든 `Executor` | Micrometer Context Propagation의 `ContextExecutorService.wrap(executor, ContextSnapshotFactory)`로 감싼다 |
+
+고치기 전에 끊기는 것을 테스트로 먼저 보였고, 고친 뒤에도 "전파가 없으면 끊긴다"를 기록으로 남겨 두었다.
+
+| 넘어가는 곳 | 전파 없이 | 고친 뒤 | 테스트 |
+|---|---|---|---|
+| feed-service의 공유 풀(`applicationTaskExecutor`) | 풀 스레드의 RestClient가 새 trace를 시작해, post·recommendation·ad·user·like 다섯 요청의 `traceparent` traceId가 모두 응답의 `X-Trace-Id`와 달랐다. 요청 스레드에서 부르는 좋아요 토글은 처음부터 이어졌다 | 다섯 요청 모두 `X-Trace-Id`와 같다. post가 끝난 뒤 `thenCompose`로 시작한 user·like도 같다 | 끊김: `FeedTracePropagationOffTest`의 "F-004 전파를 끄면 끊긴다: …"(`propagate-context=false`를 테스트에 명시해, 기본값이 바뀌어도 기록으로 남는다). 이어짐: `FeedTraceLogScenarioTest`의 "F-004 피드 요청의 다섯 호출: …", "F-004 post가 끝난 뒤 시작한 호출: …" |
+| `Executors.newFixedThreadPool` | 작업 스레드에 현재 스팬이 없어 `traceId`가 없다 | `ContextExecutorService.wrap`으로 감싸면 요청 스레드와 같은 `traceId` | `ExecutorTracePropagationTest`의 "F-004 직접 만든 고정 스레드 풀에서는 traceId가 끊긴다", "F-004 고정 스레드 풀을 ContextExecutorService.wrap으로 감싸면 같은 traceId가 이어진다" |
+| `CompletableFuture` 기본 풀(`ForkJoinPool.commonPool()`) | 같음 | 같음 | 같은 파일의 "F-004 CompletableFuture의 기본 풀(ForkJoinPool.commonPool)에서는 traceId가 끊긴다", "F-004 ForkJoinPool.commonPool을 ContextExecutorService.wrap으로 감싸면 같은 traceId가 이어진다" |
+
+`ExecutorTracePropagationTest`는 Spring 없이 돌아, 작업 스레드의 traceId를 MDC가 아니라 OTel 현재 스팬에서 읽는다. MDC까지 보려면 OTel 컨텍스트 저장소에 전역 래퍼(`ContextStorage.addWrapper`)를 더해야 하는데, 이 래퍼는 OTel 컨텍스트를 처음 쓰기 전에만 먹혀 같은 JVM의 다른 테스트 순서에 기대게 된다. 로그의 MDC는 Boot가 같은 OTel 컨텍스트를 따라 채우고, 그 연결은 풀 스레드에서 쓴 실패 로그의 `traceId`를 보는 `FeedCallFailureLogScenarioTest`의 "F-004 하위 서비스가 5xx: …", "F-004 post 뒤에 부른 호출이 실패한다: …"가 실제 로그로 확인한다.
+
+`supplyAsync`에 실행기를 넘기지 않으면 commonPool로 가서 끊긴다. 하위 서비스 호출은 `applicationTaskExecutor`나 감싼 실행기에서 돌린다. F-001의 ThreadPool 벌크헤드도 직접 만든 실행기와 같은 방식으로 끊김과 이어짐을 테스트로 남긴다.
 
 ### 7-4. 대시보드
 
 피드 SLO(가용성, p50·p95·p99), 의존성별 degrade 비율, 서킷 상태, 벌크헤드 사용량·거절, 커넥션 풀 사용량, Tomcat 스레드 사용량을 한 화면에 둔다. 실험 리포트의 그래프도 이 대시보드에서 뜬다.
+
+보여 줄 지표 대부분이 고도화 3·4에서 생기므로, 대시보드는 실험 리포트와 함께 `add-fault-experiments`(F-007)에서 만든다. 고도화 1(`add-trace-logging`)은 Prometheus가 긁어 가는 것까지만 했다.
 
 ## 8. 좋아요 저장
 
@@ -361,8 +412,8 @@ traceId는 스레드에 붙은 컨텍스트(MDC, 관찰 컨텍스트)에 있어�
 | change | 이 문서에서 가져갈 것 |
 |---|---|
 | `add-feed-aggregation` (F-006) | 4-1 호출 순서, 4-2 MVP 구성과 기본값 기록, 5-1 클라이언트 구성, 8장 토글 좋아요 |
-| `add-trace-logging` (F-004) | 7장 전체, Compose의 관찰 인프라 |
-| `add-fault-experiments` (F-007) | 9장, 기준선 기록, 4-3과 5-6을 채울 측정 |
+| `add-trace-logging` (F-004) | 7-1 ~ 7-3, Compose의 서비스 6개·MySQL·관찰 인프라 |
+| `add-fault-experiments` (F-007) | 9장, 7-4 대시보드, 기준선 기록, 4-3과 5-6을 채울 측정 |
 | `add-call-isolation` (F-001) | 5-2 ~ 5-6, 7-3의 벌크헤드 전파, Resilience4j 4.1.2 호환 확인, 가상 스레드 + Semaphore 벌크헤드 비교(S-02) |
 | `add-graceful-degradation` (F-002) | 6장 |
 | `add-retry-policy` (F-005) | 5-5의 429 처리, Retry·RateLimiter 설정 |

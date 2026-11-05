@@ -23,7 +23,11 @@ jobs:
       # 통합 테스트의 Testcontainers는 러너의 Docker를 쓴다
       - name: 린트, 빌드, 전체 테스트
         run: ./gradlew ktlintCheck build
-      # 실패했을 때만 원인을 볼 자료를 남긴다. e2e는 서비스 6개의 로그를 파일로 쓴다(e2e/CLAUDE.md)
+      # compose.yaml 전체(서비스 6개, MySQL, 관찰 인프라)를 띄워 Loki·Tempo 조회를 확인하고 내린다
+      - name: Compose 테스트
+        run: ./gradlew :e2e:composeTest
+      # 실패했을 때만 원인을 볼 자료를 남긴다. e2e는 서비스 6개의 로그를 파일로 쓴다(e2e/CLAUDE.md).
+      # Compose 환경은 composeTest가 내리기 전에 docker compose logs를 e2e/build/compose-logs/에 남긴다
       - name: 실패한 테스트의 리포트와 서비스 로그 올리기
         if: failure()
         uses: actions/upload-artifact@v7
@@ -33,6 +37,7 @@ jobs:
             **/build/reports/tests/
             **/build/test-results/
             e2e/build/e2e-logs/
+            e2e/build/compose-logs/
           retention-days: 7
 
   spec:

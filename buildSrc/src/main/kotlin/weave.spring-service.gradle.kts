@@ -9,11 +9,18 @@ dependencies {
     implementation(project(":libs:observability"))
     implementation("org.springframework.boot:spring-boot-starter-webmvc")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
+    implementation("io.micrometer:micrometer-registry-prometheus")
     implementation("tools.jackson.module:jackson-module-kotlin")
+    testImplementation(testFixtures(project(":libs:observability")))
     testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")
     testImplementation("org.springframework.boot:spring-boot-starter-actuator-test")
     testImplementation("io.kotest:kotest-extensions-spring:6.2.6")
     testImplementation("com.ninja-squad:springmockk:5.0.1")
+}
+
+// plain jar를 만들지 않는다. build/libs에 bootJar 하나만 남아 docker/service.Dockerfile이 jar 이름을 몰라도 된다.
+tasks.named<Jar>("jar") {
+    enabled = false
 }
 
 // 실행 jar(bootJar)를 다른 모듈이 받아 쓸 수 있게 내놓는다. e2e 모듈이 서비스를 프로세스로 띄울 때 쓴다.

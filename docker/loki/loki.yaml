@@ -1,0 +1,36 @@
+# 단일 프로세스, 파일 저장소 Loki (add-trace-logging design 결정 7).
+# 로컬 실험용이라 보존 기간과 용량은 기본값으로 둔다(design Non-Goals). 컨테이너를 지우면 로그도 지워진다.
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9096
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /tmp/loki
+  storage:
+    filesystem:
+      chunks_directory: /tmp/loki/chunks
+      rules_directory: /tmp/loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    # 구조화 메타데이터(traceId)는 tsdb + v13 스키마에서만 쓸 수 있다
+    - from: 2024-01-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+limits_config:
+  allow_structured_metadata: true
+
+analytics:
+  reporting_enabled: false

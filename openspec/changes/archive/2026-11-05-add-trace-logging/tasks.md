@@ -1,0 +1,179 @@
+# Tasks
+
+## 1. 준비와 시나리오 테스트
+
+시나리오 테스트는 HTTP 수준의 블랙박스 테스트로 쓴다(design 결정 8). 구현이 없으니 `integrationTest`에서는 실패하고, `test`(Stop 훅)는 통과해야 한다. 테스트 이름에 `F-004`를 넣는다.
+
+- [x] 1.1 테스트를 쓰기 위한 준비를 한다.
+  - `libs/observability`에 `java-test-fixtures` 플러그인과 테스트 의존성(design 결정 9)을 더한다.
+  - test fixtures에 `LogCapture`를 만든다. `System.out`을 바꿔 끼워 출력을 모으고, 줄마다 JSON으로 파싱한 목록과 원문을 돌려준다. JSON이 아닌 줄은 원문으로만 남긴다.
+  - `weave.spring-service`가 서비스 테스트에 `testFixtures(project(":libs:observability"))`를 넣게 한다.
+  - `buildSrc`의 `test` 태스크 태그 식을 `!Integration & !Compose`로 바꾼다(design 결정 10).
+  - 확인: `./gradlew ktlintCheck build`가 통과한다. `LogCapture`가 `println`으로 쓴 JSON 한 줄을 파싱하는 단위 테스트가 test fixtures 옆에 있고 통과한다.
+- [x] 1.2 `trace-logging`의 "JSON 로그 형식" 시나리오 두 개를 `libs/observability` 테스트로 옮긴다.
+  - 테스트 소스에 요청을 받아 로그를 쓰는 엔드포인트와 예외를 담아 로그를 쓰는 엔드포인트가 있는 작은 웹 애플리케이션을 둔다.
+  - 확인: `./gradlew :libs:observability:integrationTest`가 새 테스트에서 실패하고, `./gradlew :libs:observability:test`는 통과한다.
+- [x] 1.3 `trace-logging`의 "요청 완료 로그" 중 "요청 하나에 한 줄", "헬스 체크"를 post-service 테스트로 옮긴다. 확인: `./gradlew :post-service:integrationTest`가 새 테스트에서 실패하고, `./gradlew :post-service:test`는 통과한다.
+- [x] 1.4 `trace-logging` 시나리오 중 feed-service 경로를 쓰는 것을 feed-service 테스트로 옮긴다.
+  - 응답 헤더(정상, 오류), 들어온 trace 잇기(둘), 하위 서비스 호출로 전파(셋), 요청 완료 로그의 "실패한 요청", 로그에 남기지 않는 것의 "하위 서비스 오류 본문"이다.
+  - 기존 `DownstreamWireMock`을 쓰고, `traceparent`는 WireMock 요청 기록에서 읽는다. "post가 끝난 뒤 시작한 호출"은 post에 200ms 고정 지연을 준다.
+  - 확인: `./gradlew :feed-service:integrationTest`가 새 테스트에서 실패하고, `./gradlew :feed-service:test`는 통과한다.
+- [x] 1.5 `feed-aggregation` 델타의 "하위 서비스 호출 실패 로그" 시나리오 네 개를 feed-service 테스트로 옮긴다. "연결할 수 없다"는 기존 `FeedUnreachableScenarioTest`처럼 recommendation 주소를 포트 1로 준다. 확인: `./gradlew :feed-service:integrationTest`가 새 테스트에서 실패하고, `./gradlew :feed-service:test`는 통과한다.
+- [x] 1.6 "서비스 6개의 로그를 traceId로 잇는다"와 "요청의 값이 로그에 없다"를 `e2e` 테스트로 옮긴다.
+  - `e2e/build/e2e-logs/<서비스>.log`를 줄마다 JSON으로 파싱한다. 비동기 appender라 `eventually`로 기다린다.
+  - 표식은 테스트마다 새로 만든다.
+  - 확인: `./gradlew :e2e:integrationTest`가 새 테스트에서 실패하고, 기존 종단 간 테스트는 통과한다.
+- [x] 1.7 "Loki에서 traceId로 로그 조회"와 "Tempo에서 traceId로 트레이스 조회"를 `e2e`의 `Compose` 태그 테스트로 옮긴다.
+  - feed-service 주소, Loki 주소, Tempo 주소는 시스템 속성으로 받는다(5.3에서 `composeTest`가 넘긴다).
+  - Loki `query_range`와 Tempo `/api/traces/<id>`를 `eventually`(최대 60초)로 조회한다.
+  - 확인: `./gradlew :e2e:compileTestKotlin`이 통과하고, `./gradlew :e2e:test :e2e:integrationTest`에서 이 테스트가 돌지 않는다(테스트 리포트에 없다).
+
+## 2. libs/observability
+
+- [x] 2.1 JSON 로그를 만든다.
+  - logstash-logback-encoder 의존성을 더한다.
+  - `logback-spring.xml`에 design 결정 1의 인코더 설정(필드 이름, `service`, 스택 트레이스 줄이기)과 비동기 appender(대기열 8192, `discardingThreshold` 0, `neverBlock` false)를 둔다.
+  - 확인: 1.2의 "예외가 있는 로그"가 통과한다. "요청 처리 중의 로그"는 `traceId`·`spanId`만 빠져 실패한다.
+- [x] 2.2 트레이싱을 켜고 라이브러리 기본 속성을 넣는다.
+  - design 결정 3의 트레이싱 모듈 네 개를 더한다.
+  - `EnvironmentPostProcessor`가 `observability-defaults.properties`를 속성 소스 맨 뒤에 붙이게 하고, `management.tracing.sampling.probability=1.0`만 넣는다. `propagate-context`는 아직 넣지 않는다.
+  - OTLP 주소가 없으면 스팬을 내보내지 않는지 확인하는 테스트를 더한다(내보내기 Bean이 없거나, 요청 뒤 내보내기 오류 로그가 없다).
+  - 서비스의 `application.yml`이 기본 속성을 이기는지 확인하는 테스트를 더한다.
+  - 확인: 1.2의 두 시나리오와 위 두 테스트가 통과한다.
+- [x] 2.3 `X-Trace-Id` 헤더와 요청 완료 로그 필터를 만든다(design 결정 5).
+  - `ServerHttpObservationFilter` 뒤에 두고, 오류 디스패치에서도 헤더를 다시 넣는다. 요청 완료 로그는 첫 디스패치에서만 남긴다. `/actuator`는 로그만 건너뛴다.
+  - 오류 디스패치에서 헤더가 사라져 오류 응답 시나리오가 통과하지 않으면, 응답 본문을 바꾸는 방법(design Risks)으로 가지 말고 멈춘다.
+  - 확인: 1.3의 두 시나리오, 1.4의 응답 헤더·들어온 trace 잇기·실패한 요청 시나리오가 통과한다.
+- [x] 2.4 공유 스레드 풀에서 traceId가 끊기는 것을 재현 테스트로 남긴다(design 결정 4의 2번).
+  - feed-service 통합 테스트에 `spring.task.execution.propagate-context=false`를 명시하고, 하위 서비스 다섯 요청의 traceId가 응답의 `X-Trace-Id`와 다르다는 것을 확인한다.
+  - 테스트 이름에 "전파를 끄면 끊긴다"는 뜻을 담는다.
+  - 확인: 재현 테스트가 통과하고, 1.4의 전파 시나리오 세 개는 여전히 실패한다.
+- [x] 2.5 직접 만든 실행기의 끊김과 감싸기를 `libs/observability` 단위 테스트로 남긴다(design 결정 4의 4번).
+  - `Executors.newFixedThreadPool`과 `ForkJoinPool.commonPool()`에서는 작업 스레드에 `traceId`가 없다(4318f20부터 MDC가 아니라 OTel 현재 스팬으로 읽는다. design 결정 4의 4번).
+  - `ContextExecutorService.wrap`으로 감싸면 같은 `traceId`가 있다.
+  - 확인: `./gradlew :libs:observability:test`가 통과한다.
+- [x] 2.6 라이브러리 기본값에 `spring.task.execution.propagate-context=true`를 넣는다.
+  - 설정값 커밋이라 다른 변경과 섞지 않는다. 커밋 본문에 2.4의 재현 결과를 적는다.
+  - 확인: 1.4의 전파 시나리오 세 개와 2.4의 재현 테스트가 모두 통과한다.
+- [x] 2.7 Prometheus 엔드포인트를 연다.
+  - `weave.spring-service`에 `micrometer-registry-prometheus`를 더하고, 기본 속성에 `management.endpoints.web.exposure.include=health,info,prometheus`를 넣는다.
+  - 서비스 6개의 `application.yml`에서 `management.endpoints.web.exposure.include`를 지운다(design 결정 2).
+  - 확인: post-service 통합 테스트에서 `GET /actuator/prometheus`가 200이다. `./gradlew test integrationTest`가 1.5, 1.6의 아직 구현하지 않은 시나리오 말고는 모두 통과한다.
+- [x] 2.8 `docs/architecture.md` 7-1, 7-3을 정한 방식으로 고친다.
+  - 7-1: 로그 필드, `X-Trace-Id`, 요청 완료 로그, 기본 속성을 넣는 방식
+  - 7-3: Spring `TaskExecutor`는 `spring.task.execution.propagate-context`. 2.4, 2.5의 재현 결과(무엇이 어디서 끊겼는지)와 그 테스트 이름
+  - 확인: `docs(architecture)` 커밋 하나로 남고, 적은 테스트 이름이 실제로 있다.
+
+## 3. feed-service 호출 실패 로그
+
+- [x] 3.1 `cause` 분류 함수를 만든다(design 결정 6). `CompletionException`을 벗기고, 예외 종류별로 `http_<상태>`, `connect_failure`, `io_failure`, `other`와 가장 안쪽 예외 클래스 이름을 돌려준다. 확인: 예외 종류마다 값을 보는 단위 테스트가 `./gradlew :feed-service:test -Pkotest.filter.tests='*F-004*'`로 통과한다.
+- [x] 3.2 Gateway에 실패 로그를 붙인다.
+  - 조회 메서드는 `whenComplete`, 토글은 `try`/`catch` 뒤 다시 던진다.
+  - SLF4J key-value로 `event`, `dependency`, `cause`, `exception`을 넣고, 예외 객체는 로거에 넘기지 않는다.
+  - 확인: 1.5의 네 시나리오와 1.4의 "하위 서비스 오류 본문" 시나리오가 통과하고, `./gradlew :feed-service:test :feed-service:integrationTest`가 모두 통과한다.
+
+## 4. 종단 간 확인
+
+- [x] 4.1 1.6의 종단 간 시나리오를 통과시킨다. `ServiceProcesses`의 실행 인자나 로그 처리에서 고칠 곳이 나오면 여기서 고친다. 이미 커밋된 1.6의 테스트는 고치지 않는다. 확인: `./gradlew :e2e:integrationTest`가 모두 통과한다.
+
+## 5. Docker Compose
+
+- [x] 5.1 서비스 6개와 MySQL을 Compose로 띄운다(design 결정 7).
+  - `weave.spring-service`에서 `jar` 태스크를 끈다.
+  - `docker/service.Dockerfile`과 루트 `compose.yaml`을 만들고, 서비스마다 헬스 체크와 로그 수집 라벨(`weave.logs=true`)을 단다.
+  - `.env.example`에 MySQL 항목을 설명과 함께 더한다.
+  - 확인: `./gradlew bootJar` 뒤 `docker compose --env-file <임의 값으로 만든 파일> up -d --build --wait`가 0으로 끝나고, `docker compose ps`에서 7개 컨테이너가 모두 healthy다. 끝나면 `docker compose down -v`로 내린다. `./gradlew :e2e:integrationTest`도 계속 통과한다.
+- [x] 5.2 관찰 인프라를 더한다.
+  - Alloy(로그·OTLP), Loki, Tempo, Prometheus, Grafana를 `compose.yaml`에 더하고, 설정을 `docker/<이름>/`에 둔다.
+  - 이미지 태그는 버전으로 고정한다.
+  - 서비스에 `MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT`를 준다.
+  - Grafana 데이터 소스에 Loki의 traceId → Tempo 링크와 Tempo의 trace-to-logs를 둔다.
+  - 확인: 5.1과 같은 명령으로 모든 컨테이너가 healthy(헬스 체크가 없는 이미지는 running)다. Prometheus `/api/v1/targets`에서 서비스 6개가 `up`이다. 이 확인에 쓴 명령을 progress.md에 적는다.
+- [x] 5.3 `:e2e:composeTest` 태스크를 만든다(design 결정 10).
+  - 서비스 6개의 `bootJar`에 기댄다.
+  - 시작 전에 임의 계정으로 `e2e/build/compose-test.env`를 만들고, 프로젝트 이름 `weave-compose-test`로 `up -d --build --wait`를 돈다. 끝나면 성공·실패와 관계없이 `down -v`를 돈다.
+  - `Compose` 태그 테스트만 돌리고, 주소를 시스템 속성으로 넘긴다.
+  - 확인: `./gradlew :e2e:composeTest`가 1.7의 두 시나리오를 통과하고, 끝난 뒤 `docker compose -p weave-compose-test ps -a`가 비어 있다.
+- [x] 5.4 CI에 Compose 테스트를 더한다. `backend` 작업에 `./gradlew :e2e:composeTest` 단계를 두고, 실패하면 `docker compose -p weave-compose-test logs` 출력을 artifact로 올린다. 확인: 워크플로가 PR CI에서 통과하는 것은 PR 때 본다. 로컬에서는 워크플로에 적은 명령을 그대로 돌려 통과한다.
+- [x] 5.5 명령과 구성을 문서에 더한다.
+  - `CLAUDE.md` 명령 표와 하네스 규칙 5장의 "로컬 인프라"를 `./gradlew bootJar` 뒤 `docker compose up -d --build --wait`로 바꾸고, `./gradlew :e2e:composeTest`를 더한다.
+  - `docs/architecture.md`: 1장 표에 Compose 이미지 버전, 7-2에 Loki 라벨과 구조화 메타데이터, 12장 표에서 대시보드(7-4)를 `add-fault-experiments`로 옮긴다.
+  - README의 실행 방법을 고친다.
+  - 확인: 문서에 적은 명령을 그대로 돌려 5.1의 확인과 같은 결과가 나온다.
+- [x] 5.6 전체 검사를 돌린다. 확인: `./gradlew ktlintCheck build`, `./gradlew :e2e:composeTest`, `openspec validate --all --strict --no-interactive`가 통과한다.
+
+## 6. 검토 지적 반영
+
+첫 검토(2026-11-05)에서 나온 막음 1건(B1)과 받아들인 제안이다. 이 묶음에서 고치라고 적은 커밋된 테스트는 사람이 검토에서 승인한 것이니 고쳐도 된다. 단언을 약하게 바꾸지는 않는다.
+
+- [x] 6.1 새 시나리오 두 개를 테스트로 옮긴다.
+  - `trace-logging` "JSON 로그 형식"의 "처리되지 않은 예외로 끝난 요청"을 feed-service 테스트로 옮긴다. 기존 파일을 고치지 말고 새 스펙 파일에 둔다. 요청 하나를 부르는 동안 모은 줄 중 `level`이 ERROR인 줄을 모두 본다.
+  - `feed-aggregation` "하위 서비스의 호스트 이름을 찾을 수 없다"를 feed-service 테스트로 옮긴다. recommendation 주소를 `http://weave-unresolvable.invalid`로 준다. 새 스펙 파일에 둔다.
+  - 확인: `./gradlew :feed-service:integrationTest`가 새 테스트 두 개에서 실패하고(지금 Tomcat ERROR 줄에 traceId가 없고, `UnknownHostException`은 `io_failure`다), `./gradlew :feed-service:test`는 통과한다.
+- [x] 6.2 처리되지 않은 예외 로그에 traceId를 담는다(design 결정 5의 "처리되지 않은 예외").
+  - `TraceLoggingFilter`가 체인에서 예외가 올라오면 `http_request` 줄을 ERROR로, 예외를 담아 남기고 다시 던진다. 필드는 그대로다.
+  - `logback-spring.xml`에서 Tomcat의 `...[dispatcherServlet]` 로거 줄을 막는다. 엔진 이름이 `Tomcat`이든 `Tomcat-N`이든 막혀야 한다.
+  - 확인: 6.1의 첫 시나리오와 기존 시나리오(요청 완료 로그, 오류 응답 헤더, 하위 서비스 오류 본문이 로그에 없다)가 `./gradlew :feed-service:integrationTest :post-service:integrationTest :libs:observability:integrationTest`로 통과한다. `stack_trace`에 하위 서비스 응답 본문이 없다.
+- [x] 6.3 `cause` 분류를 넓힌다(design 결정 6의 표).
+  - 원인 사슬에 `ConnectException`, `NoRouteToHostException`(`SocketException`의 하위), `UnknownHostException`, HttpClient 5 `ConnectTimeoutException`이 있으면 `connect_failure`다.
+  - 커넥션 풀에서 연결을 얻지 못해 끝난 예외가 어느 값이 되는지 단위 테스트로 확인하고 design 결정 6의 표 밑에 적는다. `connect_failure`가 되면 안 된다.
+  - 확인: 새 예외 종류마다 단위 테스트가 있고 `./gradlew :feed-service:test -Pkotest.filter.tests='*F-004*'`가 통과한다. 6.1의 두 번째 시나리오가 `integrationTest`에서 통과한다.
+- [x] 6.4 HTTP 서비스 그룹 클라이언트의 오류 상태 처리기를 보완한다(design 결정 6 끝).
+  - 기본 처리기처럼 메시지 변환기로 본문 변환 함수(`setBodyConvertFunction`)를 넣는다. 닿지 않는 `UnknownHttpStatusCodeException` 분기는 정리한다.
+  - 확인: 하위 서비스 503 응답에서 만든 예외의 `getResponseBodyAs(String::class.java)`가 본문을 돌려주는 테스트가 통과하고, 예외 메시지에는 본문이 없다.
+- [x] 6.5 테스트를 단단하게 한다. (훅이 Ralph의 커밋된 테스트 수정을 막아 사람 세션에서 했다)
+  - `FeedCallFailureLogScenarioTest`의 "토글 전달이 실패한다", "하위 서비스에 연결할 수 없다"가 응답의 `X-Trace-Id`로 줄을 거른다. 앞 테스트의 늦은 줄로 거짓 통과하지 않게 한다.
+  - `ExecutorTracePropagationTest`가 `ContextStorage.addWrapper`를 전역에 더하는 것이 같은 JVM의 다른 테스트 순서에 기대지 않게 한다(예: 래퍼 없이 확인할 수 있게 바꾸거나, 그 스펙만 따로 fork에서 돌린다). 어느 쪽으로 했는지 테스트 KDoc에 적는다.
+  - `TraceLookupComposeScenarioTest`의 Loki 시나리오가 항목마다 Loki 시각(ns)과 줄의 `@timestamp`가 같음을 직접 단언한다.
+  - 확인: `./gradlew :feed-service:integrationTest :libs:observability:test`와 `./gradlew :e2e:composeTest`가 통과한다.
+- [x] 6.6 비동기 appender 대기열 크기를 장애 경로까지 넣어 다시 계산한다(design 결정 1).
+  - 200 RPS에서 feed가 요청마다 쓰는 장애 경로 로그(요청 완료 1줄과 실패 로그 최대 5줄, 그중 스택 트레이스가 든 줄의 바이트 수)를 센다. 바이트 수는 6.2 뒤의 통합 테스트 출력에서 잰다.
+  - 계산이 지금 값(8192)으로 버티는 시간을 design 결정 1에 적는다. 값을 바꾸면 `logback-spring.xml`도 고치고, 커밋 본문에 계산을 적는다.
+  - 확인: design 결정 1과 Risks에 장애 경로 계산이 있고, `./gradlew ktlintCheck build`가 통과한다.
+- [x] 6.7 Compose와 필터의 작은 지적을 고친다.
+  - `composeTestUp`이 띄우기 전에 같은 프로젝트에 `down -v --remove-orphans`를 먼저 돌린다. 이전 실행이 Ctrl-C로 끊겨 남은 볼륨과 포트를 치운다.
+  - `compose.yaml`의 feed-service 포트를 `127.0.0.1:8080:8080`으로 묶고, 문서에 적은 주소와 맞는지 본다.
+  - `TraceLoggingFilter`의 `/actuator` 검사를 `/actuator`와 `/actuator/`로 시작하는 경로로 좁히고, 비동기 디스패치를 다루지 않는다는 것을 KDoc에 적는다(design 결정 5).
+  - 확인: `/actuatorx` 경로는 `http_request` 줄을 남기는 단위 테스트가 통과한다. `./gradlew :e2e:composeTest`가 통과하고, 일부러 `composeTestUp`만 돌려 둔 뒤 다시 `./gradlew :e2e:composeTest`를 돌려도 통과한다.
+- [x] 6.8 전체 검사를 돌린다. 확인: `./gradlew ktlintCheck build`, `./gradlew :e2e:composeTest`, `openspec validate --all --strict --no-interactive`가 통과한다.
+
+2차 검토(2026-11-05)에서 나온 막음 1건(B2)과 받아들인 제안이다. 커밋된 테스트는 고치지 않는다(새 파일에 둔다).
+
+- [x] 6.9 actuator 경로의 처리되지 않은 예외를 남긴다(design 결정 5의 "actuator 경로").
+  - 지금은 actuator 분기가 예외를 잡지 않고, Tomcat 줄은 6.2의 logback 필터가 막아 예외가 어디에도 남지 않는다.
+  - `TraceLoggingFilter`의 actuator 분기에서 예외가 올라오면 `event=unhandled_exception`, `method`, `path`를 담은 ERROR 줄을 예외와 함께 남기고 다시 던진다. 요청 완료(`http_request`) 줄은 계속 남기지 않는다.
+  - 확인: 새 단위 테스트 파일에서 예외를 던지는 `FilterChain`으로 `/actuator/x`를 부르면 ERROR 줄 하나(`unhandled_exception`, 예외 포함)가 남고 예외가 다시 던져지며, `http_request` 줄은 없다. `./gradlew :libs:observability:test`가 통과한다.
+- [x] 6.10 문서를 코드에 맞춘다.
+  - `docs/architecture.md` 7-1: 예외로 끝난 요청은 `http_request`를 ERROR로 올리고 Tomcat의 `[dispatcherServlet]` 줄을 막는다는 것, actuator 경로의 `unhandled_exception`을 적는다.
+  - `docs/architecture.md` 7-3 표, design 결정 4의 4번, tasks 2.5의 문장과 테스트 이름을 4318f20 뒤의 `ExecutorTracePropagationTest`(OTel 현재 스팬으로 읽는다, MDC 연결은 feed 시나리오 테스트가 본다)에 맞춘다.
+  - `libs/observability/CLAUDE.md`의 `ContextStorage.addWrapper` 권장을 지우고, 전역 래퍼가 실행 순서에 기대게 만들어 쓰지 않는다는 것과 지금 방식을 적는다.
+  - design 결정 6 표의 "`ConnectException`(`NoRouteToHostException` 포함)"을 따로 나열하는 문구로 고친다(`NoRouteToHostException`은 `SocketException`의 하위다).
+  - design Risks에 한 줄: 하위 서비스가 200과 잘못된 JSON을 주면 Jackson 파싱 예외 메시지에 본문 토큰이 실려 ERROR 줄의 `stack_trace`에 남을 수 있다. 스펙은 오류 응답 본문만 다루므로 F-005에서 응답 파싱 실패를 다룰 때 본다.
+  - `e2e/build.gradle.kts`의 `composeTestUp` 미리 내리기가 `inheritIO()`로 Gradle 데몬 출력에 쓰는 것을, 실패 원인이 보이게 고친다(파일로 쓰거나 Gradle exec로).
+  - 확인: 문서에 적은 테스트 이름이 실제로 있고(`grep`), `./gradlew ktlintCheck :e2e:ktlintKotlinScriptCheck`가 통과한다.
+- [x] 6.11 전체 검사를 돌린다. 확인: `./gradlew ktlintCheck build`, `./gradlew :e2e:composeTest`, `openspec validate --all --strict --no-interactive`가 통과한다.
+
+## 7. 검토와 change 완료 조건
+
+이 묶음은 Ralph 루프가 하지 않는다([하네스 규칙](../../../../conventions/harness.md) 3-3, 4장).
+
+- [x] 7.1 구현에 참여하지 않은 리뷰어가 하네스 규칙 3-3의 검토 항목으로 change 문서와 diff를 본다.
+  - 이 change에 해당하지 않는 항목(3번 격리, 4번 재시도)은 "해당 없음"으로 적는다. 6번 traceId는 이 change의 중심이니 공유 풀, `thenCompose` 뒤, 토글 경로를 모두 본다.
+  - 첫 검토(2026-11-05)의 막음 B1과 받아들인 제안은 묶음 6에서 고쳤다. 2차 검토의 막음 B2와 문서 지적은 6.9~6.11에서 고친다. 다시 볼 때는 6.9 뒤의 diff를 중심으로 본다. 2차 검토에서 받아들이지 않은 제안: 커밋 섞임(`5b2d0f9`, `60bd114`)은 이력을 다시 쓰지 않는다. 받아들이지 않은 제안: 커밋 type이 어긋난 커밋 두 개(`80cb03a`, `e4f210e`)와 design 수정이 섞인 `7488c8e`는 이력을 다시 쓰지 않고 둔다.
+  - 사람이 `docker compose up` 환경의 Grafana에서 로그의 traceId 링크로 Tempo 트레이스를 열고, 트레이스에서 로그로 돌아오는 것을 한 번 확인한다.
+  - 확인: 막는 지적이 없다.
+  - 결과(2026-11-05): 3차 검토에서 막는 지적이 없다. 3번 격리, 4번 재시도는 해당 없음. 6번은 공유 풀, `thenCompose` 뒤, 토글 경로를 모두 시나리오 테스트가 본다.
+  - 3차 검토의 제안 셋은 지금 동작에 문제가 없고 회귀를 막는 보강이라 이번에 고치지 않는다. Q1: actuator 예외 줄의 traceId는 단위 테스트라 확인하지 않는다(서버 스팬이 없다). actuator 엔드포인트를 띄우는 통합 테스트로 보강할 수 있다. Q2: 호출 실패 로그를 풀 스레드에서 쓴다는 것을 테스트가 단언하지 않는다(`thread`가 `http-nio-`가 아닌지). Q3: 문서의 "INFO(예외로 끝나면 ERROR)" 문장 순서를 다듬는다. F-001에서 벌크헤드 전파와 실패 로그를 다룰 때 함께 본다.
+  - 사람이 `docker compose up` 환경의 Grafana에서 Tempo 트레이스 → "Logs for this span" → Loki 로그 → traceId 링크 → 같은 트레이스로 오가는 것을 확인했다(2026-11-05).
+  - 관찰 인프라 이미지 태그(design Risks)는 이번 change에서 올리지 않는다. 사람이 지금 태그(alloy v1.11.0, loki 3.6.0, tempo 2.9.0, prometheus v3.7.0, grafana 12.2.0)로 두기로 정했다(2026-11-05).
+- [x] 7.2 하네스 규칙 4장의 change 완료 조건을 확인한다.
+  - 장애 실험 세트는 아직 없으므로(고도화 2) 해당 없음으로 적는다.
+  - PRD F-004 수용 기준을 체크한다. 벌크헤드 스레드 풀의 전파와 장애 대응 이벤트 로그는 F-001·F-002·F-005에서 채우므로, 이번에 한 범위(공유 풀, 호출 실패 로그)를 기준 옆에 적고 체크하지 않는다.
+  - 확인: 체크리스트가 모두 채워진다.
+  - 결과(2026-11-05): tasks.md의 작업이 모두 체크됐다. 시나리오마다 테스트가 있고 `./gradlew ktlintCheck build`, `./gradlew :e2e:composeTest`, `openspec validate --all --strict --no-interactive`가 통과한다. 검토에서 막는 지적이 없다. 장애 실험 세트는 해당 없음. 요구사항은 바뀌지 않았고, PRD F-004의 수용 기준 9개 중 7개를 체크했다. 남은 둘(벌크헤드 풀 전파, 장애 대응 이벤트 로그)은 이번에 한 범위를 기준 옆에 적었다.
+
+## Workflow follow-up
+
+- `/opsx:archive`로 스펙을 `openspec/specs/`에 합친다.
+- `develop`으로 PR을 열고 CI가 통과하면 merge한다.
+- 고도화 1 릴리스: `develop` → `main` 릴리스 PR, merge 뒤 `v0.2.0` 태그.
