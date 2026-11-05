@@ -19,6 +19,7 @@
 - 처리되지 않은 예외의 Tomcat 로그는 요청 완료 로그(필터 `finally`)보다 늦게 쓰인다. "남기지 않는다"를 판정할 때는 그 요청의 줄이 아니라 뒤에 보낸 확인용 요청의 줄을 기다린다.
 - `@SpringBootTest`에서는 메트릭 내보내기가 꺼져 `/actuator/prometheus`가 404다. 테스트에 `@AutoConfigureMetrics`를 붙인다(`PostPrometheusEndpointTest`).
 - 셸 훅은 `;`·`>`·`xargs`로 이은 명령이나 `$(...)`가 든 명령을 막는다. 빌드 결과는 `./gradlew ... 2>&1 | grep ...` 파이프 하나로 본다. `~/.gradle` 아래는 읽을 수 없다.
+- 하위 서비스 실패 분류는 `com.weave.feed.gateway.DownstreamFailure.of(throwable)`(`cause`, `exception`)다. F-001의 새 `cause` 값도 여기에 더한다.
 
 ---
 
@@ -149,4 +150,14 @@
 - 확인: `openspec validate --all --strict --no-interactive` 통과. 문서만 바꿔 빌드는 돌리지 않았다.
 - 바꾼 파일: `docs/architecture.md`
 - 다음 반복(3.1)이 알아 둘 것: `cause` 분류는 `com.weave.feed.gateway`의 함수 하나로 두고 단위 테스트(태그 없음) 이름에 `F-004`를 넣는다.
+---
+
+## 2026-11-05 15:38 - 3.1 `cause` 분류 함수
+- `DownstreamFailure(cause, exception)`와 `DownstreamFailure.of(throwable)`를 만들었다. 겉의 `CompletionException`을 한 겹 벗긴 뒤 `RestClientResponseException` → `http_<상태>`, `ResourceAccessException` + 원인 사슬에 `ConnectException` → `connect_failure`, 그 밖의 `ResourceAccessException` → `io_failure`, 나머지 `other`. `exception`은 원인 사슬의 가장 안쪽 예외의 전체 클래스 이름(`javaClass.name`)이다. 원인이 순환해도 멈춘다.
+- `DownstreamFailureTest`(태그 없음, F-004) 6개: HTTP 503·404, `CompletionException` 벗기기, 연결 실패(HttpClient 5의 `HttpHostConnectException`은 `ConnectException`의 하위 클래스라 그대로 잡힌다), 읽기 타임아웃 등 `io_failure`, `other`, 순환 원인. 구현 전 컴파일 실패를 확인했다.
+- 확인: `./gradlew :feed-service:test -Pkotest.filter.tests='*F-004*'` 통과(6개), `:feed-service:ktlintCheck compileKotlin compileTestKotlin test`, `openspec validate` 통과.
+- 바꾼 파일: `feed-service/src/main/kotlin/com/weave/feed/gateway/DownstreamFailure.kt`, `feed-service/src/test/kotlin/com/weave/feed/gateway/DownstreamFailureTest.kt`
+- 다음 반복(3.2)이 알아 둘 것:
+  - 연결 타임아웃(`ConnectTimeoutException`)은 `ConnectException`이 아니라 `io_failure`로 나온다. design 표를 그대로 따랐다. 타임아웃은 F-001에서 따로 값을 둔다.
+  - 3.2의 로그는 `DownstreamFailure.of(e)`의 두 값과 `event`, `dependency`만 key-value로 넣는다. 오류 본문 시나리오(1.4)는 Gateway 로그 말고도 Tomcat `dispatcherServlet`의 ERROR 줄에 본문이 실려 실패한다(2.4 기록). 응답 동작을 바꾸지 않고 막을 방법이 없으면 BLOCKED.
 ---
