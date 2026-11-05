@@ -85,7 +85,8 @@ PRD F-004의 순서대로 간다.
    - 기대(=끊김): 하위 서비스 다섯 요청의 `traceparent` traceId가 응답의 `X-Trace-Id`와 다르다. 풀 스레드에는 현재 관찰이 없어 RestClient가 새 trace를 시작하기 때문이다. 풀 스레드에서 쓴 `downstream_call_failed` 로그에도 `traceId`가 없거나 다르다.
    - 속성을 테스트에 명시하므로, 기본값을 바꾼 뒤에도 이 테스트는 그대로 통과하며 "전파를 끄면 끊긴다"는 기록으로 남는다.
 3. 라이브러리 기본값에 `spring.task.execution.propagate-context=true`를 넣는다. 전파 시나리오 테스트(작업 1.4)가 통과한다.
-4. `libs/observability` 단위 테스트로 **직접 만든 실행기**도 기록한다. `Executors.newFixedThreadPool`과 `CompletableFuture`의 기본 풀(`ForkJoinPool.commonPool()`)에서는 MDC의 `traceId`가 없고, Micrometer Context Propagation으로 감싸면(`ContextExecutorService.wrap`) 이어진다. F-001의 ThreadPool 벌크헤드가 이 경우다.
+4. `libs/observability` 단위 테스트로 **직접 만든 실행기**도 기록한다. `Executors.newFixedThreadPool`과 `CompletableFuture`의 기본 풀(`ForkJoinPool.commonPool()`)에서는 작업 스레드에 현재 스팬이 없어 `traceId`가 없고, Micrometer Context Propagation으로 감싸면(`ContextExecutorService.wrap`) 이어진다. F-001의 ThreadPool 벌크헤드가 이 경우다.
+   - 테스트는 작업 스레드의 traceId를 MDC가 아니라 OTel 현재 스팬에서 읽는다(검토 뒤 4318f20에서 바꿈). MDC까지 보려면 전역 `ContextStorage.addWrapper`가 필요한데, OTel 컨텍스트를 처음 쓰기 전에만 먹혀 같은 JVM의 다른 테스트 순서에 기대게 된다. MDC는 Boot가 같은 OTel 컨텍스트를 따라 채우고, 그 연결은 풀 스레드에서 쓴 실패 로그의 `traceId`를 보는 feed-service 시나리오 테스트(`FeedCallFailureLogScenarioTest`)가 실제 로그로 확인한다.
 
 - **대안: `TaskDecorator` Bean을 직접 등록.** Boot 4.1이 같은 일을 속성으로 해 주므로 코드를 두지 않는다. 아키텍처 7-3의 표에 "Spring `TaskExecutor`는 `spring.task.execution.propagate-context`"로 고쳐 적는다.
 - `thenCompose`·`thenCombine` 콜백은 앞 단계를 끝낸 스레드(풀 스레드)나 요청 스레드에서 돈다. 풀 스레드는 3번으로 컨텍스트를 받았으므로, 그 안에서 시작한 user·like 호출도 같은 trace를 잇는다. 스펙의 "post가 끝난 뒤 시작한 호출" 시나리오가 이것을 확인한다.
@@ -114,7 +115,7 @@ PRD F-004의 순서대로 간다.
   | 예외 | `cause` |
   |---|---|
   | `RestClientResponseException` | `http_<상태 코드>` |
-  | `ResourceAccessException`, 원인 사슬에 `ConnectException`(`NoRouteToHostException` 포함), `UnknownHostException`, HttpClient 5의 `ConnectTimeoutException` 중 하나 | `connect_failure` |
+  | `ResourceAccessException`, 원인 사슬에 `ConnectException`, `NoRouteToHostException`(`SocketException`의 하위라 `ConnectException`에 들지 않아 따로 본다), `UnknownHostException`, HttpClient 5의 `ConnectTimeoutException` 중 하나 | `connect_failure` |
   | 그 밖의 `ResourceAccessException` | `io_failure` |
   | 그 밖 | `other` |
 
@@ -197,6 +198,7 @@ PRD F-004의 순서대로 간다.
 - [이미지 태그] → `eclipse-temurin:25-jre`, `mysql:9.7`은 패치 버전이 따라 바뀌는 태그다. 관찰 인프라 이미지는 패치까지 고정했지만 최신 안정 버전인지는 확인하지 못했다. 릴리스 전에 사람이 확인하고 올릴지 정한다.
 - [로그가 늘어 실험 결과에 영향을 준다] → 요청 완료 로그는 요청당 한 줄이고, 고도화 2의 기준선을 이 상태에서 잰다. 이후 단계도 같은 로그를 쓰므로 비교는 공정하다.
 - [Compose 테스트가 느리고 CI 시간을 늘린다] → 이미지 6개 빌드와 인프라 기동에 몇 분이 걸린다. Stop 훅에서는 돌지 않고 CI에서만 돈다. 너무 느리면 CI에서 `develop`·`main` push에만 돌리는 것을 검토 때 정한다.
+- [하위 서비스가 200과 잘못된 JSON을 주면 본문 일부가 로그에 남을 수 있다] → Jackson 파싱 예외 메시지에 본문 토큰이 실려, 처리되지 않은 예외의 ERROR 줄 `stack_trace`에 남을 수 있다. 스펙은 오류 응답 본문만 다루므로(결정 6) 이 change에서는 막지 않고, F-005에서 응답 파싱 실패를 다룰 때 본다.
 - [Docker 소켓을 Alloy에 연다] → 로컬 실험 환경에서만 쓰고 읽기 전용으로 마운트한다.
 - [traceId 끊김 재현 테스트가 Boot의 동작에 기댄다] → 재현 테스트가 기대하는 것은 "전파를 끄면 다른 traceId"뿐이라, Boot가 기본값을 바꿔도 속성을 명시한 테스트는 흔들리지 않는다.
 

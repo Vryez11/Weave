@@ -359,3 +359,14 @@
 - 바꾼 파일: `libs/observability/src/main/kotlin/com/weave/observability/TraceLoggingFilter.kt`, `libs/observability/src/test/kotlin/com/weave/observability/TraceLoggingFilterActuatorExceptionTest.kt`(새로), `libs/observability/CLAUDE.md`, `tasks.md`, `progress.md`
 - 다음 반복(6.10)이 알아 둘 것: 문서 작업이다. 7-1에 적을 actuator 줄 이름은 `unhandled_exception`, 테스트 이름은 `TraceLoggingFilterActuatorExceptionTest`. `libs/observability/CLAUDE.md`의 `ContextStorage.addWrapper` 권장 줄(스레드 경계 단위 테스트 항목)을 6.10에서 고친다.
 ---
+
+## 2026-11-05 17:58 - 6.10 문서를 코드에 맞춘다
+- `docs/architecture.md` 7-1: 예외로 끝난 요청은 `http_request`를 ERROR로 올려 예외와 남기고 Tomcat `[dispatcherServlet]` 줄은 `TomcatServletExceptionLogFilter`로 막는다는 것, actuator 경로의 `unhandled_exception` ERROR 줄을 적었다.
+- 7-3 표: "MDC의 traceId" → 현재 스팬의 traceId, 테스트 이름을 4318f20 뒤 이름으로 맞추고, 표 밑에 단위 테스트가 OTel 현재 스팬으로 읽는 이유와 MDC 연결을 보는 테스트(`FeedCallFailureLogScenarioTest`의 5xx·post 뒤 호출)를 적었다. design 결정 4의 4번, tasks 2.5 문장도 같게 고쳤다.
+- design 결정 6 표와 tasks 6.3 문장: `NoRouteToHostException`을 `SocketException` 하위로 따로 나열. design Risks에 200 + 잘못된 JSON의 Jackson 메시지 한 줄(F-005에서 본다).
+- `libs/observability/CLAUDE.md`: `ContextStorage.addWrapper` 권장을 지우고 지금 방식(OTel 현재 스팬, 전역 래퍼를 쓰지 않는 이유)을 적었다.
+- `e2e/build.gradle.kts`: `composeTestUp`의 미리 내리기 출력을 `inheritIO()` 대신 `build/compose-logs/pre-down.log`에 쓰고, 실패하면 오류 메시지에 싣는다(따로 커밋 8319b7a).
+- 확인: 문서의 테스트 이름을 `grep`으로 소스와 맞췄다. `./gradlew ktlintCheck :e2e:ktlintKotlinScriptCheck`(`--rerun`) 통과, `./gradlew :e2e:composeTest` 통과(2개, 08:57Z, `pre-down.log` 생성, 끝난 뒤 `ps -a` 비어 있음), `openspec validate --all --strict --no-interactive` 7개 통과.
+- 바꾼 파일: `docs/architecture.md`, `design.md`, `tasks.md`, `libs/observability/CLAUDE.md`, `e2e/build.gradle.kts`, `e2e/CLAUDE.md`, `progress.md`
+- 다음 반복(6.11)은 전체 검사다. `./gradlew ktlintCheck build`, `./gradlew :e2e:composeTest`, `openspec validate`를 돌린다.
+---

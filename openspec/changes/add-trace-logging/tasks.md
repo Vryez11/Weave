@@ -49,7 +49,7 @@
   - 테스트 이름에 "전파를 끄면 끊긴다"는 뜻을 담는다.
   - 확인: 재현 테스트가 통과하고, 1.4의 전파 시나리오 세 개는 여전히 실패한다.
 - [x] 2.5 직접 만든 실행기의 끊김과 감싸기를 `libs/observability` 단위 테스트로 남긴다(design 결정 4의 4번).
-  - `Executors.newFixedThreadPool`과 `ForkJoinPool.commonPool()`에서는 MDC의 `traceId`가 없다.
+  - `Executors.newFixedThreadPool`과 `ForkJoinPool.commonPool()`에서는 작업 스레드에 `traceId`가 없다(4318f20부터 MDC가 아니라 OTel 현재 스팬으로 읽는다. design 결정 4의 4번).
   - `ContextExecutorService.wrap`으로 감싸면 같은 `traceId`가 있다.
   - 확인: `./gradlew :libs:observability:test`가 통과한다.
 - [x] 2.6 라이브러리 기본값에 `spring.task.execution.propagate-context=true`를 넣는다.
@@ -115,7 +115,7 @@
   - `logback-spring.xml`에서 Tomcat의 `...[dispatcherServlet]` 로거 줄을 막는다. 엔진 이름이 `Tomcat`이든 `Tomcat-N`이든 막혀야 한다.
   - 확인: 6.1의 첫 시나리오와 기존 시나리오(요청 완료 로그, 오류 응답 헤더, 하위 서비스 오류 본문이 로그에 없다)가 `./gradlew :feed-service:integrationTest :post-service:integrationTest :libs:observability:integrationTest`로 통과한다. `stack_trace`에 하위 서비스 응답 본문이 없다.
 - [x] 6.3 `cause` 분류를 넓힌다(design 결정 6의 표).
-  - 원인 사슬에 `ConnectException`(`NoRouteToHostException` 포함), `UnknownHostException`, HttpClient 5 `ConnectTimeoutException`이 있으면 `connect_failure`다.
+  - 원인 사슬에 `ConnectException`, `NoRouteToHostException`(`SocketException`의 하위), `UnknownHostException`, HttpClient 5 `ConnectTimeoutException`이 있으면 `connect_failure`다.
   - 커넥션 풀에서 연결을 얻지 못해 끝난 예외가 어느 값이 되는지 단위 테스트로 확인하고 design 결정 6의 표 밑에 적는다. `connect_failure`가 되면 안 된다.
   - 확인: 새 예외 종류마다 단위 테스트가 있고 `./gradlew :feed-service:test -Pkotest.filter.tests='*F-004*'`가 통과한다. 6.1의 두 번째 시나리오가 `integrationTest`에서 통과한다.
 - [x] 6.4 HTTP 서비스 그룹 클라이언트의 오류 상태 처리기를 보완한다(design 결정 6 끝).
@@ -143,7 +143,7 @@
   - 지금은 actuator 분기가 예외를 잡지 않고, Tomcat 줄은 6.2의 logback 필터가 막아 예외가 어디에도 남지 않는다.
   - `TraceLoggingFilter`의 actuator 분기에서 예외가 올라오면 `event=unhandled_exception`, `method`, `path`를 담은 ERROR 줄을 예외와 함께 남기고 다시 던진다. 요청 완료(`http_request`) 줄은 계속 남기지 않는다.
   - 확인: 새 단위 테스트 파일에서 예외를 던지는 `FilterChain`으로 `/actuator/x`를 부르면 ERROR 줄 하나(`unhandled_exception`, 예외 포함)가 남고 예외가 다시 던져지며, `http_request` 줄은 없다. `./gradlew :libs:observability:test`가 통과한다.
-- [ ] 6.10 문서를 코드에 맞춘다.
+- [x] 6.10 문서를 코드에 맞춘다.
   - `docs/architecture.md` 7-1: 예외로 끝난 요청은 `http_request`를 ERROR로 올리고 Tomcat의 `[dispatcherServlet]` 줄을 막는다는 것, actuator 경로의 `unhandled_exception`을 적는다.
   - `docs/architecture.md` 7-3 표, design 결정 4의 4번, tasks 2.5의 문장과 테스트 이름을 4318f20 뒤의 `ExecutorTracePropagationTest`(OTel 현재 스팬으로 읽는다, MDC 연결은 feed 시나리오 테스트가 본다)에 맞춘다.
   - `libs/observability/CLAUDE.md`의 `ContextStorage.addWrapper` 권장을 지우고, 전역 래퍼가 실행 순서에 기대게 만들어 쓰지 않는다는 것과 지금 방식을 적는다.

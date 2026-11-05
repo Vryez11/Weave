@@ -280,7 +280,8 @@ Retry-After 동안 호출을 막는 방법(서킷을 그 시간만큼 열어 두
 - **`X-Trace-Id` 응답 헤더와 요청 완료 로그:** `TraceLoggingFilter` 하나가 맡는다. Boot의 `ServerHttpObservationFilter` 뒤(order `HIGHEST_PRECEDENCE + 2`)에서 현재 스팬의 traceId를 읽는다.
   - 체인을 부르기 전에 `X-Trace-Id`를 넣는다. Tomcat의 `/error` 오류 디스패치에서도 같은 값을 다시 넣어 400·500 응답에도 헤더가 있다.
   - 첫 디스패치가 끝날 때 INFO로 한 줄 남긴다: `event=http_request`, `method`, `path`(쿼리 제외), `status`(체인에서 예외가 올라오면 500), `durationMs`.
-  - `/actuator`와 `/actuator/`로 시작하는 경로는 로그만 건너뛴다(헤더는 넣는다). 헬스 체크와 Prometheus 수집이 로그를 덮지 않게 한다. `/actuatorx`처럼 글자만 같은 경로는 남긴다.
+  - 체인에서 처리되지 않은 예외가 올라오면 같은 `http_request` 줄을 ERROR로 올려 예외(`stack_trace`)와 함께 남기고 다시 던진다. 서버 스팬 scope 안이라 `traceId`가 있다. Tomcat이 같은 예외로 남기는 `org.apache.catalina.core.ContainerBase.[<엔진>].[<호스트>].[<경로>].[dispatcherServlet]` 줄은 scope가 닫힌 뒤라 `traceId`가 없어, logback 필터(`TomcatServletExceptionLogFilter`)로 막는다. 엔진 이름이 `Tomcat`이든 `Tomcat-N`이든 막는다. 오류 응답(상태, 본문)은 바뀌지 않는다.
+  - `/actuator`와 `/actuator/`로 시작하는 경로는 로그만 건너뛴다(헤더는 넣는다). 헬스 체크와 Prometheus 수집이 로그를 덮지 않게 한다. `/actuatorx`처럼 글자만 같은 경로는 남긴다. 이 경로에서 예외가 올라오면 요청 완료 줄 대신 `event=unhandled_exception`, `method`, `path`를 담은 ERROR 줄을 예외와 함께 남기고 다시 던진다. Tomcat 줄을 막았으므로 이 줄이 없으면 `/actuator/prometheus` 수집이 500으로 실패해도 원인이 어디에도 남지 않는다(`TraceLoggingFilterActuatorExceptionTest`).
   - 비동기 디스패치는 다루지 않는다. 컨트롤러가 비동기로 응답하게 바뀌면(F-001 후보) 비동기 디스패치 완료에 맞춰 남기도록 고친다.
 - **기본 속성:** 라이브러리는 `application.yml`을 두지 않는다. `EnvironmentPostProcessor`가 `observability-defaults.properties`를 속성 소스 뒤쪽에 붙여, 서비스의 `application.yml`과 환경 변수가 언제나 이긴다.
 
@@ -329,8 +330,10 @@ traceId는 스레드에 붙은 컨텍스트(MDC, 관찰 컨텍스트)에 있어�
 | 넘어가는 곳 | 전파 없이 | 고친 뒤 | 테스트 |
 |---|---|---|---|
 | feed-service의 공유 풀(`applicationTaskExecutor`) | 풀 스레드의 RestClient가 새 trace를 시작해, post·recommendation·ad·user·like 다섯 요청의 `traceparent` traceId가 모두 응답의 `X-Trace-Id`와 달랐다. 요청 스레드에서 부르는 좋아요 토글은 처음부터 이어졌다 | 다섯 요청 모두 `X-Trace-Id`와 같다. post가 끝난 뒤 `thenCompose`로 시작한 user·like도 같다 | 끊김: `FeedTracePropagationOffTest`의 "F-004 전파를 끄면 끊긴다: …"(`propagate-context=false`를 테스트에 명시해, 기본값이 바뀌어도 기록으로 남는다). 이어짐: `FeedTraceLogScenarioTest`의 "F-004 피드 요청의 다섯 호출: …", "F-004 post가 끝난 뒤 시작한 호출: …" |
-| `Executors.newFixedThreadPool` | 작업 스레드의 MDC에 `traceId`가 없다 | `ContextExecutorService.wrap`으로 감싸면 요청 스레드와 같은 `traceId` | `ExecutorTracePropagationTest`의 "F-004 직접 만든 고정 스레드 풀에서는 MDC의 traceId가 끊긴다", "F-004 고정 스레드 풀을 ContextExecutorService.wrap으로 감싸면 같은 traceId가 이어진다" |
-| `CompletableFuture` 기본 풀(`ForkJoinPool.commonPool()`) | 같음 | 같음 | 같은 파일의 "F-004 CompletableFuture의 기본 풀(ForkJoinPool.commonPool)에서는 MDC의 traceId가 끊긴다", "F-004 ForkJoinPool.commonPool을 ContextExecutorService.wrap으로 감싸면 같은 traceId가 이어진다" |
+| `Executors.newFixedThreadPool` | 작업 스레드에 현재 스팬이 없어 `traceId`가 없다 | `ContextExecutorService.wrap`으로 감싸면 요청 스레드와 같은 `traceId` | `ExecutorTracePropagationTest`의 "F-004 직접 만든 고정 스레드 풀에서는 traceId가 끊긴다", "F-004 고정 스레드 풀을 ContextExecutorService.wrap으로 감싸면 같은 traceId가 이어진다" |
+| `CompletableFuture` 기본 풀(`ForkJoinPool.commonPool()`) | 같음 | 같음 | 같은 파일의 "F-004 CompletableFuture의 기본 풀(ForkJoinPool.commonPool)에서는 traceId가 끊긴다", "F-004 ForkJoinPool.commonPool을 ContextExecutorService.wrap으로 감싸면 같은 traceId가 이어진다" |
+
+`ExecutorTracePropagationTest`는 Spring 없이 돌아, 작업 스레드의 traceId를 MDC가 아니라 OTel 현재 스팬에서 읽는다. MDC까지 보려면 OTel 컨텍스트 저장소에 전역 래퍼(`ContextStorage.addWrapper`)를 더해야 하는데, 이 래퍼는 OTel 컨텍스트를 처음 쓰기 전에만 먹혀 같은 JVM의 다른 테스트 순서에 기대게 된다. 로그의 MDC는 Boot가 같은 OTel 컨텍스트를 따라 채우고, 그 연결은 풀 스레드에서 쓴 실패 로그의 `traceId`를 보는 `FeedCallFailureLogScenarioTest`의 "F-004 하위 서비스가 5xx: …", "F-004 post 뒤에 부른 호출이 실패한다: …"가 실제 로그로 확인한다.
 
 `supplyAsync`에 실행기를 넘기지 않으면 commonPool로 가서 끊긴다. 하위 서비스 호출은 `applicationTaskExecutor`나 감싼 실행기에서 돌린다. F-001의 ThreadPool 벌크헤드도 직접 만든 실행기와 같은 방식으로 끊김과 이어짐을 테스트로 남긴다.
 
