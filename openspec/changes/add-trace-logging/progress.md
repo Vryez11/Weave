@@ -171,3 +171,10 @@
 - 바꾼 파일: `feed-service/src/main/kotlin/com/weave/feed/gateway/DownstreamFailure.kt`, `.../gateway/Gateways.kt`, `.../client/HttpClientConfig.kt`, `feed-service/CLAUDE.md`(새로), `openspec/changes/add-trace-logging/design.md`
 - 다음 반복(4.1)이 알아 둘 것: 이번 `build`에서 `:e2e:integrationTest`의 1.6 두 개가 이미 통과했다. 4.1은 고칠 것 없이 확인만 하면 된다.
 ---
+
+## 2026-11-05 15:44 - 4.1 종단 간 시나리오 통과 확인
+- 코드는 고치지 않았다. `ServiceProcesses`의 실행 인자나 로그 처리에서 고칠 곳이 나오지 않았다.
+- 확인: `./gradlew :e2e:integrationTest --rerun` 통과. 테스트 결과 XML의 timestamp(06:43Z)로 실제로 다시 돈 것을 확인했다. `TraceLogEndToEndScenarioTest` 2개(1.6)와 `FeedEndToEndScenarioTest` 2개(F-006) 통과, `TraceLookupComposeScenarioTest` 2개는 skipped. `openspec validate` 통과.
+- 바꾼 파일: `openspec/changes/add-trace-logging/tasks.md`, `progress.md`
+- 다음 반복(5.1)이 알아 둘 것: Docker Compose 작업이다. 서비스 로그 `service`·스팬 `service.name`은 `spring.application.name`으로 보므로 Compose 서비스 이름은 자유롭다(1.7 기록). `.env.example`은 훅이 허용하지만 `.env`는 읽지 않는다. 임의 계정 env 파일은 `e2e/build/` 같은 빌드 폴더에 만든다.
+---

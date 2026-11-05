@@ -74,7 +74,7 @@
 
 ## 4. 종단 간 확인
 
-- [ ] 4.1 1.6의 종단 간 시나리오를 통과시킨다. `ServiceProcesses`의 실행 인자나 로그 처리에서 고칠 곳이 나오면 여기서 고친다. 이미 커밋된 1.6의 테스트는 고치지 않는다. 확인: `./gradlew :e2e:integrationTest`가 모두 통과한다.
+- [x] 4.1 1.6의 종단 간 시나리오를 통과시킨다. `ServiceProcesses`의 실행 인자나 로그 처리에서 고칠 곳이 나오면 여기서 고친다. 이미 커밋된 1.6의 테스트는 고치지 않는다. 확인: `./gradlew :e2e:integrationTest`가 모두 통과한다.
 
 ## 5. Docker Compose
 
