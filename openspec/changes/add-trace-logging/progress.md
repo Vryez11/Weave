@@ -8,6 +8,8 @@
 - 요청 하나의 로그 줄은 응답 `X-Trace-Id`와 같은 `traceId`로 찾는다. 앞 테스트의 줄이 비동기로 늦게 와도 섞이지 않는다. "남기지 않는다"는 뒤에 보낸 확인용 요청의 줄이 나올 때까지 기다린 뒤 판정한다(`PostRequestLogScenarioTest` 헬스 체크).
 - ktlint import 순서 위반은 `./gradlew :<모듈>:ktlintFormat`으로 고친다.
 - 이 환경의 셸은 `ls`가 다른 도구로 바뀌어 있고 `$변수`·`-exec`가 든 명령은 막힌다. 파일 목록은 `find`, 내용은 Read 도구로 본다.
+- feed-service에서 응답 헤더나 `traceparent`가 필요하면 `FeedHttpClient`(헤더를 안 돌려준다) 대신 `TracedFeedHttp`(`feed-service/src/test/.../TraceHttp.kt`)를 쓴다. `HttpResponse.traceId()`, `LoggedRequest.traceparentTraceId()`도 거기 있다. 커밋된 `DownstreamWireMock.kt`는 Ralph 중에 고칠 수 없다(pre-file 훅).
+- 처리되지 않은 예외의 Tomcat 로그는 요청 완료 로그(필터 `finally`)보다 늦게 쓰인다. "남기지 않는다"를 판정할 때는 그 요청의 줄이 아니라 뒤에 보낸 확인용 요청의 줄을 기다린다.
 
 ---
 
@@ -32,4 +34,14 @@
 - 확인: `:post-service:integrationTest`에서 두 테스트 모두 "응답의 X-Trace-Id 헤더"로 실패한다. `ktlintCheck`, `compileKotlin compileTestKotlin`, `:post-service:test`, `openspec validate` 통과.
 - 바꾼 파일: `post-service/src/test/kotlin/com/weave/post/PostRequestLogScenarioTest.kt`
 - 다음 반복이 알아 둘 것: 이 테스트는 헤더와 traceId에 기대므로 2.3(필터)까지 와야 통과한다. 1.4도 같은 방식(응답 헤더 → 같은 traceId의 줄)으로 쓰면 된다.
+---
+
+## 2026-11-05 15:00 - 1.4 feed-service trace-logging 시나리오 테스트
+- `FeedTraceLogScenarioTest`(`Integration`, F-004, RANDOM_PORT) 9개: 응답 헤더(정상, 오류 400·500), traceparent 받음·없음, 전파(다섯 호출, post 200ms 지연 뒤 user·like, 토글), 실패한 요청의 `http_request` status 500, 하위 서비스 오류 본문(recommendation 503 + 표식 본문)이 로그에 없음.
+- 응답 헤더와 `traceparent`를 다루는 도우미 `TracedFeedHttp`를 새 파일 `TraceHttp.kt`에 두었다.
+- 확인: `:feed-service:integrationTest`에서 새 9개가 모두 "응답의 X-Trace-Id 헤더"로 실패하고 기존 테스트는 통과. `:feed-service:test`, `ktlintCheck`, `compileTestKotlin`, `openspec validate` 통과.
+- 바꾼 파일: `feed-service/src/test/kotlin/com/weave/feed/FeedTraceLogScenarioTest.kt`, `.../TraceHttp.kt`
+- 다음 반복이 알아 둘 것:
+  - "post가 끝난 뒤 시작한 호출"은 WireMock `loggedDate`로 user·like 요청이 post 요청보다 200ms 이상 뒤에 왔는지도 본다.
+  - 오류 본문 시나리오는 3.2에서 통과해야 하는데, Gateway 로그만으로는 부족할 수 있다. `RestClientResponseException` 메시지에 본문이 들어가고(`503 Service Unavailable: "<본문>"`), 처리되지 않은 예외를 Tomcat/Spring이 스택 트레이스와 함께 ERROR로 남기면 `stack_trace`에 본문이 실린다. 3.2 때 실제로 그런지 보고, 그렇다면 응답 동작을 바꾸지 않고 막을 방법이 있는지 판단한다(없으면 BLOCKED).
 ---
