@@ -117,6 +117,7 @@ PRD F-004의 순서대로 간다.
 - **예외 객체와 메시지를 로그에 넘기지 않는다.** `RestClientResponseException`의 메시지에는 하위 서비스의 응답 본문이 들어가, 스택 트레이스로 남기면 본문이 로그에 실린다(스펙 "로그에 남기지 않는 것"). 상태 코드와 클래스 이름이면 원인을 가리기에 충분하다.
 - **예외 메시지에도 본문을 넣지 않는다(작업 3.2에서 정함).** 실패 로그만 고쳐서는 부족했다. 처리되지 않은 예외를 Tomcat이 `Servlet.service() ... threw exception` ERROR 줄로 남기며 `message`와 `stack_trace`에 예외 메시지(`503 Service Unavailable: "<본문>"`)를 싣는다. 그래서 HTTP 서비스 그룹 클라이언트에 오류 상태 처리기(`defaultStatusHandler`)를 두어, 기본 처리기와 같은 예외 종류·상태 코드·본문 바이트로 만들되 메시지는 `<상태 코드> <상태 문구>`로만 둔다. 응답(500)과 `cause` 분류는 바뀌지 않는다.
   - 검토에서 범위로 승인했다(proposal Impact). 기본 처리기처럼 본문 변환 함수(`setBodyConvertFunction`)도 넣어, 나중에 F-005가 `getResponseBodyAs(...)`로 오류 본문을 읽을 수 있게 한다.
+  - 변환기는 그 클라이언트가 쓰는 목록이다(작업 6.4). `configureMessageConverters`의 `configureMessageConvertersList`로 빌더가 `build()`에서 만드는 최종 목록을 받는다. 폐기 예정인 `messageConverters(Consumer)`는 부르는 자리에서 목록을 굳혀 Boot의 변환기 설정을 놓칠 수 있어 쓰지 않는다. 처리기 조건이 `HttpStatusCode::isError`라 4xx·5xx만 와서 `UnknownHttpStatusCodeException` 분기는 뺐다. 테스트는 `HttpClientErrorBodyTest`(503 문자열·JSON 본문, 404 문자열 본문)다.
 - 분류와 로그는 `com.weave.feed.gateway`의 작은 함수 하나로 모아 Gateway 다섯 개가 함께 쓴다. F-001에서 타임아웃, 서킷 열림, 벌크헤드 거절이 `cause`의 새 값으로 더해진다.
 
 ### 7. Docker Compose

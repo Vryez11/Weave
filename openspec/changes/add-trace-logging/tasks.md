@@ -118,7 +118,7 @@
   - 원인 사슬에 `ConnectException`(`NoRouteToHostException` 포함), `UnknownHostException`, HttpClient 5 `ConnectTimeoutException`이 있으면 `connect_failure`다.
   - 커넥션 풀에서 연결을 얻지 못해 끝난 예외가 어느 값이 되는지 단위 테스트로 확인하고 design 결정 6의 표 밑에 적는다. `connect_failure`가 되면 안 된다.
   - 확인: 새 예외 종류마다 단위 테스트가 있고 `./gradlew :feed-service:test -Pkotest.filter.tests='*F-004*'`가 통과한다. 6.1의 두 번째 시나리오가 `integrationTest`에서 통과한다.
-- [ ] 6.4 HTTP 서비스 그룹 클라이언트의 오류 상태 처리기를 보완한다(design 결정 6 끝).
+- [x] 6.4 HTTP 서비스 그룹 클라이언트의 오류 상태 처리기를 보완한다(design 결정 6 끝).
   - 기본 처리기처럼 메시지 변환기로 본문 변환 함수(`setBodyConvertFunction`)를 넣는다. 닿지 않는 `UnknownHttpStatusCodeException` 분기는 정리한다.
   - 확인: 하위 서비스 503 응답에서 만든 예외의 `getResponseBodyAs(String::class.java)`가 본문을 돌려주는 테스트가 통과하고, 예외 메시지에는 본문이 없다.
 - [ ] 6.5 테스트를 단단하게 한다.

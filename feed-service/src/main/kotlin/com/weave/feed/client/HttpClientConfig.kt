@@ -9,14 +9,20 @@ import org.springframework.beans.factory.annotation.Value
 import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import org.springframework.core.ResolvableType
 import org.springframework.http.HttpStatusCode
 import org.springframework.http.client.ClientHttpResponse
+import org.springframework.http.converter.HttpMessageConverter
 import org.springframework.web.client.HttpClientErrorException
+import org.springframework.web.client.HttpMessageConverterExtractor
 import org.springframework.web.client.HttpServerErrorException
+import org.springframework.web.client.RestClientException
 import org.springframework.web.client.RestClientResponseException
-import org.springframework.web.client.UnknownHttpStatusCodeException
 import org.springframework.web.client.support.RestClientHttpServiceGroupConfigurer
 import org.springframework.web.service.registry.ImportHttpServices
+import java.io.ByteArrayInputStream
+import java.io.IOException
+import java.io.InputStream
 
 /**
  * 하위 서비스 HTTP 클라이언트 (design 결정 3, 아키텍처 5-1).
@@ -51,25 +57,57 @@ class HttpClientConfig {
      * 오류 응답의 예외 메시지에 하위 서비스의 응답 본문을 넣지 않는다(`trace-logging` "로그에 남기지 않는 것").
      * 기본 처리기는 메시지 끝에 본문을 붙이고, 처리되지 않은 예외를 Tomcat이 메시지·스택 트레이스와 함께 ERROR로 남겨 본문이 로그에 실린다.
      * 예외 종류, 상태 코드, 본문 바이트는 기본 처리기와 같아 실패 분류와 응답(500)은 바뀌지 않는다.
+     *
+     * 기본 처리기처럼 그 클라이언트의 메시지 변환기로 본문 변환 함수를 넣어 `getResponseBodyAs(...)`로 본문을 읽을 수 있다.
+     * 변환기 목록은 `configureMessageConvertersList`로 빌더가 `build()`에서 만드는 최종 목록을 받는다.
+     * 폐기 예정인 `messageConverters(Consumer)`는 부르는 자리에서 목록을 굳혀 뒤에 오는 변환기 설정을 놓친다.
      */
     @Bean
     fun bodylessErrorMessages(): RestClientHttpServiceGroupConfigurer =
         RestClientHttpServiceGroupConfigurer { groups ->
             groups.forEachClient { _, builder ->
-                builder.defaultStatusHandler(HttpStatusCode::isError) { _, response -> throw errorWithoutBodyInMessage(response) }
+                var converters: List<HttpMessageConverter<*>> = emptyList()
+                builder.configureMessageConverters { it.configureMessageConvertersList { list -> converters = list } }
+                builder.defaultStatusHandler(HttpStatusCode::isError) { _, response ->
+                    throw errorWithoutBodyInMessage(response, converters)
+                }
             }
         }
 
-    private fun errorWithoutBodyInMessage(response: ClientHttpResponse): RestClientResponseException {
+    /** 처리기의 조건이 [HttpStatusCode.isError]라 4xx·5xx만 온다. */
+    private fun errorWithoutBodyInMessage(
+        response: ClientHttpResponse,
+        converters: List<HttpMessageConverter<*>>,
+    ): RestClientResponseException {
         val status = response.statusCode
         val statusText = response.statusText
         val message = "${status.value()} $statusText"
         val body = response.body.readAllBytes()
         val charset = response.headers.contentType?.charset
-        return when {
-            status.is4xxClientError -> HttpClientErrorException.create(message, status, statusText, response.headers, body, charset)
-            status.is5xxServerError -> HttpServerErrorException.create(message, status, statusText, response.headers, body, charset)
-            else -> UnknownHttpStatusCodeException(message, status.value(), statusText, response.headers, body, charset)
+        val error =
+            if (status.is4xxClientError) {
+                HttpClientErrorException.create(message, status, statusText, response.headers, body, charset)
+            } else {
+                HttpServerErrorException.create(message, status, statusText, response.headers, body, charset)
+            }
+        error.setBodyConvertFunction { type -> readBody(type, response, body, converters) }
+        return error
+    }
+
+    private fun readBody(
+        type: ResolvableType,
+        response: ClientHttpResponse,
+        body: ByteArray,
+        converters: List<HttpMessageConverter<*>>,
+    ): Any? {
+        val bufferedResponse =
+            object : ClientHttpResponse by response {
+                override fun getBody(): InputStream = ByteArrayInputStream(body)
+            }
+        return try {
+            HttpMessageConverterExtractor<Any>(type.type, converters).extractData(bufferedResponse)
+        } catch (e: IOException) {
+            throw RestClientException("Error while extracting response for type [$type]", e)
         }
     }
 }

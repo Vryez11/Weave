@@ -292,3 +292,12 @@
 - 바꾼 파일: `feed-service/src/main/kotlin/com/weave/feed/gateway/DownstreamFailure.kt`, `feed-service/src/test/kotlin/com/weave/feed/gateway/DownstreamFailureConnectCauseTest.kt`(새로), `feed-service/CLAUDE.md`, `design.md`, `tasks.md`, `progress.md`
 - 다음 반복(6.4)이 알아 둘 것: 오류 상태 처리기는 `HttpClientConfig`의 `bodylessErrorMessages`다. 커밋된 테스트 파일은 고칠 수 없으니 새 테스트도 새 파일에 둔다.
 ---
+
+## 2026-11-05 16:56 - 6.4 오류 상태 처리기에 본문 변환 함수
+- `HttpClientErrorBodyTest`(`Integration`, F-004, `@SpringBootTest`) 3개: recommendation 503 `text/plain` 본문 → `HttpServerErrorException.getResponseBodyAs(String)`가 본문, 메시지는 `503 Service Unavailable`. 503 JSON 본문 → Kotlin 데이터 클래스로 읽힘(Boot의 Jackson 변환기가 들어왔다는 뜻). 404 → `HttpClientErrorException`도 같음. 구현 전 셋 다 "Function to convert body not set"으로 실패.
+- `bodylessErrorMessages`: 그룹 빌더마다 `configureMessageConverters { it.configureMessageConvertersList { list -> converters = list } }`로 빌더가 `build()`에서 만드는 최종 변환기 목록을 받고, 예외에 `setBodyConvertFunction`(`HttpMessageConverterExtractor` + 본문 바이트로 바꾼 `ClientHttpResponse by response`)을 넣었다. `UnknownHttpStatusCodeException` 분기는 뺐다(조건이 `isError`).
+- Spring 7.0.10에서 `RestClient.Builder.messageConverters(...)` 두 개는 폐기 예정이고, `DefaultRestClientBuilder`는 `messageConverters`(목록)와 `convertersConfigurer`를 따로 가진다. `ClientHttpResponseDecorator`는 공개 클래스가 아니다(컴파일 안 됨). API는 임시 리플렉션 테스트로 확인하고 지웠다.
+- 확인: `:feed-service:ktlintCheck compileKotlin compileTestKotlin test integrationTest --rerun-tasks` 통과(XML timestamp 확인, 기존 integrationTest 모두 통과). `./gradlew ktlintCheck build` 통과(e2e `integrationTest`도 다시 돌아 4개 통과). `openspec validate` 통과.
+- 바꾼 파일: `feed-service/src/main/kotlin/com/weave/feed/client/HttpClientConfig.kt`, `feed-service/src/test/kotlin/com/weave/feed/client/HttpClientErrorBodyTest.kt`(새로), `feed-service/CLAUDE.md`, `design.md`(결정 6), `tasks.md`, `progress.md`
+- 다음 반복(6.5)이 알아 둘 것: `FeedCallFailureLogScenarioTest`, `ExecutorTracePropagationTest`, `TraceLookupComposeScenarioTest`는 커밋된 테스트지만 묶음 6 머리말대로 이번에는 고쳐도 된다. 다만 Ralph 중 pre-file 훅이 막을 수 있다(6.3에서 `DownstreamFailureTest` 수정이 막혔다). 막히면 progress에 적고 BLOCKED로 사람에게 넘긴다.
+---
