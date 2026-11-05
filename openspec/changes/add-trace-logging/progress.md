@@ -370,3 +370,14 @@
 - 바꾼 파일: `docs/architecture.md`, `design.md`, `tasks.md`, `libs/observability/CLAUDE.md`, `e2e/build.gradle.kts`, `e2e/CLAUDE.md`, `progress.md`
 - 다음 반복(6.11)은 전체 검사다. `./gradlew ktlintCheck build`, `./gradlew :e2e:composeTest`, `openspec validate`를 돌린다.
 ---
+
+## 2026-11-05 18:01 - 6.11 전체 검사
+- 코드는 고치지 않았다. `docker compose ls -a`에 `weave`·`weave-compose-test` 프로젝트는 없었다. 떠 있던 dandi-backend는 3307·6380만 써서 겹치지 않았다.
+- 확인:
+  - `./gradlew ktlintCheck build --rerun-tasks` 통과(1분 4초, 120개 태스크 모두 실행). 모든 모듈 `test-results` XML에 failures·errors가 0이 아닌 스위트가 없다.
+  - `./gradlew :e2e:composeTest` 통과(42초). `TraceLookupComposeScenarioTest` 2개 통과(timestamp 09:00Z), 끝난 뒤 `docker compose -p weave-compose-test ps -a` 비어 있음.
+  - `openspec validate --all --strict --no-interactive` 7개 통과.
+- 검토 때 볼 것(막지 않음): `ObservabilityDefaultsTest`는 `spring.application.name` 없이 컨텍스트를 띄워 그 출력의 `service`가 `serviceName_IS_UNDEFINED`다. 서비스 6개는 이름을 주므로 테스트 출력에서만 보인다.
+- 바꾼 파일: `tasks.md`, `progress.md`
+- 다음은 7장(검토와 change 완료 조건)이다. Ralph 루프가 하지 않으니 사람에게 넘긴다. 2차 검토 뒤 다시 볼 diff는 6.9부터다.
+---

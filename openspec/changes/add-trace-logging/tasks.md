@@ -151,7 +151,7 @@
   - design Risks에 한 줄: 하위 서비스가 200과 잘못된 JSON을 주면 Jackson 파싱 예외 메시지에 본문 토큰이 실려 ERROR 줄의 `stack_trace`에 남을 수 있다. 스펙은 오류 응답 본문만 다루므로 F-005에서 응답 파싱 실패를 다룰 때 본다.
   - `e2e/build.gradle.kts`의 `composeTestUp` 미리 내리기가 `inheritIO()`로 Gradle 데몬 출력에 쓰는 것을, 실패 원인이 보이게 고친다(파일로 쓰거나 Gradle exec로).
   - 확인: 문서에 적은 테스트 이름이 실제로 있고(`grep`), `./gradlew ktlintCheck :e2e:ktlintKotlinScriptCheck`가 통과한다.
-- [ ] 6.11 전체 검사를 돌린다. 확인: `./gradlew ktlintCheck build`, `./gradlew :e2e:composeTest`, `openspec validate --all --strict --no-interactive`가 통과한다.
+- [x] 6.11 전체 검사를 돌린다. 확인: `./gradlew ktlintCheck build`, `./gradlew :e2e:composeTest`, `openspec validate --all --strict --no-interactive`가 통과한다.
 
 ## 7. 검토와 change 완료 조건
 
