@@ -48,7 +48,7 @@
   - feed-service 통합 테스트에 `spring.task.execution.propagate-context=false`를 명시하고, 하위 서비스 다섯 요청의 traceId가 응답의 `X-Trace-Id`와 다르다는 것을 확인한다.
   - 테스트 이름에 "전파를 끄면 끊긴다"는 뜻을 담는다.
   - 확인: 재현 테스트가 통과하고, 1.4의 전파 시나리오 세 개는 여전히 실패한다.
-- [ ] 2.5 직접 만든 실행기의 끊김과 감싸기를 `libs/observability` 단위 테스트로 남긴다(design 결정 4의 4번).
+- [x] 2.5 직접 만든 실행기의 끊김과 감싸기를 `libs/observability` 단위 테스트로 남긴다(design 결정 4의 4번).
   - `Executors.newFixedThreadPool`과 `ForkJoinPool.commonPool()`에서는 MDC의 `traceId`가 없다.
   - `ContextExecutorService.wrap`으로 감싸면 같은 `traceId`가 있다.
   - 확인: `./gradlew :libs:observability:test`가 통과한다.

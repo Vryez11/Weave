@@ -9,4 +9,5 @@
 - 기본 속성·Bean 조건은 `ObservabilityDefaultsTest`처럼 `SpringApplicationBuilder(LoggingTestApplication).web(NONE)`으로 컨텍스트를 띄워 본다. 서비스 `application.yml` 역할은 테스트 리소스의 프로필 파일(`application-<프로필>.yml`)이 한다.
 - 서블릿 쪽 Bean(`TraceLoggingFilter`)은 `ObservabilityAutoConfiguration.ServletConfiguration`(`@ConditionalOnWebApplication(SERVLET)`)에 둔다. `spring-webmvc`·`jakarta.servlet-api`는 `compileOnly`라 웹이 아닌 컨텍스트에서 이 클래스들을 건드리지 않게 한다.
 - Filter는 `FilterRegistrationBean` 없이 `Ordered`를 단 `OncePerRequestFilter` Bean으로 둔다. Boot가 order대로 등록하고 오류 디스패치에도 건다. Tomcat의 `/error` 디스패치에서 `doFilterInternal`이 다시 불릴 수 있어 `dispatcherType`으로 가른다(중첩 오류 디스패치는 `doFilterNestedErrorDispatch`).
+- 스레드 경계의 traceId 전파를 Spring 없이 단위 테스트할 때는 `ExecutorTracePropagationTest`처럼 Boot가 하는 연결을 직접 짠다: `ContextStorage.addWrapper(EventPublishingContextWrapper(...))`(OTel 컨텍스트를 처음 쓰기 전에), `Slf4JEventListener`로 MDC, `DefaultTracingObservationHandler`, `ObservationThreadLocalAccessor`에 레지스트리 지정. `ContextExecutorService.wrap(executor)` 한 인자 형태는 deprecated라 `ContextSnapshotFactory`를 함께 넘긴다.
 - test fixtures는 `implementation`의 BOM을 물려받지 않는다. 의존성을 더할 때 `testFixturesImplementation(platform(...))`이 이미 있는지 본다.

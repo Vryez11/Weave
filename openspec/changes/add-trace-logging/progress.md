@@ -115,3 +115,11 @@
   - 2.6 커밋 본문에 적을 재현 결과: `propagate-context=false`에서 풀 스레드의 RestClient가 새 trace를 시작해 post·recommendation·ad·user·like 다섯 요청의 traceId가 모두 `X-Trace-Id`와 달랐다. 토글(요청 스레드)은 이어졌다.
   - 3.2 주의(확인됨): 오류 본문 시나리오는 Tomcat `dispatcherServlet`의 ERROR 줄(`Servlet.service() ... threw exception`)의 `message`와 `stack_trace`에 `503 Service Unavailable: "<본문>"`이 실려 실패한다. Gateway 로그만으로는 통과하지 않는다.
 ---
+
+## 2026-11-05 15:30 - 2.5 직접 만든 실행기의 끊김과 감싸기 단위 테스트
+- `ExecutorTracePropagationTest`(태그 없음, F-004) 4개: 관찰 범위 안에서 `Executors.newFixedThreadPool(1)`·`CompletableFuture.supplyAsync`(commonPool)의 작업은 MDC `traceId`가 null, 같은 두 실행기를 `ContextExecutorService.wrap(..., ContextSnapshotFactory)`로 감싸면 요청 스레드와 같은 `traceId`.
+- Spring 없이 Boot의 연결을 직접 짰다: `EventPublishingContextWrapper` + `Slf4JEventListener`(MDC), SDK `OtelTracer`, `DefaultTracingObservationHandler`, `ObservationThreadLocalAccessor`에 레지스트리 지정(스펙 끝나면 되돌림). 전파되는 것은 Observation이고, 작업 스레드에서 범위를 다시 열 때 MDC가 채워진다.
+- 확인: `:libs:observability:test` 통과(새 4개 포함), `ktlintCheck`, `compileKotlin compileTestKotlin`(경고 없음), `openspec validate` 통과.
+- 바꾼 파일: `libs/observability/src/test/kotlin/com/weave/observability/ExecutorTracePropagationTest.kt`, `libs/observability/CLAUDE.md`
+- 다음 반복(2.6)이 알아 둘 것: 2.8의 아키텍처 7-3에 적을 테스트 이름은 이 파일의 네 테스트와 `FeedTracePropagationOffTest`다.
+---
