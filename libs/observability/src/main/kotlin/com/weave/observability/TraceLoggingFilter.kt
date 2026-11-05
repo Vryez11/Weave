@@ -17,6 +17,10 @@ import org.springframework.web.filter.OncePerRequestFilter
  * 처리되지 않은 예외나 `sendError`는 Tomcat이 `/error`로 다시 디스패치하며 응답을 초기화할 수 있어,
  * 오류 디스패치에서도 헤더를 다시 넣는다. 요청 완료 로그는 첫 디스패치에서만 남긴다.
  * 처리되지 않은 예외로 끝나면 요청 완료 로그를 ERROR로 올려 예외를 담는다([TomcatServletExceptionLogFilter]).
+ *
+ * 비동기 디스패치는 다루지 않는다. 지금 컨트롤러는 모두 동기로 응답한다. 컨트롤러가 `CompletableFuture`를
+ * 돌려주게 바뀌면 첫 디스패치가 끝난 시점의 `status`·`durationMs`가 남으므로, 그때 비동기 디스패치 완료에
+ * 맞춰 로그를 남기도록 고친다.
  */
 class TraceLoggingFilter(
     private val tracer: ObjectProvider<Tracer>,
@@ -34,7 +38,7 @@ class TraceLoggingFilter(
         filterChain: FilterChain,
     ) {
         putTraceIdHeader(request, response)
-        if (request.dispatcherType == DispatcherType.ERROR || request.requestURI.startsWith(ACTUATOR_PATH)) {
+        if (request.dispatcherType == DispatcherType.ERROR || isActuatorPath(request.requestURI)) {
             filterChain.doFilter(request, response)
             return
         }
@@ -70,6 +74,9 @@ class TraceLoggingFilter(
         putTraceIdHeader(request, response)
         filterChain.doFilter(request, response)
     }
+
+    // `/actuatorx`처럼 글자만 같은 경로는 actuator가 아니다
+    private fun isActuatorPath(path: String): Boolean = path == ACTUATOR_PATH || path.startsWith("$ACTUATOR_PATH/")
 
     // 오류 디스패치에서는 첫 디스패치에서 읽은 값을 그대로 쓴다. 그때의 현재 스팬에 기대지 않는다
     private fun putTraceIdHeader(

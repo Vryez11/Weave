@@ -87,7 +87,7 @@ feed-service는 하위 서비스를 부를 때마다 W3C `traceparent` 헤더에
 
 ### Requirement: 요청 완료 로그 (F-004)
 
-모든 서비스는 HTTP 요청 하나를 마칠 때마다 로그를 한 줄 남겨야 한다(SHALL). 필드는 `event`(`http_request`), `method`, `path`(쿼리 문자열 제외), `status`, `durationMs`이고, JSON 로그 형식의 `traceId`가 함께 있다. `/actuator`로 시작하는 경로는 남기지 않는다.
+모든 서비스는 HTTP 요청 하나를 마칠 때마다 로그를 한 줄 남겨야 한다(SHALL). 필드는 `event`(`http_request`), `method`, `path`(쿼리 문자열 제외), `status`, `durationMs`이고, JSON 로그 형식의 `traceId`가 함께 있다. `/actuator`와 `/actuator/`로 시작하는 경로는 남기지 않는다.
 
 #### Scenario: 요청 하나에 한 줄
 

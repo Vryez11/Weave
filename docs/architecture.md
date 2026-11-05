@@ -280,7 +280,8 @@ Retry-After 동안 호출을 막는 방법(서킷을 그 시간만큼 열어 두
 - **`X-Trace-Id` 응답 헤더와 요청 완료 로그:** `TraceLoggingFilter` 하나가 맡는다. Boot의 `ServerHttpObservationFilter` 뒤(order `HIGHEST_PRECEDENCE + 2`)에서 현재 스팬의 traceId를 읽는다.
   - 체인을 부르기 전에 `X-Trace-Id`를 넣는다. Tomcat의 `/error` 오류 디스패치에서도 같은 값을 다시 넣어 400·500 응답에도 헤더가 있다.
   - 첫 디스패치가 끝날 때 INFO로 한 줄 남긴다: `event=http_request`, `method`, `path`(쿼리 제외), `status`(체인에서 예외가 올라오면 500), `durationMs`.
-  - `/actuator`로 시작하는 경로는 로그만 건너뛴다(헤더는 넣는다). 헬스 체크와 Prometheus 수집이 로그를 덮지 않게 한다.
+  - `/actuator`와 `/actuator/`로 시작하는 경로는 로그만 건너뛴다(헤더는 넣는다). 헬스 체크와 Prometheus 수집이 로그를 덮지 않게 한다. `/actuatorx`처럼 글자만 같은 경로는 남긴다.
+  - 비동기 디스패치는 다루지 않는다. 컨트롤러가 비동기로 응답하게 바뀌면(F-001 후보) 비동기 디스패치 완료에 맞춰 남기도록 고친다.
 - **기본 속성:** 라이브러리는 `application.yml`을 두지 않는다. `EnvironmentPostProcessor`가 `observability-defaults.properties`를 속성 소스 뒤쪽에 붙여, 서비스의 `application.yml`과 환경 변수가 언제나 이긴다.
 
   | 속성 | 값 | 이유 |
