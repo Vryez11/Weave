@@ -1,0 +1,15 @@
+# 서비스 6개의 Actuator를 긁는다 (add-trace-logging design 결정 7). 주소는 Compose 서비스 이름과 포트다.
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: services
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets:
+          - feed-service:8080
+          - post-service:8081
+          - user-service:8082
+          - like-service:8083
+          - recommendation-service:8084
+          - ad-service:8085

@@ -1,0 +1,2 @@
+# jar 태스크를 끄기 전에 만든 plain jar가 build/libs에 남아 있어도 bootJar 하나만 컨텍스트에 들어가게 한다
+*-plain.jar

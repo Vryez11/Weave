@@ -1,0 +1,100 @@
+// 로그와 스팬을 모으는 Alloy 설정 (add-trace-logging design 결정 7, 아키텍처 7-2).
+// 로그: weave.logs=true 라벨이 붙은 컨테이너의 stdout → Loki
+// 스팬: 서비스가 OTLP HTTP(4318)로 보낸 것 → Tempo
+
+// ---------- 로그 ----------
+
+discovery.docker "services" {
+  host = "unix:///var/run/docker.sock"
+  // 기본값 60초. Alloy가 서비스보다 먼저 떠서 첫 탐색에 서비스가 없으면, 다음 탐색까지 로그 수집이 최대 60초 늦는다.
+  // composeTest의 Loki 조회가 60초를 기다리므로(design 결정 10) 짧게 둔다. 로컬 Docker API라 부담이 작다.
+  // 늦게 찾아도 컨테이너 로그를 처음부터 읽어 빠지는 줄은 없다(2026-11-05 확인)
+  refresh_interval = "5s"
+
+  filter {
+    name   = "label"
+    values = ["weave.logs=true"]
+  }
+}
+
+// Loki 라벨은 service(Compose 서비스 이름)와 level만 둔다. traceId는 요청마다 달라 라벨이 아닌 구조화 메타데이터로 붙인다
+discovery.relabel "services" {
+  targets = []
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "service"
+  }
+}
+
+loki.source.docker "services" {
+  host          = "unix:///var/run/docker.sock"
+  targets       = discovery.docker.services.targets
+  relabel_rules = discovery.relabel.services.rules
+  forward_to    = [loki.process.json.receiver]
+}
+
+loki.process "json" {
+  // JSON이 아닌 줄(JVM이 logback보다 먼저 쓴 줄 등)은 필드 없이 그대로 지나간다
+  stage.json {
+    expressions = {
+      level     = "",
+      traceId   = "",
+      spanId    = "",
+      timestamp = "\"@timestamp\"",
+    }
+  }
+
+  stage.labels {
+    values = { level = "" }
+  }
+
+  stage.structured_metadata {
+    values = {
+      traceId = "",
+      spanId  = "",
+    }
+  }
+
+  // 컨테이너 출력 시각이 아니라 로그의 @timestamp를 쓴다. 비동기 appender가 출력을 미뤄도 순서가 앱 시각대로 남는다
+  stage.timestamp {
+    source = "timestamp"
+    format = "RFC3339"
+  }
+
+  forward_to = [loki.write.default.receiver]
+}
+
+loki.write "default" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}
+
+// ---------- 스팬 ----------
+
+otelcol.receiver.otlp "default" {
+  http {
+    endpoint = "0.0.0.0:4318"
+  }
+
+  output {
+    traces = [otelcol.processor.batch.default.input]
+  }
+}
+
+otelcol.processor.batch "default" {
+  output {
+    traces = [otelcol.exporter.otlp.tempo.input]
+  }
+}
+
+otelcol.exporter.otlp "tempo" {
+  client {
+    endpoint = "tempo:4317"
+
+    tls {
+      insecure = true
+    }
+  }
+}

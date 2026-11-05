@@ -39,9 +39,10 @@ kotlin {
 }
 
 // 테스트는 Kotest 태그로 나눈다 (conventions/harness.md 2-3).
-// - test: 단위 테스트. Integration 태그가 없는 것. Stop 훅이 돌린다
+// - test: 단위 테스트. Integration, Compose 태그가 없는 것. Stop 훅이 돌린다
 // - integrationTest: Integration 태그가 붙은 것. Spring 컨텍스트, WireMock, Testcontainers
 // - check(build)는 둘 다 돌린다. CI가 쓴다
+// - Compose 태그는 Docker Compose 환경을 띄워야 해서 e2e의 composeTest에서만 돈다
 tasks.withType<Test>().configureEach {
     useJUnitPlatform()
     // 기능 ID로 거르기: ./gradlew test -Pkotest.filter.tests='*F-003*'
@@ -56,7 +57,7 @@ tasks.withType<Test>().configureEach {
 }
 
 tasks.named<Test>("test") {
-    systemProperty("kotest.tags", "!Integration")
+    systemProperty("kotest.tags", "!Integration & !Compose")
 }
 
 val integrationTest by tasks.registering(Test::class) {

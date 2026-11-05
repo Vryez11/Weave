@@ -211,7 +211,8 @@ PR 템플릿(`.github/pull_request_template.md`)의 "확인한 것"이 이 목�
 | 종단 간 테스트 | `./gradlew :e2e:integrationTest`. 서비스 6개를 bootJar 프로세스로 띄운다. Docker가 필요하다 |
 | 서비스 하나 실행 | `./gradlew :<모듈>:bootRun`. like-service는 `./gradlew :like-service:bootTestRun`(Testcontainers MySQL을 함께 띄운다) |
 | Ralph 루프 | `scripts/ralph/ralph.sh <change-id> [최대 반복 수]` |
-| 로컬 인프라 | `docker compose up -d`. 고도화 1(`add-trace-logging`)에서 만든다 |
+| 로컬 인프라 | `./gradlew bootJar` 뒤 `docker compose up -d --build --wait`. 서비스 6개, MySQL, 관찰 인프라(Alloy, Loki, Tempo, Prometheus, Grafana)를 띄운다. MySQL 계정은 루트 `.env`에서 읽는다(`.env.example`). 내리기는 `docker compose down -v` |
+| Compose 테스트 | `./gradlew :e2e:composeTest`. 프로젝트 이름 `weave-compose-test`로 Compose 환경을 띄워 `Compose` 태그 테스트(Loki·Tempo의 traceId 조회)를 돌리고, 성공·실패와 관계없이 내린다. 호스트 포트가 같아 손으로 띄운 환경은 먼저 내린다 |
 | 장애 실험 시나리오 하나 | 고도화 2(`add-fault-experiments`)에서 만든다 |
 
 Stop 훅은 ktlint가 위반을 보고하면 증분 결과를 버리고(`--rerun-tasks`) 한 번 더 돌린다. ktlint-gradle이 지운 파일의 예전 위반을 계속 보고할 때가 있어서다.
