@@ -139,7 +139,7 @@
 
 2차 검토(2026-11-05)에서 나온 막음 1건(B2)과 받아들인 제안이다. 커밋된 테스트는 고치지 않는다(새 파일에 둔다).
 
-- [ ] 6.9 actuator 경로의 처리되지 않은 예외를 남긴다(design 결정 5의 "actuator 경로").
+- [x] 6.9 actuator 경로의 처리되지 않은 예외를 남긴다(design 결정 5의 "actuator 경로").
   - 지금은 actuator 분기가 예외를 잡지 않고, Tomcat 줄은 6.2의 logback 필터가 막아 예외가 어디에도 남지 않는다.
   - `TraceLoggingFilter`의 actuator 분기에서 예외가 올라오면 `event=unhandled_exception`, `method`, `path`를 담은 ERROR 줄을 예외와 함께 남기고 다시 던진다. 요청 완료(`http_request`) 줄은 계속 남기지 않는다.
   - 확인: 새 단위 테스트 파일에서 예외를 던지는 `FilterChain`으로 `/actuator/x`를 부르면 ERROR 줄 하나(`unhandled_exception`, 예외 포함)가 남고 예외가 다시 던져지며, `http_request` 줄은 없다. `./gradlew :libs:observability:test`가 통과한다.

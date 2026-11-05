@@ -351,3 +351,11 @@
 - 바꾼 파일: `tasks.md`, `progress.md`
 - 다음은 7장(검토와 change 완료 조건)이다. Ralph 루프가 하지 않으니 사람에게 넘긴다. 다시 검토할 때는 묶음 6의 diff를 중심으로 본다.
 ---
+
+## 2026-11-05 17:53 - 6.9 actuator 경로의 처리되지 않은 예외
+- `TraceLoggingFilter`: actuator 분기를 `doFilterActuator`로 떼어, 체인에서 예외가 올라오면 `event=unhandled_exception`, `method`, `path`를 담은 ERROR 줄을 `setCause(e)`로 남기고 다시 던진다. 요청 완료(`http_request`) 줄은 계속 남기지 않는다. 오류 디스패치 분기는 따로 두어 예전처럼 체인만 부른다. KDoc에 한 줄 더했다.
+- 새 단위 테스트 `TraceLoggingFilterActuatorExceptionTest`(태그 없음, F-004) 1개: 예외를 던지는 `FilterChain`으로 `GET /actuator/x` → 같은 예외 객체가 다시 던져지고, 필터 로거 줄이 정확히 하나(ERROR, key-value가 정확히 `event`·`method`·`path`, 예외 클래스·메시지), `http_request` 줄 없음. 구현 전 "size 1 but has size 0"으로 실패를 확인했다.
+- 확인: `./gradlew ktlintCheck :libs:observability:test :libs:observability:integrationTest :post-service:integrationTest` 통과(XML timestamp 08:53Z), `./gradlew ktlintCheck build` 통과, `openspec validate --all --strict --no-interactive` 7개 통과.
+- 바꾼 파일: `libs/observability/src/main/kotlin/com/weave/observability/TraceLoggingFilter.kt`, `libs/observability/src/test/kotlin/com/weave/observability/TraceLoggingFilterActuatorExceptionTest.kt`(새로), `libs/observability/CLAUDE.md`, `tasks.md`, `progress.md`
+- 다음 반복(6.10)이 알아 둘 것: 문서 작업이다. 7-1에 적을 actuator 줄 이름은 `unhandled_exception`, 테스트 이름은 `TraceLoggingFilterActuatorExceptionTest`. `libs/observability/CLAUDE.md`의 `ContextStorage.addWrapper` 권장 줄(스레드 경계 단위 테스트 항목)을 6.10에서 고친다.
+---

@@ -17,6 +17,7 @@ import org.springframework.web.filter.OncePerRequestFilter
  * 처리되지 않은 예외나 `sendError`는 Tomcat이 `/error`로 다시 디스패치하며 응답을 초기화할 수 있어,
  * 오류 디스패치에서도 헤더를 다시 넣는다. 요청 완료 로그는 첫 디스패치에서만 남긴다.
  * 처리되지 않은 예외로 끝나면 요청 완료 로그를 ERROR로 올려 예외를 담는다([TomcatServletExceptionLogFilter]).
+ * 요청 완료 로그를 남기지 않는 actuator 경로는 예외가 올라올 때만 `unhandled_exception` ERROR 줄을 남긴다.
  *
  * 비동기 디스패치는 다루지 않는다. 지금 컨트롤러는 모두 동기로 응답한다. 컨트롤러가 `CompletableFuture`를
  * 돌려주게 바뀌면 첫 디스패치가 끝난 시점의 `status`·`durationMs`가 남으므로, 그때 비동기 디스패치 완료에
@@ -38,8 +39,12 @@ class TraceLoggingFilter(
         filterChain: FilterChain,
     ) {
         putTraceIdHeader(request, response)
-        if (request.dispatcherType == DispatcherType.ERROR || isActuatorPath(request.requestURI)) {
+        if (request.dispatcherType == DispatcherType.ERROR) {
             filterChain.doFilter(request, response)
+            return
+        }
+        if (isActuatorPath(request.requestURI)) {
+            doFilterActuator(request, response, filterChain)
             return
         }
 
@@ -73,6 +78,26 @@ class TraceLoggingFilter(
     ) {
         putTraceIdHeader(request, response)
         filterChain.doFilter(request, response)
+    }
+
+    // 요청 완료 로그는 남기지 않는다. Tomcat 줄을 막았으므로 예외만은 여기서 남겨야 원인이 어디엔가 남는다
+    private fun doFilterActuator(
+        request: HttpServletRequest,
+        response: HttpServletResponse,
+        filterChain: FilterChain,
+    ) {
+        try {
+            filterChain.doFilter(request, response)
+        } catch (e: Throwable) {
+            log
+                .atError()
+                .setCause(e)
+                .addKeyValue("event", "unhandled_exception")
+                .addKeyValue("method", request.method)
+                .addKeyValue("path", request.requestURI)
+                .log("{} {} threw exception", request.method, request.requestURI)
+            throw e
+        }
     }
 
     // `/actuatorx`처럼 글자만 같은 경로는 actuator가 아니다
