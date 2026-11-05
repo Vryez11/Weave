@@ -52,7 +52,7 @@
   - `Executors.newFixedThreadPool`과 `ForkJoinPool.commonPool()`에서는 MDC의 `traceId`가 없다.
   - `ContextExecutorService.wrap`으로 감싸면 같은 `traceId`가 있다.
   - 확인: `./gradlew :libs:observability:test`가 통과한다.
-- [ ] 2.6 라이브러리 기본값에 `spring.task.execution.propagate-context=true`를 넣는다.
+- [x] 2.6 라이브러리 기본값에 `spring.task.execution.propagate-context=true`를 넣는다.
   - 설정값 커밋이라 다른 변경과 섞지 않는다. 커밋 본문에 2.4의 재현 결과를 적는다.
   - 확인: 1.4의 전파 시나리오 세 개와 2.4의 재현 테스트가 모두 통과한다.
 - [ ] 2.7 Prometheus 엔드포인트를 연다.

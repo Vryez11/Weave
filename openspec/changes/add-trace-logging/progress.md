@@ -123,3 +123,11 @@
 - 바꾼 파일: `libs/observability/src/test/kotlin/com/weave/observability/ExecutorTracePropagationTest.kt`, `libs/observability/CLAUDE.md`
 - 다음 반복(2.6)이 알아 둘 것: 2.8의 아키텍처 7-3에 적을 테스트 이름은 이 파일의 네 테스트와 `FeedTracePropagationOffTest`다.
 ---
+
+## 2026-11-05 15:32 - 2.6 라이브러리 기본값에 `propagate-context=true`
+- `observability-defaults.properties`에 `spring.task.execution.propagate-context=true` 한 줄(주석 포함)만 더했다. 설정값 커밋이라 다른 변경과 섞지 않았다.
+- 확인: `:feed-service:integrationTest`에서 1.4의 전파 시나리오(다섯 호출, post 뒤 호출, 토글)와 2.4 `FeedTracePropagationOffTest`가 모두 통과. `./gradlew ktlintCheck build --continue`에서 실패는 3.x 몫 5개뿐(1.5 넷, 1.4 오류 본문). `openspec validate` 통과.
+- e2e `TraceLogEndToEndScenarioTest`(1.6) 두 개도 이 속성으로 통과했다(`:e2e:integrationTest` 4개 모두 통과).
+- 바꾼 파일: `libs/observability/src/main/resources/observability-defaults.properties`
+- 다음 반복이 알아 둘 것: 4.1은 고칠 것 없이 `./gradlew :e2e:integrationTest` 통과 확인만 하면 될 수 있다(3.2의 Gateway 로그가 붙은 뒤 다시 본다). 2.7은 같은 properties 파일에 노출 엔드포인트를 더한다.
+---
