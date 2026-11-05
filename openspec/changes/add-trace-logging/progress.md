@@ -301,3 +301,15 @@
 - 바꾼 파일: `feed-service/src/main/kotlin/com/weave/feed/client/HttpClientConfig.kt`, `feed-service/src/test/kotlin/com/weave/feed/client/HttpClientErrorBodyTest.kt`(새로), `feed-service/CLAUDE.md`, `design.md`(결정 6), `tasks.md`, `progress.md`
 - 다음 반복(6.5)이 알아 둘 것: `FeedCallFailureLogScenarioTest`, `ExecutorTracePropagationTest`, `TraceLookupComposeScenarioTest`는 커밋된 테스트지만 묶음 6 머리말대로 이번에는 고쳐도 된다. 다만 Ralph 중 pre-file 훅이 막을 수 있다(6.3에서 `DownstreamFailureTest` 수정이 막혔다). 막히면 progress에 적고 BLOCKED로 사람에게 넘긴다.
 ---
+
+## 2026-11-05 17:00 - 6.5 테스트를 단단하게 한다 (BLOCKED)
+- 한 일: 없음. `FeedCallFailureLogScenarioTest`의 토글 시나리오를 `toggleLike(5).traceId()`로 거르게 고치려 했는데 pre-file 훅(`WEAVE_RALPH=1`, 커밋된 `*/src/test/*`)이 Edit를 막았다. 훅을 셸로 우회하지 않았다.
+- 6.5의 세 항목은 모두 커밋된 테스트 파일을 고치는 일이라 새 파일로 대신할 수 없다. 새 파일에 단단한 테스트를 더해도 기존의 약한 단언(traceId 없이 거르는 토글·연결 실패, 전역 `ContextStorage.addWrapper`, Loki 시각 단언 없음)이 그대로 남아 작업 취지를 채우지 못한다.
+- 사람이 할 일(둘 중 하나):
+  - 6.5를 Ralph 밖(`WEAVE_RALPH` 없이)에서 `/opsx:apply`로 하거나 손으로 고친다. 고칠 곳:
+    - `FeedCallFailureLogScenarioTest`: 토글 시나리오는 `feed().toggleLike(5).traceId()`(토글 응답에도 `X-Trace-Id`가 있다, 1.4 토글 전파 시나리오), 연결 실패 시나리오는 `TracedFeedHttp(...).getFeed().traceId()`를 `failureLines(dependency, traceId)`에 넘긴다.
+    - `ExecutorTracePropagationTest`: 전역 래퍼를 쓰지 않으려면 MDC 대신 작업 스레드에서 `Span.current()`(OTel 컨텍스트)의 traceId를 읽는 방법이 있다. 래퍼가 필요하면 그 스펙만 따로 fork(`forkEvery` 또는 별도 Test 태스크)로 돌린다. KDoc에 어느 쪽인지 적는다.
+    - `TraceLookupComposeScenarioTest` Loki 시나리오: 항목마다 `nanos`와 `OffsetDateTime.parse(@timestamp)`의 ns 값이 같다고 단언한다(밀리초 단위 `@timestamp`, Alloy가 `@timestamp`를 로그 시각으로 쓴다, 5.2 기록).
+  - 또는 6.5를 체크하고 다음 Ralph 반복이 6.6부터 하게 한다. 6.6(대기열 계산), 6.7(Compose·필터 지적)은 커밋된 테스트를 고치지 않아도 되는 일로 보인다(6.7의 `/actuatorx` 단위 테스트는 새 파일에 둘 수 있다).
+- 바꾼 파일: `progress.md`
+---
