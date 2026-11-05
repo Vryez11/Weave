@@ -10,6 +10,7 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-webmvc")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("tools.jackson.module:jackson-module-kotlin")
+    testImplementation(testFixtures(project(":libs:observability")))
     testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")
     testImplementation("org.springframework.boot:spring-boot-starter-actuator-test")
     testImplementation("io.kotest:kotest-extensions-spring:6.2.6")

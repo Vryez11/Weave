@@ -4,7 +4,7 @@
 
 시나리오 테스트는 HTTP 수준의 블랙박스 테스트로 쓴다(design 결정 8). 구현이 없으니 `integrationTest`에서는 실패하고, `test`(Stop 훅)는 통과해야 한다. 테스트 이름에 `F-004`를 넣는다.
 
-- [ ] 1.1 테스트를 쓰기 위한 준비를 한다.
+- [x] 1.1 테스트를 쓰기 위한 준비를 한다.
   - `libs/observability`에 `java-test-fixtures` 플러그인과 테스트 의존성(design 결정 9)을 더한다.
   - test fixtures에 `LogCapture`를 만든다. `System.out`을 바꿔 끼워 출력을 모으고, 줄마다 JSON으로 파싱한 목록과 원문을 돌려준다. JSON이 아닌 줄은 원문으로만 남긴다.
   - `weave.spring-service`가 서비스 테스트에 `testFixtures(project(":libs:observability"))`를 넣게 한다.
