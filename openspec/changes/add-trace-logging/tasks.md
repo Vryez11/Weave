@@ -106,7 +106,7 @@
 
 첫 검토(2026-11-05)에서 나온 막음 1건(B1)과 받아들인 제안이다. 이 묶음에서 고치라고 적은 커밋된 테스트는 사람이 검토에서 승인한 것이니 고쳐도 된다. 단언을 약하게 바꾸지는 않는다.
 
-- [ ] 6.1 새 시나리오 두 개를 테스트로 옮긴다.
+- [x] 6.1 새 시나리오 두 개를 테스트로 옮긴다.
   - `trace-logging` "JSON 로그 형식"의 "처리되지 않은 예외로 끝난 요청"을 feed-service 테스트로 옮긴다. 기존 파일을 고치지 말고 새 스펙 파일에 둔다. 요청 하나를 부르는 동안 모은 줄 중 `level`이 ERROR인 줄을 모두 본다.
   - `feed-aggregation` "하위 서비스의 호스트 이름을 찾을 수 없다"를 feed-service 테스트로 옮긴다. recommendation 주소를 `http://weave-unresolvable.invalid`로 준다. 새 스펙 파일에 둔다.
   - 확인: `./gradlew :feed-service:integrationTest`가 새 테스트 두 개에서 실패하고(지금 Tomcat ERROR 줄에 traceId가 없고, `UnknownHostException`은 `io_failure`다), `./gradlew :feed-service:test`는 통과한다.

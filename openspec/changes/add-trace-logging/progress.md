@@ -28,6 +28,8 @@
 - Compose 서비스 이름은 모듈 이름과 같다(`feed-service` 등). 서비스끼리는 `http://<모듈 이름>:<포트>`로 부른다. 공통값은 `x-service`(라벨, `environment: &service-environment`, `depends_on: &service-depends-on`), 헬스 체크 공통값은 `x-service-healthcheck` 앵커다. 병합이 얕아 feed·like처럼 `environment`/`depends_on`을 따로 두는 서비스는 안쪽 앵커를 다시 `<<:`로 병합한다.
 - 호스트에 열린 포트: feed 8080, 그리고 127.0.0.1에만 Grafana 3000, Loki 3100, Tempo 3200, Prometheus 9090, Alloy UI 12345. 5.3의 시스템 속성 주소는 `http://localhost:8080`, `http://localhost:3100`, `http://localhost:3200`이다.
 - `:e2e:composeTest`는 e2e `build.gradle.kts`의 `composeTestEnv` → `composeTestUp` → `composeTest` → `composeTestLogs` → `composeTestDown`(finalizer)이다. down 뒤에는 컨테이너가 없어, 로그는 `composeTestLogs`가 `e2e/build/compose-logs/compose.log`에 미리 남긴다. CI는 `./gradlew :e2e:composeTest` 한 단계이고 실패하면 그 폴더를 `test-reports` artifact로 올린다.
+- 요청 하나를 부르는 동안의 줄을 모두 봐야 하면(`level` ERROR 줄 전체 등) 앞뒤로 정상 확인용 요청을 보내 그 `http_request` 줄의 위치 사이를 자른다(`FeedUnhandledExceptionLogScenarioTest.awaitProbe`). 뒤 확인용 요청 전에 `wireMock.reset()` 뒤 정상 스텁을 다시 둔다.
+- 하위 서비스 주소를 `closed`(포트 1) 말고 다른 값으로 줘야 하면 커밋된 `DownstreamWireMock`을 고치지 말고 테스트의 `@DynamicPropertySource`에서 `spring.http.serviceclient.<의존성>.base-url`을 직접 등록한다(`FeedCallFailureLogUnresolvableHostScenarioTest`).
 - 웹 조회(WebSearch, WebFetch)와 `docker run`·`docker image ls`는 허가가 없다. 이미지 태그는 임시 Compose 파일(`e2e/build/tag-probe.yaml`)을 `docker compose -f ... pull`해 있는지 본다. 관찰 인프라 확인 명령은 5.2 기록에 있다.
 
 ---
@@ -258,4 +260,12 @@
   - `openspec validate --all --strict --no-interactive` 7개 통과.
 - 바꾼 파일: `openspec/changes/add-trace-logging/tasks.md`, `progress.md`
 - 다음은 6장(검토와 change 완료 조건)이다. Ralph 루프가 하지 않으니 사람에게 넘긴다. 검토 때 볼 것: design 결정 6에 3.2에서 더한 오류 본문 없는 예외 메시지(`HttpClientConfig`), 5.2의 관찰 인프라 이미지 버전(최신 여부 미확인).
+---
+
+## 2026-11-05 16:41 - 6.1 검토에서 더한 시나리오 두 개를 테스트로
+- `FeedUnhandledExceptionLogScenarioTest`(`Integration`, F-004): recommendation 503으로 `GET /feed` 500. 앞뒤 정상 확인용 요청의 `http_request` 줄 사이에 잡힌 `level` ERROR 줄이 모두 응답 `X-Trace-Id`와 같은 `traceId`이고, 그중 `stack_trace`에 `org.springframework.web.client.HttpServerErrorException`이 든 줄이 있다.
+- `FeedCallFailureLogUnresolvableHostScenarioTest`(`Integration`, F-004): recommendation 주소 `http://weave-unresolvable.invalid`. X-Trace-Id와 같은 traceId의 recommendation `connect_failure` 실패 로그 줄이 있다(6.5 취지대로 traceId로 거른다).
+- 확인: `:feed-service:integrationTest`에서 새 2개만 실패(63개 중 2개). 첫째는 `org.apache.catalina.core.ContainerBase.[Tomcat-6].[localhost].[/].[dispatcherServlet]` 줄의 traceId가 null, 둘째는 실패 로그가 `cause` `io_failure`, `exception` `java.net.UnknownHostException`. `:feed-service:test`, `ktlintCheck`, `openspec validate` 통과.
+- 바꾼 파일: `feed-service/src/test/kotlin/com/weave/feed/FeedUnhandledExceptionLogScenarioTest.kt`, `.../FeedCallFailureLogUnresolvableHostScenarioTest.kt`, `tasks.md`, `progress.md`
+- 다음 반복(6.2)이 알아 둘 것: 테스트에서 엔진 이름은 `Tomcat-6`처럼 번호가 붙는다. 첫 시나리오는 "그중 한 줄"이라 Tomcat 줄을 막지 않아도 stack_trace 단언은 이미 맞고, traceId 단언이 Tomcat 줄을 막아야 통과한다. 필터가 ERROR로 올린 `http_request` 줄의 `stack_trace`에 예외 메시지가 들어가니 본문이 없는지(`bodylessErrorMessages`) 함께 본다.
 ---
