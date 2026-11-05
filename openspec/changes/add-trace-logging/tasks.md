@@ -10,7 +10,7 @@
   - `weave.spring-service`가 서비스 테스트에 `testFixtures(project(":libs:observability"))`를 넣게 한다.
   - `buildSrc`의 `test` 태스크 태그 식을 `!Integration & !Compose`로 바꾼다(design 결정 10).
   - 확인: `./gradlew ktlintCheck build`가 통과한다. `LogCapture`가 `println`으로 쓴 JSON 한 줄을 파싱하는 단위 테스트가 test fixtures 옆에 있고 통과한다.
-- [ ] 1.2 `trace-logging`의 "JSON 로그 형식" 시나리오 두 개를 `libs/observability` 테스트로 옮긴다.
+- [x] 1.2 `trace-logging`의 "JSON 로그 형식" 시나리오 두 개를 `libs/observability` 테스트로 옮긴다.
   - 테스트 소스에 요청을 받아 로그를 쓰는 엔드포인트와 예외를 담아 로그를 쓰는 엔드포인트가 있는 작은 웹 애플리케이션을 둔다.
   - 확인: `./gradlew :libs:observability:integrationTest`가 새 테스트에서 실패하고, `./gradlew :libs:observability:test`는 통과한다.
 - [ ] 1.3 `trace-logging`의 "요청 완료 로그" 중 "요청 하나에 한 줄", "헬스 체크"를 post-service 테스트로 옮긴다. 확인: `./gradlew :post-service:integrationTest`가 새 테스트에서 실패하고, `./gradlew :post-service:test`는 통과한다.
