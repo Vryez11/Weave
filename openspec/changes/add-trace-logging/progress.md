@@ -9,6 +9,9 @@
 - ktlint import 순서 위반은 `./gradlew :<모듈>:ktlintFormat`으로 고친다.
 - 이 환경의 셸은 `ls`가 다른 도구로 바뀌어 있고 `$변수`·`-exec`가 든 명령은 막힌다. 파일 목록은 `find`, 내용은 Read 도구로 본다.
 - feed-service에서 응답 헤더나 `traceparent`가 필요하면 `FeedHttpClient`(헤더를 안 돌려준다) 대신 `TracedFeedHttp`(`feed-service/src/test/.../TraceHttp.kt`)를 쓴다. `HttpResponse.traceId()`, `LoggedRequest.traceparentTraceId()`도 거기 있다. 커밋된 `DownstreamWireMock.kt`는 Ralph 중에 고칠 수 없다(pre-file 훅).
+- e2e 로그는 `com.weave.e2e.ServiceLogs`(`rawLines`, `jsonLines`, `requestLines(service, traceId)`)로 읽는다. 스펙 클래스마다 `ServiceProcesses`를 따로 띄운다(MySQL 포함, 한 번에 20초쯤).
+- e2e 테스트는 커밋 scope를 비운다(`test: ...`). commit.md scope 표에 `e2e`가 없다.
+- `progress.md`는 작업 커밋에 함께 넣는다. 따로 커밋해도 `commit-msg` 훅이 본문 `- ` 항목을 요구한다.
 - 처리되지 않은 예외의 Tomcat 로그는 요청 완료 로그(필터 `finally`)보다 늦게 쓰인다. "남기지 않는다"를 판정할 때는 그 요청의 줄이 아니라 뒤에 보낸 확인용 요청의 줄을 기다린다.
 
 ---
@@ -52,4 +55,12 @@
 - 확인: `:feed-service:integrationTest`에서 새 4개 실패(앞 둘은 X-Trace-Id 헤더, 뒤 둘은 실패 로그 줄 없음), 1.4의 9개 말고 기존 테스트는 통과. `:feed-service:test`, `ktlintCheck`, `compileTestKotlin`, `openspec validate` 통과.
 - 바꾼 파일: `feed-service/src/test/kotlin/com/weave/feed/FeedCallFailureLogScenarioTest.kt`
 - 다음 반복이 알아 둘 것: 실패 로그 줄은 파일 끝의 `LogCapture.failureLines(dependency, traceId?)`로 찾는다. 토글·연결 실패 시나리오는 스펙대로 traceId를 보지 않는다.
+---
+
+## 2026-11-05 15:25 - 1.6 e2e "서비스 6개의 로그를 traceId로 잇는다"·"요청의 값이 로그에 없다" 시나리오 테스트
+- `TraceLogEndToEndScenarioTest`(`Integration`, F-004) 2개: `GET /feed`의 `X-Trace-Id`와 같은 `traceId`의 `http_request` 줄이 서비스 6개에 모두 있는지 `eventually(15초)`로 본다. 표식 시나리오는 `X-User-Id`(9자리 임의 숫자), `X-Marker`, 쿼리 `marker`에 테스트마다 새 표식을 넣고, 그 요청과 뒤에 보낸 확인용 요청의 줄이 6개 서비스에 모두 나온 뒤 원문 줄 전체에서 표식을 찾는다.
+- 로그 파일 읽기 도우미 `ServiceLogs`를 새로 두었다(커밋된 `ServiceProcesses`는 고치지 않음).
+- 확인: `:e2e:integrationTest`에서 새 2개가 "응답의 X-Trace-Id 헤더"로 실패하고 기존 F-006 2개는 통과. 9자리 `X-User-Id`로도 피드는 200이다. `ktlintCheck`, `compileKotlin compileTestKotlin`, `:e2e:test`, `openspec validate` 통과.
+- 바꾼 파일: `e2e/src/test/kotlin/com/weave/e2e/ServiceLogs.kt`, `.../TraceLogEndToEndScenarioTest.kt`, `e2e/CLAUDE.md`
+- 다음 반복이 알아 둘 것: 1.7은 같은 패키지에 `Compose` 태그 테스트를 두고, 주소를 시스템 속성으로 받는다. `ServiceLogs`는 파일 기반이라 Compose 테스트에서는 쓰지 않는다. 4.1에서 이 테스트가 통과해야 한다.
 ---
