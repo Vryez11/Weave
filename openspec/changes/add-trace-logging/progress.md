@@ -31,6 +31,7 @@
 - `:e2e:composeTest`는 e2e `build.gradle.kts`의 `composeTestEnv` → `composeTestUp` → `composeTest` → `composeTestLogs` → `composeTestDown`(finalizer)이다. down 뒤에는 컨테이너가 없어, 로그는 `composeTestLogs`가 `e2e/build/compose-logs/compose.log`에 미리 남긴다. CI는 `./gradlew :e2e:composeTest` 한 단계이고 실패하면 그 폴더를 `test-reports` artifact로 올린다.
 - 요청 하나를 부르는 동안의 줄을 모두 봐야 하면(`level` ERROR 줄 전체 등) 앞뒤로 정상 확인용 요청을 보내 그 `http_request` 줄의 위치 사이를 자른다(`FeedUnhandledExceptionLogScenarioTest.awaitProbe`). 뒤 확인용 요청 전에 `wireMock.reset()` 뒤 정상 스텁을 다시 둔다.
 - 하위 서비스 주소를 `closed`(포트 1) 말고 다른 값으로 줘야 하면 커밋된 `DownstreamWireMock`을 고치지 말고 테스트의 `@DynamicPropertySource`에서 `spring.http.serviceclient.<의존성>.base-url`을 직접 등록한다(`FeedCallFailureLogUnresolvableHostScenarioTest`).
+- 로그 줄 크기는 `<모듈>/build/test-results/<태스크>/*.xml`을 `grep '<조건>' 파일 | wc -lcL`(줄 수, 바이트 합, 최대 길이)로 잰다. 이 환경에서는 `python3` 실행과 파이프의 `awk`, `sed`, `$`가 든 인자는 허가가 필요하고, `/tmp`에는 쓸 수 없다.
 - 웹 조회(WebSearch, WebFetch)와 `docker run`·`docker image ls`는 허가가 없다. 이미지 태그는 임시 Compose 파일(`e2e/build/tag-probe.yaml`)을 `docker compose -f ... pull`해 있는지 본다. 관찰 인프라 확인 명령은 5.2 기록에 있다.
 
 ---
@@ -321,4 +322,13 @@
 - `TraceLookupComposeScenarioTest`: Loki 항목마다 Loki 시각(ns)이 `@timestamp`와 같다고 직접 단언한다.
 - 확인: `./gradlew ktlintCheck :libs:observability:test :feed-service:integrationTest` 통과(실패 로그 스펙 3개 5개 테스트), `./gradlew :e2e:composeTest` 통과(2개).
 - 다음 반복(6.6)이 알아 둘 것: 6.6, 6.7은 커밋된 테스트를 고치지 않아도 된다. 6.7의 `/actuatorx` 단위 테스트는 새 파일에 둔다.
+---
+
+## 2026-11-05 17:07 - 6.6 비동기 appender 대기열 크기를 장애 경로까지 넣어 다시 계산
+- 6.2 뒤(6.5 사람 세션의 17:01 실행) `:feed-service:integrationTest` XML 출력에서 줄 크기를 쟀다(줄바꿈 포함): 요청 완료 INFO 평균 373 B(최대 397, 18줄), `downstream_call_failed` 평균 442 B(최대 약 460, 17줄), 요청 완료 ERROR 줄은 HTTP 오류 6.6 KB, 연결 거부 8.7 KB(`FeedUnreachableScenarioTest`), 호스트 이름 없음 9.1 KB(`FeedCallFailureLogUnresolvableHostScenarioTest`).
+- 계산: 장애 경로 feed 요청당 6줄(ERROR 1 + 실패 로그 상한 5, 지금 코드는 실제로 4까지), 200 RPS에서 초당 1,200줄·약 2.3 MB. 8192는 약 6.8초를 버틴다. 값은 그대로 두고 이유(목표 시간은 요구 사항이 아님, 늘리면 역압이 늦게 드러나고 예외 이벤트를 힙에 오래 붙잡음, 출력 처리량은 고도화 2 실험에서 처음 드러남)를 design 결정 1과 Risks에 적었다.
+- `logback-spring.xml` 주석과 `docs/architecture.md` 7-1에도 장애 경로 시간을 한 줄 더했다(값은 그대로).
+- 확인: `./gradlew ktlintCheck build --continue` 통과(모든 `integrationTest` 다시 돎, XML timestamp 08:07Z), `openspec validate --all --strict` 통과.
+- 바꾼 파일: `design.md`, `libs/observability/src/main/resources/logback-spring.xml`, `docs/architecture.md`, `tasks.md`, `progress.md`
+- 다음 반복(6.7)이 알아 둘 것: `/actuatorx` 단위 테스트는 새 파일에 둔다. `composeTestUp` 앞의 `down -v --remove-orphans`는 e2e `build.gradle.kts`의 `composeTestUp` 태스크에 넣는다.
 ---

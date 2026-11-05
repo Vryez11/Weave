@@ -126,7 +126,7 @@
   - `ExecutorTracePropagationTest`가 `ContextStorage.addWrapper`를 전역에 더하는 것이 같은 JVM의 다른 테스트 순서에 기대지 않게 한다(예: 래퍼 없이 확인할 수 있게 바꾸거나, 그 스펙만 따로 fork에서 돌린다). 어느 쪽으로 했는지 테스트 KDoc에 적는다.
   - `TraceLookupComposeScenarioTest`의 Loki 시나리오가 항목마다 Loki 시각(ns)과 줄의 `@timestamp`가 같음을 직접 단언한다.
   - 확인: `./gradlew :feed-service:integrationTest :libs:observability:test`와 `./gradlew :e2e:composeTest`가 통과한다.
-- [ ] 6.6 비동기 appender 대기열 크기를 장애 경로까지 넣어 다시 계산한다(design 결정 1).
+- [x] 6.6 비동기 appender 대기열 크기를 장애 경로까지 넣어 다시 계산한다(design 결정 1).
   - 200 RPS에서 feed가 요청마다 쓰는 장애 경로 로그(요청 완료 1줄과 실패 로그 최대 5줄, 그중 스택 트레이스가 든 줄의 바이트 수)를 센다. 바이트 수는 6.2 뒤의 통합 테스트 출력에서 잰다.
   - 계산이 지금 값(8192)으로 버티는 시간을 design 결정 1에 적는다. 값을 바꾸면 `logback-spring.xml`도 고치고, 커밋 본문에 계산을 적는다.
   - 확인: design 결정 1과 Risks에 장애 경로 계산이 있고, `./gradlew ktlintCheck build`가 통과한다.

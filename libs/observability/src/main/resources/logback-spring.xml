@@ -39,6 +39,7 @@
 
     <!--
       대기열 8192: 실험 부하 200 RPS에서 서비스 하나의 로그는 초당 400줄 이하라 출력이 멈춰도 약 20초를 버틴다.
+      하위 서비스가 실패하는 feed 요청은 요청당 6줄까지(초당 1,200줄)라 약 6.8초다(design 결정 1의 장애 경로 계산).
       discardingThreshold 0: 가득 차도 INFO 이하를 버리지 않는다. 장애 실험 중의 요청 로그가 조용히 빠지지 않게 한다.
     -->
     <appender name="ASYNC" class="ch.qos.logback.classic.AsyncAppender">

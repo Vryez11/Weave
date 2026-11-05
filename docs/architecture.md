@@ -275,7 +275,7 @@ Retry-After 동안 호출을 막는 방법(서킷을 그 시간만큼 열어 두
   | `stack_trace` | 예외가 있을 때. 예외당 30프레임, 원인 먼저, 리플렉션·프록시·필터 체인 프레임 생략 |
   | 이벤트 필드(`event` 등) | SLF4J 2 key-value(`addKeyValue`)로 넣으면 최상위 필드가 된다 |
 
-  비동기 appender(대기열 8192, `discardingThreshold` 0, `neverBlock` false)가 콘솔 appender를 감싼다. 200 RPS에서 서비스 하나의 로그가 초당 400줄 이하라 출력이 멈춰도 약 20초를 버티고, 가득 차도 로그를 버리지 않는다.
+  비동기 appender(대기열 8192, `discardingThreshold` 0, `neverBlock` false)가 콘솔 appender를 감싼다. 200 RPS에서 서비스 하나의 로그가 초당 400줄 이하라 출력이 멈춰도 약 20초를 버티고, 가득 차도 로그를 버리지 않는다. 하위 서비스가 실패하는 feed 요청은 요청당 6줄까지(스택 트레이스 줄 하나가 최대 약 9 KB)라 장애 경로에서는 약 6.8초다.
 - **트레이싱:** Micrometer Tracing의 OTel 브리지와 OTLP 내보내기. 스타터(`spring-boot-starter-opentelemetry`) 대신 모듈을 골라 넣어 메트릭 OTLP 레지스트리를 들이지 않는다. 하위 서비스 호출에는 Boot가 `RestClient.Builder`에 붙인 관찰로 클라이언트 스팬과 `traceparent`(W3C)가 붙는다. OTLP 주소는 기본값에 없어서, 주소를 주지 않으면(테스트, `bootRun`) 스팬을 내보내지 않는다.
 - **`X-Trace-Id` 응답 헤더와 요청 완료 로그:** `TraceLoggingFilter` 하나가 맡는다. Boot의 `ServerHttpObservationFilter` 뒤(order `HIGHEST_PRECEDENCE + 2`)에서 현재 스팬의 traceId를 읽는다.
   - 체인을 부르기 전에 `X-Trace-Id`를 넣는다. Tomcat의 `/error` 오류 디스패치에서도 같은 값을 다시 넣어 400·500 응답에도 헤더가 있다.
