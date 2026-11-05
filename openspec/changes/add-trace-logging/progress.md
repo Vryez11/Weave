@@ -15,6 +15,7 @@
 - Compose 테스트 주소는 시스템 속성 `weave.compose.feed-url`, `weave.compose.loki-url`, `weave.compose.tempo-url`이다(`TraceLookupComposeScenarioTest` KDoc). 5.3의 `composeTest`가 이 이름으로 넘긴다.
 - `./gradlew build`는 `integrationTest`까지 돈다(e2e 포함). 아직 구현하지 않은 시나리오가 실패하는 동안에는 `--continue`로 돌려 실패한 태스크·테스트가 그 시나리오뿐인지 본다.
 - 라이브러리 기본 속성은 `libs/observability/src/main/resources/observability-defaults.properties`에 한 줄 더하면 된다(2.6 `propagate-context`, 2.7 노출 엔드포인트). 우선순위 테스트는 `ObservabilityDefaultsTest`에 있다.
+- `X-Trace-Id`·`http_request` 로그는 `TraceLoggingFilter`(order `HIGHEST_PRECEDENCE + 2`)가 맡는다. traceId는 micrometer `Tracer.currentSpan()`에서 읽고 요청 속성에 담아 오류 디스패치에서 다시 쓴다.
 - 처리되지 않은 예외의 Tomcat 로그는 요청 완료 로그(필터 `finally`)보다 늦게 쓰인다. "남기지 않는다"를 판정할 때는 그 요청의 줄이 아니라 뒤에 보낸 확인용 요청의 줄을 기다린다.
 
 ---
@@ -93,4 +94,14 @@
 - 확인: `:libs:observability:integrationTest`에서 1.2 두 시나리오와 새 4개 통과. `./gradlew ktlintCheck build --continue`에서 실패한 것은 아직 구현하지 않은 1.3~1.6 시나리오(post 2, feed 13, e2e 2)뿐이고 기존 테스트는 트레이싱이 붙어도 통과했다. `openspec validate` 통과.
 - 바꾼 파일: `libs/observability/build.gradle.kts`, `.../ObservabilityDefaultsPostProcessor.kt`, `src/main/resources/observability-defaults.properties`, `src/main/resources/META-INF/spring.factories`, `src/test/.../testapp/ObservabilityDefaultsTest.kt`, `src/test/resources/application-sampling-override.yml`, `libs/observability/CLAUDE.md`
 - 다음 반복이 알아 둘 것: 속성 소스 맨 끝에는 Boot가 시작 뒤 `applicationInfo`를 붙인다. 2.3 필터는 `ServerHttpObservationFilter` 뒤에 두고, 필터용 `spring-webmvc`·`jakarta.servlet-api`를 `compileOnly`로 더해야 한다(design 결정 9).
+---
+
+## 2026-11-05 15:23 - 2.3 `X-Trace-Id` 헤더와 요청 완료 로그 필터
+- `TraceLoggingFilter`(`OncePerRequestFilter` + `Ordered`, order `HIGHEST_PRECEDENCE + 2`)를 만들고 `ObservabilityAutoConfiguration.ServletConfiguration`(`@ConditionalOnWebApplication(SERVLET)`)이 Bean으로 등록한다.
+  - 체인 전에 `Tracer.currentSpan()`의 traceId를 `X-Trace-Id`로 넣고 요청 속성에 담는다. 오류 디스패치(`DispatcherType.ERROR`, 중첩 오류 디스패치)에서는 헤더만 다시 넣는다.
+  - 첫 디스패치의 `finally`에서 SLF4J key-value로 `event=http_request`, `method`, `path`(`requestURI`), `status`(예외가 올라오면 500), `durationMs`(Long)를 INFO로 남긴다. `/actuator`는 로그만 건너뛴다.
+- 오류 디스패치에서 헤더가 사라지는 문제는 없었다(400·500 모두 헤더 있음). design Risks의 응답 본문 변경으로 갈 일 없음.
+- 확인: `:post-service:integrationTest`의 1.3 두 개 통과. `:feed-service:integrationTest`에서 1.4의 정상·오류 응답 헤더, traceparent 받음·없음, 좋아요 토글 전파, 실패한 요청 통과. `./gradlew ktlintCheck build --continue`에서 실패는 아직 구현하지 않은 것뿐: feed 7개(1.4 전파 둘·오류 본문, 1.5 넷), e2e 1.6 둘(post-service 로그에 feed의 traceId 줄이 없음 = 풀 스레드 전파 없음). `openspec validate` 통과.
+- 바꾼 파일: `libs/observability/build.gradle.kts`(`compileOnly` spring-webmvc, jakarta.servlet-api), `.../ObservabilityAutoConfiguration.kt`, `.../TraceLoggingFilter.kt`, `libs/observability/CLAUDE.md`
+- 다음 반복(2.4)이 알아 둘 것: 지금 풀 스레드에서 나간 하위 서비스 호출은 새 trace를 시작한다(1.4 "다섯 호출"에서 post traceId가 X-Trace-Id와 다름). 2.4 재현 테스트는 이 상태를 `propagate-context=false`로 명시해 고정하면 된다. 토글은 요청 스레드라 이미 이어진다.
 ---

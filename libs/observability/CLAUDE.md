@@ -7,4 +7,6 @@
 - `@timestamp`는 `timestampPattern`으로 밀리초까지 고정했다. 인코더 기본값은 나노초까지 찍혀 자릿수가 바뀐다.
 - 라이브러리 기본 속성은 `src/main/resources/observability-defaults.properties`에 더한다. `ObservabilityDefaultsPostProcessor`(`META-INF/spring.factories`에 등록)가 속성 소스 뒤쪽에 붙여 서비스 설정과 환경 변수가 이긴다. 속성 소스 맨 끝에는 Boot가 나중에 `applicationInfo`를 붙이므로 "맨 마지막"으로 단언하지 않는다.
 - 기본 속성·Bean 조건은 `ObservabilityDefaultsTest`처럼 `SpringApplicationBuilder(LoggingTestApplication).web(NONE)`으로 컨텍스트를 띄워 본다. 서비스 `application.yml` 역할은 테스트 리소스의 프로필 파일(`application-<프로필>.yml`)이 한다.
+- 서블릿 쪽 Bean(`TraceLoggingFilter`)은 `ObservabilityAutoConfiguration.ServletConfiguration`(`@ConditionalOnWebApplication(SERVLET)`)에 둔다. `spring-webmvc`·`jakarta.servlet-api`는 `compileOnly`라 웹이 아닌 컨텍스트에서 이 클래스들을 건드리지 않게 한다.
+- Filter는 `FilterRegistrationBean` 없이 `Ordered`를 단 `OncePerRequestFilter` Bean으로 둔다. Boot가 order대로 등록하고 오류 디스패치에도 건다. Tomcat의 `/error` 디스패치에서 `doFilterInternal`이 다시 불릴 수 있어 `dispatcherType`으로 가른다(중첩 오류 디스패치는 `doFilterNestedErrorDispatch`).
 - test fixtures는 `implementation`의 BOM을 물려받지 않는다. 의존성을 더할 때 `testFixturesImplementation(platform(...))`이 이미 있는지 본다.
