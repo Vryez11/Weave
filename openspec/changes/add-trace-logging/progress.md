@@ -341,3 +341,13 @@
 - 바꾼 파일: `libs/observability/.../TraceLoggingFilter.kt`, `.../TraceLoggingFilterActuatorPathTest.kt`(새로), `specs/trace-logging/spec.md`, `docs/architecture.md`, `e2e/build.gradle.kts`, `e2e/CLAUDE.md`, `compose.yaml`, `README.md`, `tasks.md`, `progress.md`
 - 다음 반복이 알아 둘 것: `composeTestUp`만 떼어 돌리려면 finalizer를 `-x :e2e:composeTestDown -x :e2e:composeTestLogs`로 빼야 환경이 남는다. 다음은 6.8 전체 검사다.
 ---
+
+## 2026-11-05 17:18 - 6.8 전체 검사
+- 코드는 고치지 않았다. `docker compose ls -a`에 `weave`·`weave-compose-test` 프로젝트는 없었다.
+- 확인:
+  - `./gradlew ktlintCheck build --rerun-tasks` 통과(1분 9초). `test`·`integrationTest` XML 70개 스위트가 08:15~08:16Z에 다시 돌았고 failures·errors 0(skipped는 태그로 걸러진 스펙).
+  - `./gradlew :e2e:composeTest` 통과(39초). `TraceLookupComposeScenarioTest` 2개 통과(08:17Z), 끝난 뒤 `docker compose -p weave-compose-test ps -a` 비어 있음.
+  - `openspec validate --all --strict --no-interactive` 7개 통과.
+- 바꾼 파일: `tasks.md`, `progress.md`
+- 다음은 7장(검토와 change 완료 조건)이다. Ralph 루프가 하지 않으니 사람에게 넘긴다. 다시 검토할 때는 묶음 6의 diff를 중심으로 본다.
+---

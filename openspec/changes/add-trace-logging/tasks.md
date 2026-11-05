@@ -135,7 +135,7 @@
   - `compose.yaml`의 feed-service 포트를 `127.0.0.1:8080:8080`으로 묶고, 문서에 적은 주소와 맞는지 본다.
   - `TraceLoggingFilter`의 `/actuator` 검사를 `/actuator`와 `/actuator/`로 시작하는 경로로 좁히고, 비동기 디스패치를 다루지 않는다는 것을 KDoc에 적는다(design 결정 5).
   - 확인: `/actuatorx` 경로는 `http_request` 줄을 남기는 단위 테스트가 통과한다. `./gradlew :e2e:composeTest`가 통과하고, 일부러 `composeTestUp`만 돌려 둔 뒤 다시 `./gradlew :e2e:composeTest`를 돌려도 통과한다.
-- [ ] 6.8 전체 검사를 돌린다. 확인: `./gradlew ktlintCheck build`, `./gradlew :e2e:composeTest`, `openspec validate --all --strict --no-interactive`가 통과한다.
+- [x] 6.8 전체 검사를 돌린다. 확인: `./gradlew ktlintCheck build`, `./gradlew :e2e:composeTest`, `openspec validate --all --strict --no-interactive`가 통과한다.
 
 ## 7. 검토와 change 완료 조건
 
