@@ -113,7 +113,7 @@ PRD F-004의 순서대로 간다.
   `exception` 필드에 가장 안쪽 예외의 클래스 이름을 함께 남긴다. `other`일 때 원인을 찾을 단서다.
 
   - 처음 표는 `ConnectException`만 연결 실패로 봤다. 검토에서 Compose로 서비스를 멈추면 Docker DNS가 이름을 못 찾아 `UnknownHostException`이 난다는 지적이 나와 넓혔다. 고도화 2의 실험 리포트(F-007)에서 "연결 못 함"이 한 값으로 모여야 한다.
-  - 커넥션 풀에서 연결을 얻지 못해 기다리다 끝난 경우가 어느 값이 되는지는 작업 6.3에서 확인해 이 표에 적는다. 하위 서비스가 아니라 feed 쪽 자원 문제라, 연결 실패와 섞지 않는다.
+  - 커넥션 풀에서 연결을 얻지 못해 기다리다 끝난 경우는 `io_failure`다(작업 6.3에서 확인). HttpClient 5가 `ConnectionRequestTimeoutException`(httpcore5, `InterruptedIOException` 하위)을 던지고 RestClient가 `ResourceAccessException`으로 감싼다. 원인 사슬에 위 연결 실패 예외가 없어 `connect_failure`가 되지 않는다. 하위 서비스가 아니라 feed 쪽 자원 문제라, 연결 실패와 섞지 않는다. `exception`이 `org.apache.hc.core5.http.ConnectionRequestTimeoutException`이라 다른 `io_failure`와 가릴 수 있다. 테스트는 `DownstreamFailureConnectCauseTest`다.
 - **예외 객체와 메시지를 로그에 넘기지 않는다.** `RestClientResponseException`의 메시지에는 하위 서비스의 응답 본문이 들어가, 스택 트레이스로 남기면 본문이 로그에 실린다(스펙 "로그에 남기지 않는 것"). 상태 코드와 클래스 이름이면 원인을 가리기에 충분하다.
 - **예외 메시지에도 본문을 넣지 않는다(작업 3.2에서 정함).** 실패 로그만 고쳐서는 부족했다. 처리되지 않은 예외를 Tomcat이 `Servlet.service() ... threw exception` ERROR 줄로 남기며 `message`와 `stack_trace`에 예외 메시지(`503 Service Unavailable: "<본문>"`)를 싣는다. 그래서 HTTP 서비스 그룹 클라이언트에 오류 상태 처리기(`defaultStatusHandler`)를 두어, 기본 처리기와 같은 예외 종류·상태 코드·본문 바이트로 만들되 메시지는 `<상태 코드> <상태 문구>`로만 둔다. 응답(500)과 `cause` 분류는 바뀌지 않는다.
   - 검토에서 범위로 승인했다(proposal Impact). 기본 처리기처럼 본문 변환 함수(`setBodyConvertFunction`)도 넣어, 나중에 F-005가 `getResponseBodyAs(...)`로 오류 본문을 읽을 수 있게 한다.

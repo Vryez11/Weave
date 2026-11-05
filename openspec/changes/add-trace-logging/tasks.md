@@ -114,7 +114,7 @@
   - `TraceLoggingFilter`가 체인에서 예외가 올라오면 `http_request` 줄을 ERROR로, 예외를 담아 남기고 다시 던진다. 필드는 그대로다.
   - `logback-spring.xml`에서 Tomcat의 `...[dispatcherServlet]` 로거 줄을 막는다. 엔진 이름이 `Tomcat`이든 `Tomcat-N`이든 막혀야 한다.
   - 확인: 6.1의 첫 시나리오와 기존 시나리오(요청 완료 로그, 오류 응답 헤더, 하위 서비스 오류 본문이 로그에 없다)가 `./gradlew :feed-service:integrationTest :post-service:integrationTest :libs:observability:integrationTest`로 통과한다. `stack_trace`에 하위 서비스 응답 본문이 없다.
-- [ ] 6.3 `cause` 분류를 넓힌다(design 결정 6의 표).
+- [x] 6.3 `cause` 분류를 넓힌다(design 결정 6의 표).
   - 원인 사슬에 `ConnectException`(`NoRouteToHostException` 포함), `UnknownHostException`, HttpClient 5 `ConnectTimeoutException`이 있으면 `connect_failure`다.
   - 커넥션 풀에서 연결을 얻지 못해 끝난 예외가 어느 값이 되는지 단위 테스트로 확인하고 design 결정 6의 표 밑에 적는다. `connect_failure`가 되면 안 된다.
   - 확인: 새 예외 종류마다 단위 테스트가 있고 `./gradlew :feed-service:test -Pkotest.filter.tests='*F-004*'`가 통과한다. 6.1의 두 번째 시나리오가 `integrationTest`에서 통과한다.

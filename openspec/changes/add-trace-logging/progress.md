@@ -19,6 +19,7 @@
 - 처리되지 않은 예외는 `TraceLoggingFilter`의 `http_request` ERROR 줄(`stack_trace` 포함, traceId 있음) 하나로 남는다. Tomcat의 `...[dispatcherServlet]` 줄은 6.2부터 logback에서 막힌다. "남기지 않는다"를 판정할 때는 여전히 뒤에 보낸 확인용 요청의 줄을 기다린다.
 - `@SpringBootTest`에서는 메트릭 내보내기가 꺼져 `/actuator/prometheus`가 404다. 테스트에 `@AutoConfigureMetrics`를 붙인다(`PostPrometheusEndpointTest`).
 - 셸 훅은 `;`·`>`·`xargs`로 이은 명령이나 `$(...)`가 든 명령을 막는다. 빌드 결과는 `./gradlew ... 2>&1 | grep ...` 파이프 하나로 본다. `~/.gradle` 아래는 읽을 수 없다.
+- Ralph 중에는 커밋된 테스트 파일을 고칠 수 없다(pre-file 훅, 단언을 더하는 것도 막힌다). 기존 스펙에 테스트를 더해야 하면 새 스펙 파일을 만든다(`DownstreamFailureConnectCauseTest`).
 - 하위 서비스 실패 분류는 `com.weave.feed.gateway.DownstreamFailure.of(throwable)`(`cause`, `exception`)다. F-001의 새 `cause` 값도 여기에 더한다. 실패 로그는 `DownstreamFailure.log(dependency, error)`, 조회 future는 `Gateways.kt`의 `logFailure`.
 - 하위 서비스 오류의 예외 메시지에는 본문이 없다(`HttpClientConfig.bodylessErrorMessages`, design 결정 6). 처리되지 않은 예외는 Tomcat이 메시지·스택 트레이스와 함께 ERROR로 남기므로, 로그에 남기면 안 되는 값은 예외 메시지에도 넣지 않는다.
 - 테스트 결과는 `<모듈>/build/test-results/<태스크>/*.xml`의 `<testsuite ... timestamp=...>`로 실제로 다시 돌았는지 확인한다. Gradle 출력만으로는 몇 초 만에 끝나 헷갈린다.
@@ -280,4 +281,14 @@
   - `./gradlew --continue ktlintCheck build` → 같은 하나만 실패(e2e `integrationTest` 4개, like-service 포함 나머지 통과, XML timestamp 확인). `openspec validate` 통과.
 - 바꾼 파일: `libs/observability/build.gradle.kts`, `.../TraceLoggingFilter.kt`, `.../TomcatServletExceptionLogFilter.kt`(새로), `.../logback-spring.xml`, `.../TomcatServletExceptionLogFilterTest.kt`(새로), `libs/observability/CLAUDE.md`, `tasks.md`, `progress.md`
 - 다음 반복(6.3)이 알아 둘 것: `DownstreamFailure.of`에 원인 사슬 검사를 넣으면 `FeedCallFailureLogUnresolvableHostScenarioTest`가 통과해야 한다. 6.6에서 잴 장애 경로 ERROR 줄은 이 `http_request` ERROR 줄이다(스택 트레이스 포함).
+---
+
+## 2026-11-05 16:50 - 6.3 `cause` 분류 넓히기
+- `DownstreamFailure.of`: `ResourceAccessException`의 원인 사슬에 `ConnectException`, `NoRouteToHostException`, `UnknownHostException`, HttpClient 5 `ConnectTimeoutException` 중 하나가 있으면 `connect_failure`(`isConnectFailure`). `NoRouteToHostException`은 `ConnectException` 하위가 아니라(`SocketException` 하위) 따로 넣어야 했다.
+- 새 테스트 파일 `DownstreamFailureConnectCauseTest`(태그 없음, F-004) 2개. 커밋된 `DownstreamFailureTest`는 pre-file 훅이 막아 고치지 않았다(기존 단언과 부딪히지 않는다).
+  - 연결 실패 세 종류 → `connect_failure`, `exception`은 그 예외 클래스. 구현 전 `NoRouteToHostException`이 `io_failure`로 실패하는 것을 확인했다.
+  - 커넥션 풀 고갈: `PoolingHttpClientConnectionManager`(전체 1)에서 연결 하나를 `lease`로 잡아 두고 `connectionRequestTimeout` 100ms로 RestClient 호출. 서버 없이(포트 1, 연결 시도 전) `ResourceAccessException` ← `org.apache.hc.core5.http.ConnectionRequestTimeoutException`이 나고 `io_failure`다. 구현 전후 모두 통과. design 결정 6 표 밑에 적었다.
+- 확인: `./gradlew :feed-service:test -Pkotest.filter.tests='*F-004*'` 통과(8개, XML timestamp 확인). `:feed-service:test :feed-service:integrationTest` 모두 통과(6.1의 `FeedCallFailureLogUnresolvableHostScenarioTest` 포함). `ktlintCheck compileKotlin compileTestKotlin test`, `openspec validate` 통과.
+- 바꾼 파일: `feed-service/src/main/kotlin/com/weave/feed/gateway/DownstreamFailure.kt`, `feed-service/src/test/kotlin/com/weave/feed/gateway/DownstreamFailureConnectCauseTest.kt`(새로), `feed-service/CLAUDE.md`, `design.md`, `tasks.md`, `progress.md`
+- 다음 반복(6.4)이 알아 둘 것: 오류 상태 처리기는 `HttpClientConfig`의 `bodylessErrorMessages`다. 커밋된 테스트 파일은 고칠 수 없으니 새 테스트도 새 파일에 둔다.
 ---

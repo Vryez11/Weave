@@ -1,9 +1,12 @@
 package com.weave.feed.gateway
 
+import org.apache.hc.client5.http.ConnectTimeoutException
 import org.slf4j.LoggerFactory
 import org.springframework.web.client.ResourceAccessException
 import org.springframework.web.client.RestClientResponseException
 import java.net.ConnectException
+import java.net.NoRouteToHostException
+import java.net.UnknownHostException
 import java.util.concurrent.CompletionException
 
 /**
@@ -43,12 +46,21 @@ data class DownstreamFailure(
             val cause =
                 when {
                     unwrapped is RestClientResponseException -> "http_${unwrapped.statusCode.value()}"
-                    unwrapped is ResourceAccessException && chain.any { it is ConnectException } -> "connect_failure"
+                    unwrapped is ResourceAccessException && chain.any(::isConnectFailure) -> "connect_failure"
                     unwrapped is ResourceAccessException -> "io_failure"
                     else -> "other"
                 }
             return DownstreamFailure(cause, chain.last().javaClass.name)
         }
+
+        /**
+         * 하위 서비스와 연결을 맺지 못했다. 커넥션 풀에서 연결을 얻지 못한 `ConnectionRequestTimeoutException`은 feed 쪽 자원 문제라 넣지 않는다.
+         */
+        private fun isConnectFailure(error: Throwable): Boolean =
+            error is ConnectException ||
+                error is NoRouteToHostException ||
+                error is UnknownHostException ||
+                error is ConnectTimeoutException
 
         /** 자기 자신이나 앞의 예외를 다시 가리키는 원인에서 멈춘다. */
         private fun causeChain(error: Throwable): List<Throwable> {
