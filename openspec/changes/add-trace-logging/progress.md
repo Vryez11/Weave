@@ -45,3 +45,11 @@
   - "post가 끝난 뒤 시작한 호출"은 WireMock `loggedDate`로 user·like 요청이 post 요청보다 200ms 이상 뒤에 왔는지도 본다.
   - 오류 본문 시나리오는 3.2에서 통과해야 하는데, Gateway 로그만으로는 부족할 수 있다. `RestClientResponseException` 메시지에 본문이 들어가고(`503 Service Unavailable: "<본문>"`), 처리되지 않은 예외를 Tomcat/Spring이 스택 트레이스와 함께 ERROR로 남기면 `stack_trace`에 본문이 실린다. 3.2 때 실제로 그런지 보고, 그렇다면 응답 동작을 바꾸지 않고 막을 방법이 있는지 판단한다(없으면 BLOCKED).
 ---
+
+## 2026-11-05 15:10 - 1.5 feed-aggregation "하위 서비스 호출 실패 로그" 시나리오 테스트
+- `FeedCallFailureLogScenarioTest`(`Integration`, F-004) 3개: recommendation 503(응답 500, X-Trace-Id와 같은 traceId의 recommendation 줄이 정확히 하나, `cause` `http_503`), like 500(같은 traceId의 like `http_500` 줄), 토글 503(like `http_503` 줄).
+- "연결할 수 없다"는 주소가 달라 컨텍스트를 따로 띄워야 해서 같은 파일의 `FeedCallFailureLogUnreachableScenarioTest`(recommendation 포트 1, `connect_failure` 줄)로 두었다.
+- 확인: `:feed-service:integrationTest`에서 새 4개 실패(앞 둘은 X-Trace-Id 헤더, 뒤 둘은 실패 로그 줄 없음), 1.4의 9개 말고 기존 테스트는 통과. `:feed-service:test`, `ktlintCheck`, `compileTestKotlin`, `openspec validate` 통과.
+- 바꾼 파일: `feed-service/src/test/kotlin/com/weave/feed/FeedCallFailureLogScenarioTest.kt`
+- 다음 반복이 알아 둘 것: 실패 로그 줄은 파일 끝의 `LogCapture.failureLines(dependency, traceId?)`로 찾는다. 토글·연결 실패 시나리오는 스펙대로 traceId를 보지 않는다.
+---

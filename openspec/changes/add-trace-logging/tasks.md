@@ -18,7 +18,7 @@
   - 응답 헤더(정상, 오류), 들어온 trace 잇기(둘), 하위 서비스 호출로 전파(셋), 요청 완료 로그의 "실패한 요청", 로그에 남기지 않는 것의 "하위 서비스 오류 본문"이다.
   - 기존 `DownstreamWireMock`을 쓰고, `traceparent`는 WireMock 요청 기록에서 읽는다. "post가 끝난 뒤 시작한 호출"은 post에 200ms 고정 지연을 준다.
   - 확인: `./gradlew :feed-service:integrationTest`가 새 테스트에서 실패하고, `./gradlew :feed-service:test`는 통과한다.
-- [ ] 1.5 `feed-aggregation` 델타의 "하위 서비스 호출 실패 로그" 시나리오 네 개를 feed-service 테스트로 옮긴다. "연결할 수 없다"는 기존 `FeedUnreachableScenarioTest`처럼 recommendation 주소를 포트 1로 준다. 확인: `./gradlew :feed-service:integrationTest`가 새 테스트에서 실패하고, `./gradlew :feed-service:test`는 통과한다.
+- [x] 1.5 `feed-aggregation` 델타의 "하위 서비스 호출 실패 로그" 시나리오 네 개를 feed-service 테스트로 옮긴다. "연결할 수 없다"는 기존 `FeedUnreachableScenarioTest`처럼 recommendation 주소를 포트 1로 준다. 확인: `./gradlew :feed-service:integrationTest`가 새 테스트에서 실패하고, `./gradlew :feed-service:test`는 통과한다.
 - [ ] 1.6 "서비스 6개의 로그를 traceId로 잇는다"와 "요청의 값이 로그에 없다"를 `e2e` 테스트로 옮긴다.
   - `e2e/build/e2e-logs/<서비스>.log`를 줄마다 JSON으로 파싱한다. 비동기 appender라 `eventually`로 기다린다.
   - 표식은 테스트마다 새로 만든다.
