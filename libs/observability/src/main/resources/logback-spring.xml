@@ -42,6 +42,8 @@
       discardingThreshold 0: 가득 차도 INFO 이하를 버리지 않는다. 장애 실험 중의 요청 로그가 조용히 빠지지 않게 한다.
     -->
     <appender name="ASYNC" class="ch.qos.logback.classic.AsyncAppender">
+        <!-- Tomcat의 처리되지 않은 예외 줄은 traceId가 없고, TraceLoggingFilter의 http_request ERROR 줄과 같은 내용이다 -->
+        <filter class="com.weave.observability.TomcatServletExceptionLogFilter"/>
         <queueSize>8192</queueSize>
         <discardingThreshold>0</discardingThreshold>
         <neverBlock>false</neverBlock>

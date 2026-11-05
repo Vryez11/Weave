@@ -110,7 +110,7 @@
   - `trace-logging` "JSON 로그 형식"의 "처리되지 않은 예외로 끝난 요청"을 feed-service 테스트로 옮긴다. 기존 파일을 고치지 말고 새 스펙 파일에 둔다. 요청 하나를 부르는 동안 모은 줄 중 `level`이 ERROR인 줄을 모두 본다.
   - `feed-aggregation` "하위 서비스의 호스트 이름을 찾을 수 없다"를 feed-service 테스트로 옮긴다. recommendation 주소를 `http://weave-unresolvable.invalid`로 준다. 새 스펙 파일에 둔다.
   - 확인: `./gradlew :feed-service:integrationTest`가 새 테스트 두 개에서 실패하고(지금 Tomcat ERROR 줄에 traceId가 없고, `UnknownHostException`은 `io_failure`다), `./gradlew :feed-service:test`는 통과한다.
-- [ ] 6.2 처리되지 않은 예외 로그에 traceId를 담는다(design 결정 5의 "처리되지 않은 예외").
+- [x] 6.2 처리되지 않은 예외 로그에 traceId를 담는다(design 결정 5의 "처리되지 않은 예외").
   - `TraceLoggingFilter`가 체인에서 예외가 올라오면 `http_request` 줄을 ERROR로, 예외를 담아 남기고 다시 던진다. 필드는 그대로다.
   - `logback-spring.xml`에서 Tomcat의 `...[dispatcherServlet]` 로거 줄을 막는다. 엔진 이름이 `Tomcat`이든 `Tomcat-N`이든 막혀야 한다.
   - 확인: 6.1의 첫 시나리오와 기존 시나리오(요청 완료 로그, 오류 응답 헤더, 하위 서비스 오류 본문이 로그에 없다)가 `./gradlew :feed-service:integrationTest :post-service:integrationTest :libs:observability:integrationTest`로 통과한다. `stack_trace`에 하위 서비스 응답 본문이 없다.

@@ -16,7 +16,7 @@
 - `./gradlew build`는 `integrationTest`까지 돈다(e2e 포함). 아직 구현하지 않은 시나리오가 실패하는 동안에는 `--continue`로 돌려 실패한 태스크·테스트가 그 시나리오뿐인지 본다.
 - 라이브러리 기본 속성은 `libs/observability/src/main/resources/observability-defaults.properties`에 한 줄 더하면 된다(2.6 `propagate-context`, 2.7 노출 엔드포인트). 우선순위 테스트는 `ObservabilityDefaultsTest`에 있다.
 - `X-Trace-Id`·`http_request` 로그는 `TraceLoggingFilter`(order `HIGHEST_PRECEDENCE + 2`)가 맡는다. traceId는 micrometer `Tracer.currentSpan()`에서 읽고 요청 속성에 담아 오류 디스패치에서 다시 쓴다.
-- 처리되지 않은 예외의 Tomcat 로그는 요청 완료 로그(필터 `finally`)보다 늦게 쓰인다. "남기지 않는다"를 판정할 때는 그 요청의 줄이 아니라 뒤에 보낸 확인용 요청의 줄을 기다린다.
+- 처리되지 않은 예외는 `TraceLoggingFilter`의 `http_request` ERROR 줄(`stack_trace` 포함, traceId 있음) 하나로 남는다. Tomcat의 `...[dispatcherServlet]` 줄은 6.2부터 logback에서 막힌다. "남기지 않는다"를 판정할 때는 여전히 뒤에 보낸 확인용 요청의 줄을 기다린다.
 - `@SpringBootTest`에서는 메트릭 내보내기가 꺼져 `/actuator/prometheus`가 404다. 테스트에 `@AutoConfigureMetrics`를 붙인다(`PostPrometheusEndpointTest`).
 - 셸 훅은 `;`·`>`·`xargs`로 이은 명령이나 `$(...)`가 든 명령을 막는다. 빌드 결과는 `./gradlew ... 2>&1 | grep ...` 파이프 하나로 본다. `~/.gradle` 아래는 읽을 수 없다.
 - 하위 서비스 실패 분류는 `com.weave.feed.gateway.DownstreamFailure.of(throwable)`(`cause`, `exception`)다. F-001의 새 `cause` 값도 여기에 더한다. 실패 로그는 `DownstreamFailure.log(dependency, error)`, 조회 future는 `Gateways.kt`의 `logFailure`.
@@ -268,4 +268,16 @@
 - 확인: `:feed-service:integrationTest`에서 새 2개만 실패(63개 중 2개). 첫째는 `org.apache.catalina.core.ContainerBase.[Tomcat-6].[localhost].[/].[dispatcherServlet]` 줄의 traceId가 null, 둘째는 실패 로그가 `cause` `io_failure`, `exception` `java.net.UnknownHostException`. `:feed-service:test`, `ktlintCheck`, `openspec validate` 통과.
 - 바꾼 파일: `feed-service/src/test/kotlin/com/weave/feed/FeedUnhandledExceptionLogScenarioTest.kt`, `.../FeedCallFailureLogUnresolvableHostScenarioTest.kt`, `tasks.md`, `progress.md`
 - 다음 반복(6.2)이 알아 둘 것: 테스트에서 엔진 이름은 `Tomcat-6`처럼 번호가 붙는다. 첫 시나리오는 "그중 한 줄"이라 Tomcat 줄을 막지 않아도 stack_trace 단언은 이미 맞고, traceId 단언이 Tomcat 줄을 막아야 통과한다. 필터가 ERROR로 올린 `http_request` 줄의 `stack_trace`에 예외 메시지가 들어가니 본문이 없는지(`bodylessErrorMessages`) 함께 본다.
+---
+
+## 2026-11-05 16:46 - 6.2 처리되지 않은 예외 로그에 traceId
+- `TraceLoggingFilter`: 체인에서 예외가 올라오면 `http_request` 줄을 `atError().setCause(e)`로 남기고 다시 던진다. 필드(`event`, `method`, `path`, `status` 500, `durationMs`)와 메시지는 그대로다. 서버 스팬 scope 안이라 traceId가 있다.
+- `TomcatServletExceptionLogFilter`(logback `Filter`)를 새로 두고 `logback-spring.xml`의 `ASYNC` appender에 걸었다. 로거 이름이 `org.apache.catalina.core.ContainerBase.[Tomcat(-N)?].[<호스트>].[<경로>].[dispatcherServlet]`이면 DENY. 접두사로 먼저 거른다. 컴파일용으로 `compileOnly("ch.qos.logback:logback-classic")`를 더했다(새 라이브러리 아님).
+- 단위 테스트 `TomcatServletExceptionLogFilterTest`(7개): `Tomcat`, `Tomcat-6`, `Tomcat-12` + 다른 경로는 DENY, 컨텍스트 로거·다른 서블릿·다른 로거는 NEUTRAL.
+- 확인:
+  - `./gradlew --continue :feed-service:integrationTest :post-service:integrationTest :libs:observability:integrationTest` → 실패는 6.3 몫의 `FeedCallFailureLogUnresolvableHostScenarioTest` 하나뿐. `FeedUnhandledExceptionLogScenarioTest`, `FeedTraceLogScenarioTest`(실패한 요청, 오류 응답 헤더, 하위 서비스 오류 본문), `PostRequestLogScenarioTest`, `JsonLogFormatScenarioTest` 통과.
+  - 테스트 출력에서 ERROR 줄은 `TraceLoggingFilter`의 `GET /feed 500` 하나이고, `stack_trace` 첫 줄은 `HttpServerErrorException$ServiceUnavailable: 503 Service Unavailable`(본문 없음). `[dispatcherServlet]` 로거 줄은 없다.
+  - `./gradlew --continue ktlintCheck build` → 같은 하나만 실패(e2e `integrationTest` 4개, like-service 포함 나머지 통과, XML timestamp 확인). `openspec validate` 통과.
+- 바꾼 파일: `libs/observability/build.gradle.kts`, `.../TraceLoggingFilter.kt`, `.../TomcatServletExceptionLogFilter.kt`(새로), `.../logback-spring.xml`, `.../TomcatServletExceptionLogFilterTest.kt`(새로), `libs/observability/CLAUDE.md`, `tasks.md`, `progress.md`
+- 다음 반복(6.3)이 알아 둘 것: `DownstreamFailure.of`에 원인 사슬 검사를 넣으면 `FeedCallFailureLogUnresolvableHostScenarioTest`가 통과해야 한다. 6.6에서 잴 장애 경로 ERROR 줄은 이 `http_request` ERROR 줄이다(스택 트레이스 포함).
 ---

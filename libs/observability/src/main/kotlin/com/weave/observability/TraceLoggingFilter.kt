@@ -16,6 +16,7 @@ import org.springframework.web.filter.OncePerRequestFilter
  * Boot의 `ServerHttpObservationFilter`(서버 스팬을 연다) 바로 뒤에 두어 현재 스팬의 traceId를 읽는다.
  * 처리되지 않은 예외나 `sendError`는 Tomcat이 `/error`로 다시 디스패치하며 응답을 초기화할 수 있어,
  * 오류 디스패치에서도 헤더를 다시 넣는다. 요청 완료 로그는 첫 디스패치에서만 남긴다.
+ * 처리되지 않은 예외로 끝나면 요청 완료 로그를 ERROR로 올려 예외를 담는다([TomcatServletExceptionLogFilter]).
  */
 class TraceLoggingFilter(
     private val tracer: ObjectProvider<Tracer>,
@@ -39,18 +40,19 @@ class TraceLoggingFilter(
         }
 
         val startedAt = System.nanoTime()
-        var failed = false
+        var failure: Throwable? = null
         try {
             filterChain.doFilter(request, response)
         } catch (e: Throwable) {
-            failed = true
+            failure = e
             throw e
         } finally {
             // 체인에서 예외가 올라온 시점의 응답 상태는 오류 처리 전이라 200이다
-            val status = if (failed) HttpServletResponse.SC_INTERNAL_SERVER_ERROR else response.status
+            val status = if (failure != null) HttpServletResponse.SC_INTERNAL_SERVER_ERROR else response.status
             val durationMs = (System.nanoTime() - startedAt) / 1_000_000
-            log
-                .atInfo()
+            // 처리되지 않은 예외는 여기서 남긴다. Tomcat이 남기는 줄은 서버 스팬의 scope가 닫힌 뒤라 traceId가 없어 logback에서 막는다
+            val event = if (failure != null) log.atError().setCause(failure) else log.atInfo()
+            event
                 .addKeyValue("event", "http_request")
                 .addKeyValue("method", request.method)
                 .addKeyValue("path", request.requestURI)

@@ -18,6 +18,8 @@ dependencies {
     // X-Trace-Id·요청 완료 로그 필터(design 결정 5). 서비스가 이미 가지므로 컴파일에만 쓴다
     compileOnly("org.springframework:spring-webmvc")
     compileOnly("jakarta.servlet:jakarta.servlet-api")
+    // logback-spring.xml이 쓰는 로그 필터(design 결정 5). 서비스가 Boot 기본 로깅으로 이미 가진다
+    compileOnly("ch.qos.logback:logback-classic")
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.springframework.boot:spring-boot-starter-webmvc")
     testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")
