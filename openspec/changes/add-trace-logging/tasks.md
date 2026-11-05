@@ -94,7 +94,7 @@
   - 시작 전에 임의 계정으로 `e2e/build/compose-test.env`를 만들고, 프로젝트 이름 `weave-compose-test`로 `up -d --build --wait`를 돈다. 끝나면 성공·실패와 관계없이 `down -v`를 돈다.
   - `Compose` 태그 테스트만 돌리고, 주소를 시스템 속성으로 넘긴다.
   - 확인: `./gradlew :e2e:composeTest`가 1.7의 두 시나리오를 통과하고, 끝난 뒤 `docker compose -p weave-compose-test ps -a`가 비어 있다.
-- [ ] 5.4 CI에 Compose 테스트를 더한다. `backend` 작업에 `./gradlew :e2e:composeTest` 단계를 두고, 실패하면 `docker compose -p weave-compose-test logs` 출력을 artifact로 올린다. 확인: 워크플로가 PR CI에서 통과하는 것은 PR 때 본다. 로컬에서는 워크플로에 적은 명령을 그대로 돌려 통과한다.
+- [x] 5.4 CI에 Compose 테스트를 더한다. `backend` 작업에 `./gradlew :e2e:composeTest` 단계를 두고, 실패하면 `docker compose -p weave-compose-test logs` 출력을 artifact로 올린다. 확인: 워크플로가 PR CI에서 통과하는 것은 PR 때 본다. 로컬에서는 워크플로에 적은 명령을 그대로 돌려 통과한다.
 - [ ] 5.5 명령과 구성을 문서에 더한다.
   - `CLAUDE.md` 명령 표와 하네스 규칙 5장의 "로컬 인프라"를 `./gradlew bootJar` 뒤 `docker compose up -d --build --wait`로 바꾸고, `./gradlew :e2e:composeTest`를 더한다.
   - `docs/architecture.md`: 1장 표에 Compose 이미지 버전, 7-2에 Loki 라벨과 구조화 메타데이터, 12장 표에서 대시보드(7-4)를 `add-fault-experiments`로 옮긴다.

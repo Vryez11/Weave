@@ -85,9 +85,29 @@ val composeTestEnv =
         }
     }
 
+// down이 같은 Gradle 실행 안에서 돌아 그 뒤에는 컨테이너 로그를 받을 수 없다. 내리기 전에 파일로 남긴다(CI artifact)
+val composeTestLogs =
+    tasks.register("composeTestLogs") {
+        description = "Compose 테스트 환경의 컨테이너 로그를 build/compose-logs/compose.log에 쓴다."
+        val command = dockerCompose("logs", "--no-color", "--timestamps")
+        val logFile = layout.buildDirectory.file("compose-logs/compose.log")
+        outputs.file(logFile)
+        outputs.upToDateWhen { false }
+        mustRunAfter("composeTestUp", "composeTest")
+        doLast {
+            val file = logFile.get().asFile.apply { parentFile.mkdirs() }
+            ProcessBuilder(command)
+                .redirectErrorStream(true)
+                .redirectOutput(file)
+                .start()
+                .waitFor()
+        }
+    }
+
 val composeTestDown =
     tasks.register<Exec>("composeTestDown") {
         description = "Compose 테스트 환경을 볼륨까지 지운다."
+        dependsOn(composeTestLogs)
         commandLine(dockerCompose("down", "-v"))
     }
 

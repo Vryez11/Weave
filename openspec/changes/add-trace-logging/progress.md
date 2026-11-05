@@ -27,7 +27,7 @@
 - `eclipse-temurin:25-jre`에는 curl·wget이 없다. `docker/service.Dockerfile`이 curl을 설치한다. 새 헬스 체크도 curl로 쓴다.
 - Compose 서비스 이름은 모듈 이름과 같다(`feed-service` 등). 서비스끼리는 `http://<모듈 이름>:<포트>`로 부른다. 공통값은 `x-service`(라벨, `environment: &service-environment`, `depends_on: &service-depends-on`), 헬스 체크 공통값은 `x-service-healthcheck` 앵커다. 병합이 얕아 feed·like처럼 `environment`/`depends_on`을 따로 두는 서비스는 안쪽 앵커를 다시 `<<:`로 병합한다.
 - 호스트에 열린 포트: feed 8080, 그리고 127.0.0.1에만 Grafana 3000, Loki 3100, Tempo 3200, Prometheus 9090, Alloy UI 12345. 5.3의 시스템 속성 주소는 `http://localhost:8080`, `http://localhost:3100`, `http://localhost:3200`이다.
-- `:e2e:composeTest`는 e2e `build.gradle.kts`의 `composeTestEnv` → `composeTestUp` → `composeTest` → `composeTestDown`(finalizer)이다. CI 단계(5.4)는 `./gradlew :e2e:composeTest` 하나면 되고, 실패 시 로그는 `docker compose -p weave-compose-test logs`로 받되 `down -v`가 이미 돈 뒤라 컨테이너가 없다는 점에 주의한다(로그를 먼저 받으려면 down 전에 받는 방법이 필요하다).
+- `:e2e:composeTest`는 e2e `build.gradle.kts`의 `composeTestEnv` → `composeTestUp` → `composeTest` → `composeTestLogs` → `composeTestDown`(finalizer)이다. down 뒤에는 컨테이너가 없어, 로그는 `composeTestLogs`가 `e2e/build/compose-logs/compose.log`에 미리 남긴다. CI는 `./gradlew :e2e:composeTest` 한 단계이고 실패하면 그 폴더를 `test-reports` artifact로 올린다.
 - 웹 조회(WebSearch, WebFetch)와 `docker run`·`docker image ls`는 허가가 없다. 이미지 태그는 임시 Compose 파일(`e2e/build/tag-probe.yaml`)을 `docker compose -f ... pull`해 있는지 본다. 관찰 인프라 확인 명령은 5.2 기록에 있다.
 
 ---
@@ -231,4 +231,12 @@
   - `./gradlew ktlintCheck compileKotlin compileTestKotlin :e2e:test :e2e:integrationTest` 통과(`integrationTest` XML timestamp로 다시 돈 것 확인, 4개 통과·Compose 2개 skipped), `:e2e:ktlintKotlinScriptCheck --rerun` 통과, `openspec validate` 통과.
 - 바꾼 파일: `e2e/build.gradle.kts`, `e2e/CLAUDE.md`, `openspec/changes/add-trace-logging/tasks.md`, `progress.md`
 - 다음 반복(5.4)이 알아 둘 것: `composeTestDown`이 같은 Gradle 실행 안에서 돌아, CI에서 `./gradlew :e2e:composeTest` 다음 단계로 `docker compose -p weave-compose-test logs`를 부르면 컨테이너가 이미 없다. 실패 로그를 artifact로 올리려면 down 전에 로그를 파일로 떠 두는 방법(예: `composeTestDown` 앞에 로그를 `e2e/build/`에 쓰는 태스크를 두거나, CI에서 down을 끄는 속성)이 필요하다. 태스크 설계를 바꾸는 판단이니 범위 안인지 보고 정한다.
+---
+
+## 2026-11-05 16:08 - 5.4 CI에 Compose 테스트
+- `ci.yml`의 `backend`에 `./gradlew ktlintCheck build` 다음 단계로 `./gradlew :e2e:composeTest`를 더했다. 실패 시 올리는 기존 `test-reports` artifact를 그 뒤로 옮기고 경로에 `e2e/build/compose-logs/`를 더했다(artifact 하나로 모음).
+- 로그는 CI 다음 단계에서는 받을 수 없어(down이 이미 돈 뒤) e2e에 `composeTestLogs`를 두었다. `docker compose -p weave-compose-test ... logs --no-color --timestamps`를 `ProcessBuilder`로 `build/compose-logs/compose.log`에 쓴다. `composeTestDown`이 이 태스크에 기대고, 이 태스크는 `composeTestUp`·`composeTest` 뒤에 돈다(`mustRunAfter`). 성공해도 항상 남긴다(가볍고 로컬에서도 원인을 볼 수 있다). CI에서만 down을 끄는 방법은 로컬과 동작이 달라져 택하지 않았다.
+- 확인: 워크플로에 적은 `./gradlew :e2e:composeTest`를 로컬에서 그대로 두 번 돌려 통과(38~41초, `TraceLookupComposeScenarioTest` 2개 통과). `compose.log` 2,300여 줄(서비스 6개·MySQL·관찰 인프라), 끝난 뒤 `ps -a` 비어 있음. 실패 경로 `./gradlew :e2e:composeTest -x composeTestUp` → 테스트 2개 실패 뒤 `composeTestLogs` → `composeTestDown` 순서로 돌았다. `ktlintCheck compileKotlin compileTestKotlin :e2e:ktlintKotlinScriptCheck --rerun-tasks`, `openspec validate` 통과. 워크플로가 PR CI에서 통과하는지는 PR 때 본다(ubuntu 러너에서 이미지 빌드 시간 포함).
+- 바꾼 파일: `.github/workflows/ci.yml`, `e2e/build.gradle.kts`, `e2e/CLAUDE.md`, `openspec/changes/add-trace-logging/tasks.md`, `progress.md`
+- 다음 반복(5.5)이 알아 둘 것: 문서 작업이다. `CLAUDE.md` 명령 표·하네스 규칙 5장에 `./gradlew bootJar` 뒤 `docker compose up -d --build --wait`와 `./gradlew :e2e:composeTest`를 넣는다. 로컬 `docker compose`는 루트 `.env`가 있어야 하는데 에이전트는 `.env`를 읽지 못하니, 확인은 `--env-file e2e/build/compose-check.env`로 한다. 아키텍처 1장 이미지 버전은 `compose.yaml`(5.2 기록)에 있다.
 ---
