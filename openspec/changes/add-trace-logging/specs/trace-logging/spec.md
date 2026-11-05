@@ -13,6 +13,7 @@
 - 늘 있는 필드: `@timestamp`(ISO-8601, 밀리초까지), `level`, `service`(서비스 이름), `logger`, `thread`, `message`
 - HTTP 요청을 처리하는 중에 쓴 로그에는 `traceId`(16진수 32자)와 `spanId`(16진수 16자)가 있다. 요청 밖(시작, 종료)의 로그에는 없어도 된다.
 - 예외가 있으면 `stack_trace`에 스택 트레이스를 담는다.
+- 처리되지 않은 예외로 끝난 요청에서 그 예외를 남기는 로그도 그 요청의 `traceId`를 가진다.
 
 #### Scenario: 요청 처리 중의 로그
 
@@ -25,6 +26,13 @@
 - **WHEN** 예외를 담아 로그를 쓴다
 - **THEN** 그 줄의 `stack_trace`에 예외 클래스 이름이 들어 있다
 - **AND** 줄바꿈이 있는 스택 트레이스여도 로그는 한 줄이다
+
+#### Scenario: 처리되지 않은 예외로 끝난 요청
+
+- **GIVEN** recommendation-service가 503을 준다
+- **WHEN** `GET /feed`가 500으로 응답한다
+- **THEN** feed-service가 그 요청을 처리하며 쓴 ERROR 줄은 모두 `traceId`가 응답의 `X-Trace-Id`와 같다
+- **AND** 그중 한 줄의 `stack_trace`에 하위 서비스 호출 실패 예외의 클래스 이름이 있다
 
 ### Requirement: 응답 헤더의 traceId (F-004)
 

@@ -102,15 +102,51 @@
   - 확인: 문서에 적은 명령을 그대로 돌려 5.1의 확인과 같은 결과가 나온다.
 - [x] 5.6 전체 검사를 돌린다. 확인: `./gradlew ktlintCheck build`, `./gradlew :e2e:composeTest`, `openspec validate --all --strict --no-interactive`가 통과한다.
 
-## 6. 검토와 change 완료 조건
+## 6. 검토 지적 반영
+
+첫 검토(2026-11-05)에서 나온 막음 1건(B1)과 받아들인 제안이다. 이 묶음에서 고치라고 적은 커밋된 테스트는 사람이 검토에서 승인한 것이니 고쳐도 된다. 단언을 약하게 바꾸지는 않는다.
+
+- [ ] 6.1 새 시나리오 두 개를 테스트로 옮긴다.
+  - `trace-logging` "JSON 로그 형식"의 "처리되지 않은 예외로 끝난 요청"을 feed-service 테스트로 옮긴다. 기존 파일을 고치지 말고 새 스펙 파일에 둔다. 요청 하나를 부르는 동안 모은 줄 중 `level`이 ERROR인 줄을 모두 본다.
+  - `feed-aggregation` "하위 서비스의 호스트 이름을 찾을 수 없다"를 feed-service 테스트로 옮긴다. recommendation 주소를 `http://weave-unresolvable.invalid`로 준다. 새 스펙 파일에 둔다.
+  - 확인: `./gradlew :feed-service:integrationTest`가 새 테스트 두 개에서 실패하고(지금 Tomcat ERROR 줄에 traceId가 없고, `UnknownHostException`은 `io_failure`다), `./gradlew :feed-service:test`는 통과한다.
+- [ ] 6.2 처리되지 않은 예외 로그에 traceId를 담는다(design 결정 5의 "처리되지 않은 예외").
+  - `TraceLoggingFilter`가 체인에서 예외가 올라오면 `http_request` 줄을 ERROR로, 예외를 담아 남기고 다시 던진다. 필드는 그대로다.
+  - `logback-spring.xml`에서 Tomcat의 `...[dispatcherServlet]` 로거 줄을 막는다. 엔진 이름이 `Tomcat`이든 `Tomcat-N`이든 막혀야 한다.
+  - 확인: 6.1의 첫 시나리오와 기존 시나리오(요청 완료 로그, 오류 응답 헤더, 하위 서비스 오류 본문이 로그에 없다)가 `./gradlew :feed-service:integrationTest :post-service:integrationTest :libs:observability:integrationTest`로 통과한다. `stack_trace`에 하위 서비스 응답 본문이 없다.
+- [ ] 6.3 `cause` 분류를 넓힌다(design 결정 6의 표).
+  - 원인 사슬에 `ConnectException`(`NoRouteToHostException` 포함), `UnknownHostException`, HttpClient 5 `ConnectTimeoutException`이 있으면 `connect_failure`다.
+  - 커넥션 풀에서 연결을 얻지 못해 끝난 예외가 어느 값이 되는지 단위 테스트로 확인하고 design 결정 6의 표 밑에 적는다. `connect_failure`가 되면 안 된다.
+  - 확인: 새 예외 종류마다 단위 테스트가 있고 `./gradlew :feed-service:test -Pkotest.filter.tests='*F-004*'`가 통과한다. 6.1의 두 번째 시나리오가 `integrationTest`에서 통과한다.
+- [ ] 6.4 HTTP 서비스 그룹 클라이언트의 오류 상태 처리기를 보완한다(design 결정 6 끝).
+  - 기본 처리기처럼 메시지 변환기로 본문 변환 함수(`setBodyConvertFunction`)를 넣는다. 닿지 않는 `UnknownHttpStatusCodeException` 분기는 정리한다.
+  - 확인: 하위 서비스 503 응답에서 만든 예외의 `getResponseBodyAs(String::class.java)`가 본문을 돌려주는 테스트가 통과하고, 예외 메시지에는 본문이 없다.
+- [ ] 6.5 테스트를 단단하게 한다.
+  - `FeedCallFailureLogScenarioTest`의 "토글 전달이 실패한다", "하위 서비스에 연결할 수 없다"가 응답의 `X-Trace-Id`로 줄을 거른다. 앞 테스트의 늦은 줄로 거짓 통과하지 않게 한다.
+  - `ExecutorTracePropagationTest`가 `ContextStorage.addWrapper`를 전역에 더하는 것이 같은 JVM의 다른 테스트 순서에 기대지 않게 한다(예: 래퍼 없이 확인할 수 있게 바꾸거나, 그 스펙만 따로 fork에서 돌린다). 어느 쪽으로 했는지 테스트 KDoc에 적는다.
+  - `TraceLookupComposeScenarioTest`의 Loki 시나리오가 항목마다 Loki 시각(ns)과 줄의 `@timestamp`가 같음을 직접 단언한다.
+  - 확인: `./gradlew :feed-service:integrationTest :libs:observability:test`와 `./gradlew :e2e:composeTest`가 통과한다.
+- [ ] 6.6 비동기 appender 대기열 크기를 장애 경로까지 넣어 다시 계산한다(design 결정 1).
+  - 200 RPS에서 feed가 요청마다 쓰는 장애 경로 로그(요청 완료 1줄과 실패 로그 최대 5줄, 그중 스택 트레이스가 든 줄의 바이트 수)를 센다. 바이트 수는 6.2 뒤의 통합 테스트 출력에서 잰다.
+  - 계산이 지금 값(8192)으로 버티는 시간을 design 결정 1에 적는다. 값을 바꾸면 `logback-spring.xml`도 고치고, 커밋 본문에 계산을 적는다.
+  - 확인: design 결정 1과 Risks에 장애 경로 계산이 있고, `./gradlew ktlintCheck build`가 통과한다.
+- [ ] 6.7 Compose와 필터의 작은 지적을 고친다.
+  - `composeTestUp`이 띄우기 전에 같은 프로젝트에 `down -v --remove-orphans`를 먼저 돌린다. 이전 실행이 Ctrl-C로 끊겨 남은 볼륨과 포트를 치운다.
+  - `compose.yaml`의 feed-service 포트를 `127.0.0.1:8080:8080`으로 묶고, 문서에 적은 주소와 맞는지 본다.
+  - `TraceLoggingFilter`의 `/actuator` 검사를 `/actuator`와 `/actuator/`로 시작하는 경로로 좁히고, 비동기 디스패치를 다루지 않는다는 것을 KDoc에 적는다(design 결정 5).
+  - 확인: `/actuatorx` 경로는 `http_request` 줄을 남기는 단위 테스트가 통과한다. `./gradlew :e2e:composeTest`가 통과하고, 일부러 `composeTestUp`만 돌려 둔 뒤 다시 `./gradlew :e2e:composeTest`를 돌려도 통과한다.
+- [ ] 6.8 전체 검사를 돌린다. 확인: `./gradlew ktlintCheck build`, `./gradlew :e2e:composeTest`, `openspec validate --all --strict --no-interactive`가 통과한다.
+
+## 7. 검토와 change 완료 조건
 
 이 묶음은 Ralph 루프가 하지 않는다([하네스 규칙](../../../conventions/harness.md) 3-3, 4장).
 
-- [ ] 6.1 구현에 참여하지 않은 리뷰어가 하네스 규칙 3-3의 검토 항목으로 change 문서와 diff를 본다.
+- [ ] 7.1 구현에 참여하지 않은 리뷰어가 하네스 규칙 3-3의 검토 항목으로 change 문서와 diff를 본다.
   - 이 change에 해당하지 않는 항목(3번 격리, 4번 재시도)은 "해당 없음"으로 적는다. 6번 traceId는 이 change의 중심이니 공유 풀, `thenCompose` 뒤, 토글 경로를 모두 본다.
+  - 첫 검토(2026-11-05)의 막음 B1과 받아들인 제안은 묶음 6에서 고쳤다. 다시 볼 때는 묶음 6의 diff를 중심으로 본다. 받아들이지 않은 제안: 커밋 type이 어긋난 커밋 두 개(`80cb03a`, `e4f210e`)와 design 수정이 섞인 `7488c8e`는 이력을 다시 쓰지 않고 둔다.
   - 사람이 `docker compose up` 환경의 Grafana에서 로그의 traceId 링크로 Tempo 트레이스를 열고, 트레이스에서 로그로 돌아오는 것을 한 번 확인한다.
   - 확인: 막는 지적이 없다.
-- [ ] 6.2 하네스 규칙 4장의 change 완료 조건을 확인한다.
+- [ ] 7.2 하네스 규칙 4장의 change 완료 조건을 확인한다.
   - 장애 실험 세트는 아직 없으므로(고도화 2) 해당 없음으로 적는다.
   - PRD F-004 수용 기준을 체크한다. 벌크헤드 스레드 풀의 전파와 장애 대응 이벤트 로그는 F-001·F-002·F-005에서 채우므로, 이번에 한 범위(공유 풀, 호출 실패 로그)를 기준 옆에 적고 체크하지 않는다.
   - 확인: 체크리스트가 모두 채워진다.

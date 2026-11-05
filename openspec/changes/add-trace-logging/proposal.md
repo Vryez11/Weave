@@ -33,7 +33,7 @@
 
 ## Impact
 
-- **코드:** `libs/observability`(로그 설정, 기본 속성, 응답 헤더·요청 완료 로그 필터), feed-service의 Gateway(실패 로그), 서비스 6개의 테스트, `e2e`(로그 파일 검사, Compose 테스트)
+- **코드:** `libs/observability`(로그 설정, 기본 속성, 응답 헤더·요청 완료 로그 필터), feed-service의 Gateway(실패 로그)와 HTTP 서비스 그룹 클라이언트의 오류 상태 처리기(예외 메시지에서 하위 서비스 응답 본문을 뺀다. 구현 중 design 결정 6에 더했고 검토에서 승인), 서비스 6개의 테스트, `e2e`(로그 파일 검사, Compose 테스트)
 - **API:** 모든 서비스 응답에 `X-Trace-Id` 헤더가 붙는다. 요청 헤더 `traceparent`를 받으면 그 trace를 잇는다. 응답 본문은 바뀌지 않는다.
 - **의존성:** design.md 결정 9의 목록. 추가 항목은 이 change를 승인할 때 함께 확인한다(하네스 규칙 2-2).
   - observability: logstash-logback-encoder, Boot OpenTelemetry 스타터

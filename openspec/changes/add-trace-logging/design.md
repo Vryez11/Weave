@@ -90,7 +90,10 @@ PRD F-004의 순서대로 간다.
 - **순서:** Boot의 `ServerHttpObservationFilter`(서버 스팬을 연다) 바로 뒤. 그래야 필터 안에서 현재 스팬의 traceId를 읽을 수 있다.
 - **헤더:** 체인을 부르기 전에 `X-Trace-Id`를 응답에 넣는다. 응답이 커밋된 뒤에는 헤더를 넣을 수 없기 때문이다.
 - **요청 완료 로그:** `finally`에서 `event=http_request`, `method`, `path`(`requestURI`, 쿼리 제외), `status`, `durationMs`를 INFO로 한 줄 남긴다. 체인에서 예외가 올라왔으면 `status`는 500으로 적는다. 그 시점의 응답 상태는 아직 오류 처리 전이라 200이다.
-- `/actuator`로 시작하는 경로는 로그만 건너뛴다(헤더는 넣는다). Compose 헬스 체크와 Prometheus 수집이 몇 초마다 와서 로그를 덮는다.
+- **처리되지 않은 예외(검토에서 더함):** 필터가 예외를 다시 던진 뒤 서버 스팬의 scope가 닫히고, 그다음 Tomcat이 `Servlet.service() ... threw exception` ERROR 줄을 남긴다. 이 줄에는 MDC가 비어 `traceId`가 없어, traceId로 조회하면 정작 스택 트레이스가 빠진다. 그래서 예외가 올라오면 필터가 scope 안에서 `http_request` 줄을 ERROR로 올리고 예외를 함께 담아 남긴 뒤 다시 던진다. Tomcat의 같은 내용 줄(`org.apache.catalina.core.ContainerBase.[<엔진>].[<호스트>].[<경로>].[dispatcherServlet]` 로거, 엔진 이름은 `Tomcat` 또는 테스트의 `Tomcat-N`)은 logback에서 막아 중복으로 남기지 않는다. 오류 응답(본문, 상태)은 바뀌지 않는다.
+  - 대안: 별도 `http_request_failed` 줄을 더하기. 요청 하나에 한 줄이라는 요청 완료 로그의 규칙이 깨지고, 장애 실험에서 로그량만 는다.
+- `/actuator`, 또는 `/actuator/`로 시작하는 경로는 로그만 건너뛴다(헤더는 넣는다). Compose 헬스 체크와 Prometheus 수집이 몇 초마다 와서 로그를 덮는다.
+- **비동기 디스패치는 다루지 않는다.** 지금 컨트롤러는 모두 동기로 응답한다. 컨트롤러가 `CompletableFuture`를 돌려주게 바뀌면(F-001 후보) 첫 디스패치가 끝난 시점의 `status`·`durationMs`가 남으므로, 그때 필터가 비동기 디스패치 완료에 맞춰 로그를 남기도록 고친다. 필터 KDoc에 적어 둔다.
 - 헤더 이름은 `X-Trace-Id`. W3C의 `traceresponse` 헤더는 아직 초안이고, 클라이언트가 값을 그대로 오류 리포트에 붙이기에는 traceId만 담은 헤더가 쉽다.
 - **오류 디스패치:** 처리되지 않은 예외는 Tomcat이 `/error`로 다시 디스패치한다. 이때 응답이 초기화되며 헤더가 사라질 수 있다. 오류 디스패치에서도 필터를 돌려(`shouldNotFilterErrorDispatch` false) 헤더를 다시 넣되, 요청 완료 로그는 첫 디스패치에서만 남긴다. 실제로 헤더가 사라지는지는 오류 응답 시나리오 테스트가 판정한다.
 
@@ -103,13 +106,17 @@ PRD F-004의 순서대로 간다.
   | 예외 | `cause` |
   |---|---|
   | `RestClientResponseException` | `http_<상태 코드>` |
-  | `ResourceAccessException`, 원인에 `ConnectException` | `connect_failure` |
+  | `ResourceAccessException`, 원인 사슬에 `ConnectException`(`NoRouteToHostException` 포함), `UnknownHostException`, HttpClient 5의 `ConnectTimeoutException` 중 하나 | `connect_failure` |
   | 그 밖의 `ResourceAccessException` | `io_failure` |
   | 그 밖 | `other` |
 
   `exception` 필드에 가장 안쪽 예외의 클래스 이름을 함께 남긴다. `other`일 때 원인을 찾을 단서다.
+
+  - 처음 표는 `ConnectException`만 연결 실패로 봤다. 검토에서 Compose로 서비스를 멈추면 Docker DNS가 이름을 못 찾아 `UnknownHostException`이 난다는 지적이 나와 넓혔다. 고도화 2의 실험 리포트(F-007)에서 "연결 못 함"이 한 값으로 모여야 한다.
+  - 커넥션 풀에서 연결을 얻지 못해 기다리다 끝난 경우가 어느 값이 되는지는 작업 6.3에서 확인해 이 표에 적는다. 하위 서비스가 아니라 feed 쪽 자원 문제라, 연결 실패와 섞지 않는다.
 - **예외 객체와 메시지를 로그에 넘기지 않는다.** `RestClientResponseException`의 메시지에는 하위 서비스의 응답 본문이 들어가, 스택 트레이스로 남기면 본문이 로그에 실린다(스펙 "로그에 남기지 않는 것"). 상태 코드와 클래스 이름이면 원인을 가리기에 충분하다.
 - **예외 메시지에도 본문을 넣지 않는다(작업 3.2에서 정함).** 실패 로그만 고쳐서는 부족했다. 처리되지 않은 예외를 Tomcat이 `Servlet.service() ... threw exception` ERROR 줄로 남기며 `message`와 `stack_trace`에 예외 메시지(`503 Service Unavailable: "<본문>"`)를 싣는다. 그래서 HTTP 서비스 그룹 클라이언트에 오류 상태 처리기(`defaultStatusHandler`)를 두어, 기본 처리기와 같은 예외 종류·상태 코드·본문 바이트로 만들되 메시지는 `<상태 코드> <상태 문구>`로만 둔다. 응답(500)과 `cause` 분류는 바뀌지 않는다.
+  - 검토에서 범위로 승인했다(proposal Impact). 기본 처리기처럼 본문 변환 함수(`setBodyConvertFunction`)도 넣어, 나중에 F-005가 `getResponseBodyAs(...)`로 오류 본문을 읽을 수 있게 한다.
 - 분류와 로그는 `com.weave.feed.gateway`의 작은 함수 하나로 모아 Gateway 다섯 개가 함께 쓴다. F-001에서 타임아웃, 서킷 열림, 벌크헤드 거절이 `cause`의 새 값으로 더해진다.
 
 ### 7. Docker Compose
@@ -176,7 +183,9 @@ PRD F-004의 순서대로 간다.
 
 - [오류 디스패치에서 `X-Trace-Id`가 사라질 수 있다] → 결정 5대로 오류 디스패치에서도 헤더를 다시 넣는다. 그래도 없으면 오류 응답을 Spring MVC 안(`@RestControllerAdvice`)에서 만들어 Tomcat 오류 디스패치를 타지 않게 하는 방법이 있다. 응답 본문이 바뀌므로 그때는 멈추고 사람에게 묻는다.
 - [HTTP 서비스 그룹의 `RestClient`에 관찰이 붙지 않을 수 있다] → 작업 1.4의 시나리오 테스트가 판정한다. 안 붙으면 그룹 설정자(`RestClientHttpServiceGroupConfigurer`)로 `ObservationRegistry`를 넣는다. 스펙은 그대로다.
-- [비동기 appender가 막히면 요청이 기다린다] → 결정 1의 계산으로 20초 여유가 있다. 실험에서 로그 출력이 지연의 원인으로 보이면 F-007에서 따로 잰다.
+- [비동기 appender가 막히면 요청이 기다린다] → 결정 1의 계산으로 20초 여유가 있다. 실험에서 로그 출력이 지연의 원인으로 보이면 F-007에서 따로 잰다. 검토에서 이 계산이 정상 경로만 셌다는 지적이 나와, 장애 경로(요청당 실패 로그 최대 5줄과 스택 트레이스 줄)를 넣어 작업 6.6에서 다시 계산한다.
+- [`supplyAsync`가 실행기 거절을 동기로 던지면 실패 로그가 남지 않는다] → 지금 `applicationTaskExecutor`는 대기열이 무제한이라 거절이 없다. F-001의 벌크헤드가 거절을 만들 때 그 이벤트 로그(`bulkhead_rejected`)로 다룬다.
+- [이미지 태그] → `eclipse-temurin:25-jre`, `mysql:9.7`은 패치 버전이 따라 바뀌는 태그다. 관찰 인프라 이미지는 패치까지 고정했지만 최신 안정 버전인지는 확인하지 못했다. 릴리스 전에 사람이 확인하고 올릴지 정한다.
 - [로그가 늘어 실험 결과에 영향을 준다] → 요청 완료 로그는 요청당 한 줄이고, 고도화 2의 기준선을 이 상태에서 잰다. 이후 단계도 같은 로그를 쓰므로 비교는 공정하다.
 - [Compose 테스트가 느리고 CI 시간을 늘린다] → 이미지 6개 빌드와 인프라 기동에 몇 분이 걸린다. Stop 훅에서는 돌지 않고 CI에서만 돈다. 너무 느리면 CI에서 `develop`·`main` push에만 돌리는 것을 검토 때 정한다.
 - [Docker 소켓을 Alloy에 연다] → 로컬 실험 환경에서만 쓰고 읽기 전용으로 마운트한다.
