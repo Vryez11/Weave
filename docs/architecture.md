@@ -19,6 +19,7 @@
 | 메트릭 | Micrometer → Prometheus → Grafana | Boot BOM |
 | 장애 실험 | Toxiproxy(네트워크 장애) + 앱 수준 장애 주입, 부하는 k6 | k6 2.3 |
 | 실행 환경 | 실험 때는 서비스 6개와 인프라를 모두 Docker Compose로, CPU·메모리 상한을 건다. 개발 중에는 서비스 하나만 `bootRun`으로 띄워도 된다 | — |
+| Compose 이미지 | 루트 `compose.yaml`. 서비스는 `docker/service.Dockerfile`로 bootJar를 담고, 그 밖의 이미지는 태그를 버전으로 고정한다(`latest` 금지) | 서비스 `eclipse-temurin:25-jre`, `mysql:9.7`, `grafana/alloy:v1.11.0`, `grafana/loki:3.6.0`, `grafana/tempo:2.9.0`, `prom/prometheus:v3.7.0`, `grafana/grafana:12.2.0` |
 | 테스트 | Kotest + MockK(springmockk), 하위 서비스는 WireMock, MySQL·Redis는 Testcontainers | Kotest 6.2.6, MockK 1.14.11, springmockk 5.0.1, WireMock 3.13, Testcontainers 2.0.5 |
 | 린트·CI | ktlint, GitHub Actions | 하네스 구성 때 정한다 |
 
@@ -296,7 +297,21 @@ Retry-After 동안 호출을 막는 방법(서킷을 그 시간만큼 열어 두
 | 스팬 | 서비스 → OTLP → Alloy → Tempo | Grafana. 피드 요청 하나의 호출 폭포도 |
 | 메트릭 | Prometheus가 `/actuator/prometheus`를 긁는다 | Grafana 대시보드 |
 
-Grafana에서 로그의 traceId를 누르면 Tempo의 트레이스로, 트레이스에서 로그로 이동하도록 데이터 소스를 연결한다. 데이터 소스와 대시보드는 `docker/grafana/`에 파일로 두고 자동으로 불러온다.
+- **로그 수집:** Alloy가 Docker 소켓으로 `weave.logs=true` 라벨이 붙은 컨테이너(서비스 6개)를 찾아 stdout을 읽는다(`docker/alloy/config.alloy`). 탐색 주기는 5초다. 기본값 60초로 두면 서비스보다 먼저 뜬 Alloy가 첫 탐색에서 서비스를 놓쳐 시작 직후 요청의 로그가 1분 가까이 Loki에 없었다.
+- **Loki 라벨과 구조화 메타데이터:** 라벨은 `service`(Compose 서비스 이름 = 모듈 이름)와 `level` 둘만 둔다. `traceId`·`spanId`는 요청마다 달라 라벨로 두면 스트림이 폭증하므로, Alloy가 JSON을 풀어 구조화 메타데이터로 붙인다(Loki tsdb + v13 스키마). 로그 시각은 컨테이너 출력 시각이 아니라 줄의 `@timestamp`라, 비동기 appender가 출력을 미뤄도 앱 시각 순서로 남는다. JSON이 아닌 줄(logback보다 먼저 찍힌 JVM 출력 등)은 필드 없이 그대로 들어간다.
+
+  ```logql
+  {service=~".+"} | traceId="<traceId>"
+  ```
+
+- **스팬:** 서비스는 `MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT=http://alloy:4318/v1/traces`(Compose에서만 준다, 7-1)로 OTLP HTTP를 보내고, Alloy가 묶어 Tempo(gRPC 4317)로 넘긴다. Tempo에서는 `/api/traces/<traceId>`로 조회한다.
+- **메트릭:** Prometheus가 서비스 6개의 `/actuator/prometheus`를 15초마다 긁는다(`docker/prometheus/prometheus.yml`).
+- **저장:** Loki·Tempo는 단일 프로세스이고 컨테이너 안에만 저장한다. 내리면 지워진다.
+- **포트:** 호스트에는 feed-service 8080과 관찰 인프라만 연다. 관찰 인프라는 `127.0.0.1`에만 묶는다(Grafana 3000, Loki 3100, Tempo 3200, Prometheus 9090, Alloy UI 12345). Grafana는 로그인 없이 연다.
+
+Grafana에서 로그의 traceId를 누르면 Tempo의 트레이스로(Loki derived field), 트레이스에서 같은 traceId의 로그로(Tempo trace-to-logs) 이동하도록 데이터 소스를 연결한다. 데이터 소스는 `docker/grafana/provisioning/datasources/`에 파일로 두고 자동으로 불러온다. 대시보드(7-4)는 `add-fault-experiments`에서 같은 방식으로 더한다.
+
+Loki·Tempo 조회는 `./gradlew :e2e:composeTest`가 Compose 환경을 띄워 확인한다(하네스 규칙 5장).
 
 ### 7-3. 스레드가 바뀔 때의 traceId
 
@@ -321,6 +336,8 @@ traceId는 스레드에 붙은 컨텍스트(MDC, 관찰 컨텍스트)에 있어�
 ### 7-4. 대시보드
 
 피드 SLO(가용성, p50·p95·p99), 의존성별 degrade 비율, 서킷 상태, 벌크헤드 사용량·거절, 커넥션 풀 사용량, Tomcat 스레드 사용량을 한 화면에 둔다. 실험 리포트의 그래프도 이 대시보드에서 뜬다.
+
+보여 줄 지표 대부분이 고도화 3·4에서 생기므로, 대시보드는 실험 리포트와 함께 `add-fault-experiments`(F-007)에서 만든다. 고도화 1(`add-trace-logging`)은 Prometheus가 긁어 가는 것까지만 했다.
 
 ## 8. 좋아요 저장
 
@@ -391,8 +408,8 @@ traceId는 스레드에 붙은 컨텍스트(MDC, 관찰 컨텍스트)에 있어�
 | change | 이 문서에서 가져갈 것 |
 |---|---|
 | `add-feed-aggregation` (F-006) | 4-1 호출 순서, 4-2 MVP 구성과 기본값 기록, 5-1 클라이언트 구성, 8장 토글 좋아요 |
-| `add-trace-logging` (F-004) | 7장 전체, Compose의 관찰 인프라 |
-| `add-fault-experiments` (F-007) | 9장, 기준선 기록, 4-3과 5-6을 채울 측정 |
+| `add-trace-logging` (F-004) | 7-1 ~ 7-3, Compose의 서비스 6개·MySQL·관찰 인프라 |
+| `add-fault-experiments` (F-007) | 9장, 7-4 대시보드, 기준선 기록, 4-3과 5-6을 채울 측정 |
 | `add-call-isolation` (F-001) | 5-2 ~ 5-6, 7-3의 벌크헤드 전파, Resilience4j 4.1.2 호환 확인, 가상 스레드 + Semaphore 벌크헤드 비교(S-02) |
 | `add-graceful-degradation` (F-002) | 6장 |
 | `add-retry-policy` (F-005) | 5-5의 429 처리, Retry·RateLimiter 설정 |

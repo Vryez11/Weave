@@ -44,11 +44,38 @@ Kotlin 2.3 · Spring Boot 4.1 · JDK 25 · Gradle 9 (Kotlin DSL)
 
 ## 실행
 
+### 전체 (Docker Compose)
+
+서비스 6개, MySQL, 관찰 인프라(Alloy, Loki, Tempo, Prometheus, Grafana)를 함께 띄운다. Docker가 필요하다.
+
+```bash
+cp .env.example .env   # MySQL 계정(LIKE_DB_USERNAME, LIKE_DB_PASSWORD, MYSQL_ROOT_PASSWORD)을 채운다
+./gradlew bootJar
+docker compose up -d --build --wait
+```
+
+| 주소 | 무엇 |
+|---|---|
+| `http://localhost:8080/feed?size=10` (헤더 `X-User-Id: 1`) | 피드. 응답 헤더 `X-Trace-Id`가 그 요청의 traceId다 |
+| `http://localhost:3000` | Grafana. Explore에서 Loki로 `{service=~".+"} \| traceId="<traceId>"`를 조회하고, 로그의 traceId 링크로 Tempo 트레이스를 연다 |
+| `http://localhost:9090` | Prometheus |
+
+관찰 인프라 포트는 `127.0.0.1`에만 열린다. 내릴 때는 `docker compose down -v`.
+
+### 서비스 하나
+
 ```bash
 ./gradlew :feed-service:bootRun
 ```
 
 모듈 이름만 바꿔서 각각 띄운다. like-service는 MySQL이 필요하므로 `./gradlew :like-service:bootTestRun`으로 Testcontainers MySQL과 함께 띄운다(Docker 필요). 헬스 체크: `GET /actuator/health`
+
+### 테스트
+
+| 명령 | 무엇 |
+|---|---|
+| `./gradlew ktlintCheck build` | 린트, 단위·통합 테스트, 서비스 6개를 프로세스로 띄우는 종단 간 테스트 |
+| `./gradlew :e2e:composeTest` | Compose 환경을 띄워 Loki·Tempo에서 traceId로 조회하고 내린다 |
 
 ## 진행 상황
 

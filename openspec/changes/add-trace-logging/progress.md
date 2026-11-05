@@ -240,3 +240,12 @@
 - 바꾼 파일: `.github/workflows/ci.yml`, `e2e/build.gradle.kts`, `e2e/CLAUDE.md`, `openspec/changes/add-trace-logging/tasks.md`, `progress.md`
 - 다음 반복(5.5)이 알아 둘 것: 문서 작업이다. `CLAUDE.md` 명령 표·하네스 규칙 5장에 `./gradlew bootJar` 뒤 `docker compose up -d --build --wait`와 `./gradlew :e2e:composeTest`를 넣는다. 로컬 `docker compose`는 루트 `.env`가 있어야 하는데 에이전트는 `.env`를 읽지 못하니, 확인은 `--env-file e2e/build/compose-check.env`로 한다. 아키텍처 1장 이미지 버전은 `compose.yaml`(5.2 기록)에 있다.
 ---
+
+## 2026-11-05 16:12 - 5.5 명령과 구성을 문서에
+- `CLAUDE.md` 명령 표에 "Compose 테스트"(`./gradlew :e2e:composeTest`)와 "로컬 인프라"(`./gradlew bootJar` 뒤 `docker compose up -d --build --wait`, `.env`/`.env.example`, `down -v`)를 더했다. 하네스 규칙 5장의 "로컬 인프라" 칸을 같은 명령으로 바꾸고 "Compose 테스트" 줄을 더했다.
+- `docs/architecture.md`: 1장 표에 "Compose 이미지" 줄(서비스 `eclipse-temurin:25-jre`, mysql 9.7, Alloy v1.11.0, Loki 3.6.0, Tempo 2.9.0, Prometheus v3.7.0, Grafana 12.2.0). 7-2에 로그 수집(탐색 5초와 이유), Loki 라벨(`service`·`level`)과 구조화 메타데이터(`traceId`·`spanId`), `@timestamp` 시각, 조회 LogQL, 스팬·메트릭 경로, 저장, 포트, Grafana 연결, 대시보드는 F-007. 7-4에 대시보드를 `add-fault-experiments`에서 만든다고 적고, 12장 표에서 7-4를 `add-trace-logging`에서 `add-fault-experiments`로 옮겼다.
+- README "실행"을 전체(Compose)·서비스 하나·테스트로 나눴다. 피드·Grafana·Prometheus 주소와 Loki 조회 식을 적었다.
+- 확인(문서의 명령 그대로, `.env` 대신 `--env-file e2e/build/compose-check.env`): `./gradlew bootJar` 뒤 `up -d --build --wait` 0으로 끝남, `ps -a` 12개 Up(헬스 체크 있는 10개 healthy). 피드 200과 `X-Trace-Id`, 문서의 LogQL로 Loki에서 6개 서비스 스트림, Tempo `service.name` 6개, Prometheus 대상 6개 `up`. `down -v` 뒤 `ps -a` 비어 있음. `openspec validate` 통과. 문서만 바꿔 빌드는 돌리지 않았다.
+- 바꾼 파일: `CLAUDE.md`, `conventions/harness.md`, `docs/architecture.md`, `README.md`, `openspec/changes/add-trace-logging/tasks.md`, `progress.md`
+- 다음 반복(5.6)이 알아 둘 것: 전체 검사 작업이다. `./gradlew ktlintCheck build`, `./gradlew :e2e:composeTest`, `openspec validate`를 돌린다. `composeTest` 전에 `docker compose ls`로 손으로 띄운 `weave` 프로젝트가 없는지 본다(포트가 부딪힌다).
+---
