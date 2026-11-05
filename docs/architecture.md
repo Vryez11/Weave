@@ -308,7 +308,7 @@ Retry-After 동안 호출을 막는 방법(서킷을 그 시간만큼 열어 두
 - **스팬:** 서비스는 `MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT=http://alloy:4318/v1/traces`(Compose에서만 준다, 7-1)로 OTLP HTTP를 보내고, Alloy가 묶어 Tempo(gRPC 4317)로 넘긴다. Tempo에서는 `/api/traces/<traceId>`로 조회한다.
 - **메트릭:** Prometheus가 서비스 6개의 `/actuator/prometheus`를 15초마다 긁는다(`docker/prometheus/prometheus.yml`).
 - **저장:** Loki·Tempo는 단일 프로세스이고 컨테이너 안에만 저장한다. 내리면 지워진다.
-- **포트:** 호스트에는 feed-service 8080과 관찰 인프라만 연다. 관찰 인프라는 `127.0.0.1`에만 묶는다(Grafana 3000, Loki 3100, Tempo 3200, Prometheus 9090, Alloy UI 12345). Grafana는 로그인 없이 연다.
+- **포트:** 호스트에는 feed-service 8080과 관찰 인프라만 연다. 모두 `127.0.0.1`에만 묶는다(feed-service 8080, Grafana 3000, Loki 3100, Tempo 3200, Prometheus 9090, Alloy UI 12345). Grafana는 로그인 없이 연다.
 
 Grafana에서 로그의 traceId를 누르면 Tempo의 트레이스로(Loki derived field), 트레이스에서 같은 traceId의 로그로(Tempo trace-to-logs) 이동하도록 데이터 소스를 연결한다. 데이터 소스는 `docker/grafana/provisioning/datasources/`에 파일로 두고 자동으로 불러온다. 대시보드(7-4)는 `add-fault-experiments`에서 같은 방식으로 더한다.
 

@@ -60,7 +60,7 @@ docker compose up -d --build --wait
 | `http://localhost:3000` | Grafana. Explore에서 Loki로 `{service=~".+"} \| traceId="<traceId>"`를 조회하고, 로그의 traceId 링크로 Tempo 트레이스를 연다 |
 | `http://localhost:9090` | Prometheus |
 
-관찰 인프라 포트는 `127.0.0.1`에만 열린다. 내릴 때는 `docker compose down -v`.
+피드와 관찰 인프라 포트는 모두 `127.0.0.1`에만 열린다. 내릴 때는 `docker compose down -v`.
 
 ### 서비스 하나
 

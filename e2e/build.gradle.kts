@@ -115,6 +115,11 @@ val composeTestUp =
     tasks.register<Exec>("composeTestUp") {
         description = "Compose 테스트 환경을 띄우고 헬스 체크가 통과할 때까지 기다린다."
         dependsOn(composeTestEnv)
+        // 이전 실행이 Ctrl-C 등으로 끊겨 down이 돌지 못했으면 남은 컨테이너·볼륨·포트를 먼저 치운다
+        doFirst {
+            val down = ProcessBuilder(dockerCompose("down", "-v", "--remove-orphans")).inheritIO().start().waitFor()
+            check(down == 0) { "이전 Compose 테스트 환경을 내리지 못했다(종료 코드 $down)" }
+        }
         // compose.yaml이 각 서비스의 build/libs를 빌드 컨텍스트로 쓰므로 bootJar가 먼저 있어야 한다
         inputs.files(serviceJars).withPropertyName("serviceJars")
         commandLine(dockerCompose("up", "-d", "--build", "--wait"))
