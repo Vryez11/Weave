@@ -155,7 +155,7 @@
 
 ## 7. 검토와 change 완료 조건
 
-이 묶음은 Ralph 루프가 하지 않는다([하네스 규칙](../../../conventions/harness.md) 3-3, 4장).
+이 묶음은 Ralph 루프가 하지 않는다([하네스 규칙](../../../../conventions/harness.md) 3-3, 4장).
 
 - [x] 7.1 구현에 참여하지 않은 리뷰어가 하네스 규칙 3-3의 검토 항목으로 change 문서와 diff를 본다.
   - 이 change에 해당하지 않는 항목(3번 격리, 4번 재시도)은 "해당 없음"으로 적는다. 6번 traceId는 이 change의 중심이니 공유 풀, `thenCompose` 뒤, 토글 경로를 모두 본다.

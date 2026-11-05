@@ -10,7 +10,7 @@
   - 샘플링은 `management.tracing.sampling.probability`(기본 0.1), 전파 형식은 `management.tracing.propagation.produce`(기본 W3C), OTLP 스팬 내보내기 주소는 `management.opentelemetry.tracing.export.otlp.endpoint`다.
   - `spring-boot-starter-opentelemetry`는 트레이싱 외에 `micrometer-registry-otlp`(메트릭을 OTLP로 밀어 넣기)까지 가져온다.
 - `e2e`는 서비스 6개를 `java -jar`로 띄우고 로그를 `e2e/build/e2e-logs/<서비스>.log`에 쓴다.
-- 이 change는 [아키텍처](../../../docs/architecture.md) 12장 표대로 7장과 Compose의 관찰 인프라를 가져간다. 다르게 정한 곳은 각 결정에 이유와 함께 적는다.
+- 이 change는 [아키텍처](../../../../docs/architecture.md) 12장 표대로 7장과 Compose의 관찰 인프라를 가져간다. 다르게 정한 곳은 각 결정에 이유와 함께 적는다.
 
 ## Goals / Non-Goals
 
