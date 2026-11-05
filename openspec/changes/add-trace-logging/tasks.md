@@ -23,7 +23,7 @@
   - `e2e/build/e2e-logs/<서비스>.log`를 줄마다 JSON으로 파싱한다. 비동기 appender라 `eventually`로 기다린다.
   - 표식은 테스트마다 새로 만든다.
   - 확인: `./gradlew :e2e:integrationTest`가 새 테스트에서 실패하고, 기존 종단 간 테스트는 통과한다.
-- [ ] 1.7 "Loki에서 traceId로 로그 조회"와 "Tempo에서 traceId로 트레이스 조회"를 `e2e`의 `Compose` 태그 테스트로 옮긴다.
+- [x] 1.7 "Loki에서 traceId로 로그 조회"와 "Tempo에서 traceId로 트레이스 조회"를 `e2e`의 `Compose` 태그 테스트로 옮긴다.
   - feed-service 주소, Loki 주소, Tempo 주소는 시스템 속성으로 받는다(5.3에서 `composeTest`가 넘긴다).
   - Loki `query_range`와 Tempo `/api/traces/<id>`를 `eventually`(최대 60초)로 조회한다.
   - 확인: `./gradlew :e2e:compileTestKotlin`이 통과하고, `./gradlew :e2e:test :e2e:integrationTest`에서 이 테스트가 돌지 않는다(테스트 리포트에 없다).

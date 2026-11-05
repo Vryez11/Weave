@@ -12,6 +12,7 @@
 - e2e 로그는 `com.weave.e2e.ServiceLogs`(`rawLines`, `jsonLines`, `requestLines(service, traceId)`)로 읽는다. 스펙 클래스마다 `ServiceProcesses`를 따로 띄운다(MySQL 포함, 한 번에 20초쯤).
 - e2e 테스트는 커밋 scope를 비운다(`test: ...`). commit.md scope 표에 `e2e`가 없다.
 - `progress.md`는 작업 커밋에 함께 넣는다. 따로 커밋해도 `commit-msg` 훅이 본문 `- ` 항목을 요구한다.
+- Compose 테스트 주소는 시스템 속성 `weave.compose.feed-url`, `weave.compose.loki-url`, `weave.compose.tempo-url`이다(`TraceLookupComposeScenarioTest` KDoc). 5.3의 `composeTest`가 이 이름으로 넘긴다.
 - 처리되지 않은 예외의 Tomcat 로그는 요청 완료 로그(필터 `finally`)보다 늦게 쓰인다. "남기지 않는다"를 판정할 때는 그 요청의 줄이 아니라 뒤에 보낸 확인용 요청의 줄을 기다린다.
 
 ---
@@ -63,4 +64,14 @@
 - 확인: `:e2e:integrationTest`에서 새 2개가 "응답의 X-Trace-Id 헤더"로 실패하고 기존 F-006 2개는 통과. 9자리 `X-User-Id`로도 피드는 200이다. `ktlintCheck`, `compileKotlin compileTestKotlin`, `:e2e:test`, `openspec validate` 통과.
 - 바꾼 파일: `e2e/src/test/kotlin/com/weave/e2e/ServiceLogs.kt`, `.../TraceLogEndToEndScenarioTest.kt`, `e2e/CLAUDE.md`
 - 다음 반복이 알아 둘 것: 1.7은 같은 패키지에 `Compose` 태그 테스트를 두고, 주소를 시스템 속성으로 받는다. `ServiceLogs`는 파일 기반이라 Compose 테스트에서는 쓰지 않는다. 4.1에서 이 테스트가 통과해야 한다.
+---
+
+## 2026-11-05 15:40 - 1.7 Loki·Tempo 조회 시나리오를 `Compose` 태그 테스트로
+- `TraceLookupComposeScenarioTest`(`Compose`, F-004) 2개. 둘 다 `GET /feed`의 `X-Trace-Id`로 `eventually(60초)` 조회한다.
+  - Loki: `query_range`에 `{service=~".+"} | traceId="<id>"`, `direction=forward`, `limit=1000`. 스트림별 결과를 Loki 시각(ns) 순으로 합친 뒤, 줄 JSON의 `service`가 6개 모두 있는지와 `@timestamp`(`OffsetDateTime`)가 줄지 않는지 본다.
+  - Tempo: `/api/traces/<id>`(Accept JSON). `batches`/`resourceSpans`, `scopeSpans`/`instrumentationLibrarySpans`를 모두 받아 스팬이 있는 리소스의 `service.name`이 6개 모두인지 본다.
+- 서비스 이름은 Compose 서비스 이름이 아니라 `spring.application.name`(로그 `service`, 스팬 `service.name`)으로 본다. 5.1에서 Compose 서비스 이름을 자유롭게 정해도 된다. 대신 Alloy가 로그 원문(JSON 한 줄)을 그대로 Loki에 넣어야 한다.
+- 확인: `:e2e:ktlintCheck`, `:e2e:compileTestKotlin`, `openspec validate` 통과. `./gradlew :e2e:test :e2e:integrationTest`에서 이 테스트는 실행되지 않았다. 다만 "리포트에 없다"를 글자 그대로 채우지는 못했다. `integrationTest` 리포트에 테스트 2개가 skipped(0ms)로 나온다. `test` 리포트에도 기존 `Integration` 스펙들과 똑같이 클래스 이름만 나온다. Kotest가 걸러 낸 스펙도 리포트에 남기는 기본 동작이라, 태그 식(buildSrc)을 고치지 않고 두었다. 같은 실행에서 1.6의 2개는 여전히 X-Trace-Id 헤더로 실패하고, F-006 2개는 통과했다.
+- 바꾼 파일: `e2e/src/test/kotlin/com/weave/e2e/TraceLookupComposeScenarioTest.kt`, `e2e/CLAUDE.md`
+- 다음 반복(2.1)은 `libs/observability`의 JSON 로그다.
 ---
