@@ -27,7 +27,7 @@
 - 이 환경에서 `docker run`과 호스트 `curl`은 허가가 필요하다. `docker compose`만 허용이라 컨테이너 안 요청은 `docker compose ... exec feed-service curl ...`로 한다(서비스 이미지에 curl이 있다).
 - `eclipse-temurin:25-jre`에는 curl·wget이 없다. `docker/service.Dockerfile`이 curl을 설치한다. 새 헬스 체크도 curl로 쓴다.
 - Compose 서비스 이름은 모듈 이름과 같다(`feed-service` 등). 서비스끼리는 `http://<모듈 이름>:<포트>`로 부른다. 공통값은 `x-service`(라벨, `environment: &service-environment`, `depends_on: &service-depends-on`), 헬스 체크 공통값은 `x-service-healthcheck` 앵커다. 병합이 얕아 feed·like처럼 `environment`/`depends_on`을 따로 두는 서비스는 안쪽 앵커를 다시 `<<:`로 병합한다.
-- 호스트에 열린 포트: feed 8080, 그리고 127.0.0.1에만 Grafana 3000, Loki 3100, Tempo 3200, Prometheus 9090, Alloy UI 12345. 5.3의 시스템 속성 주소는 `http://localhost:8080`, `http://localhost:3100`, `http://localhost:3200`이다.
+- 호스트에 열린 포트(모두 127.0.0.1, 6.7부터 feed도): feed 8080, Grafana 3000, Loki 3100, Tempo 3200, Prometheus 9090, Alloy UI 12345. 5.3의 시스템 속성 주소는 `http://localhost:8080`, `http://localhost:3100`, `http://localhost:3200`이다.
 - `:e2e:composeTest`는 e2e `build.gradle.kts`의 `composeTestEnv` → `composeTestUp` → `composeTest` → `composeTestLogs` → `composeTestDown`(finalizer)이다. down 뒤에는 컨테이너가 없어, 로그는 `composeTestLogs`가 `e2e/build/compose-logs/compose.log`에 미리 남긴다. CI는 `./gradlew :e2e:composeTest` 한 단계이고 실패하면 그 폴더를 `test-reports` artifact로 올린다.
 - 요청 하나를 부르는 동안의 줄을 모두 봐야 하면(`level` ERROR 줄 전체 등) 앞뒤로 정상 확인용 요청을 보내 그 `http_request` 줄의 위치 사이를 자른다(`FeedUnhandledExceptionLogScenarioTest.awaitProbe`). 뒤 확인용 요청 전에 `wireMock.reset()` 뒤 정상 스텁을 다시 둔다.
 - 하위 서비스 주소를 `closed`(포트 1) 말고 다른 값으로 줘야 하면 커밋된 `DownstreamWireMock`을 고치지 말고 테스트의 `@DynamicPropertySource`에서 `spring.http.serviceclient.<의존성>.base-url`을 직접 등록한다(`FeedCallFailureLogUnresolvableHostScenarioTest`).
@@ -331,4 +331,13 @@
 - 확인: `./gradlew ktlintCheck build --continue` 통과(모든 `integrationTest` 다시 돎, XML timestamp 08:07Z), `openspec validate --all --strict` 통과.
 - 바꾼 파일: `design.md`, `libs/observability/src/main/resources/logback-spring.xml`, `docs/architecture.md`, `tasks.md`, `progress.md`
 - 다음 반복(6.7)이 알아 둘 것: `/actuatorx` 단위 테스트는 새 파일에 둔다. `composeTestUp` 앞의 `down -v --remove-orphans`는 e2e `build.gradle.kts`의 `composeTestUp` 태스크에 넣는다.
+---
+
+## 2026-11-05 17:15 - 6.7 Compose와 필터의 작은 지적
+- `TraceLoggingFilter`: 로그를 건너뛰는 경로를 `/actuator`와 `/actuator/`로 시작하는 경로로 좁혔다(`isActuatorPath`). 비동기 디스패치를 다루지 않는다는 것을 KDoc에 적었다. 스펙 델타(trace-logging "요청 완료 로그" 본문)와 아키텍처 7-1 문구도 같은 범위로 맞췄다(design 결정 5는 이미 그 문구였다).
+- 새 단위 테스트 `TraceLoggingFilterActuatorPathTest`(태그 없음, F-004) 7개: 필터 로거에 logback `ListAppender`를 붙여 `/actuatorx`, `/actuator-like`, `/actuatorx/health`는 `http_request` 줄이 있고 `/actuator`, `/actuator/`, `/actuator/health`, `/actuator/prometheus`는 없다. 구현 전 앞 3개가 실패하는 것을 확인했다.
+- `composeTestUp`이 `doFirst`에서 같은 프로젝트에 `down -v --remove-orphans`를 돌린다(실패하면 태스크 실패). `compose.yaml` feed 포트를 `127.0.0.1:8080:8080`으로 묶고, compose 머리 주석·README·아키텍처 7-2 포트 문장을 "모두 127.0.0.1"로 맞췄다. 테스트 주소 `http://localhost:8080`은 그대로 통과한다.
+- 확인: `./gradlew :e2e:composeTest` 통과(2개, 08:11Z). `./gradlew :e2e:composeTestUp -x :e2e:composeTestDown -x :e2e:composeTestLogs`로 12개 컨테이너를 남겨 둔 뒤(`port feed-service 8080` → `127.0.0.1:8080`) 다시 `./gradlew :e2e:composeTest` 통과(2개, 08:13Z, MySQL 볼륨을 새로 만듦 = 앞 down이 치움), 끝난 뒤 `ps -a` 비어 있음. `./gradlew ktlintCheck build`, `openspec validate --all --strict` 통과.
+- 바꾼 파일: `libs/observability/.../TraceLoggingFilter.kt`, `.../TraceLoggingFilterActuatorPathTest.kt`(새로), `specs/trace-logging/spec.md`, `docs/architecture.md`, `e2e/build.gradle.kts`, `e2e/CLAUDE.md`, `compose.yaml`, `README.md`, `tasks.md`, `progress.md`
+- 다음 반복이 알아 둘 것: `composeTestUp`만 떼어 돌리려면 finalizer를 `-x :e2e:composeTestDown -x :e2e:composeTestLogs`로 빼야 환경이 남는다. 다음은 6.8 전체 검사다.
 ---

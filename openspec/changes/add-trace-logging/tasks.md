@@ -130,7 +130,7 @@
   - 200 RPS에서 feed가 요청마다 쓰는 장애 경로 로그(요청 완료 1줄과 실패 로그 최대 5줄, 그중 스택 트레이스가 든 줄의 바이트 수)를 센다. 바이트 수는 6.2 뒤의 통합 테스트 출력에서 잰다.
   - 계산이 지금 값(8192)으로 버티는 시간을 design 결정 1에 적는다. 값을 바꾸면 `logback-spring.xml`도 고치고, 커밋 본문에 계산을 적는다.
   - 확인: design 결정 1과 Risks에 장애 경로 계산이 있고, `./gradlew ktlintCheck build`가 통과한다.
-- [ ] 6.7 Compose와 필터의 작은 지적을 고친다.
+- [x] 6.7 Compose와 필터의 작은 지적을 고친다.
   - `composeTestUp`이 띄우기 전에 같은 프로젝트에 `down -v --remove-orphans`를 먼저 돌린다. 이전 실행이 Ctrl-C로 끊겨 남은 볼륨과 포트를 치운다.
   - `compose.yaml`의 feed-service 포트를 `127.0.0.1:8080:8080`으로 묶고, 문서에 적은 주소와 맞는지 본다.
   - `TraceLoggingFilter`의 `/actuator` 검사를 `/actuator`와 `/actuator/`로 시작하는 경로로 좁히고, 비동기 디스패치를 다루지 않는다는 것을 KDoc에 적는다(design 결정 5).
