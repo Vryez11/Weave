@@ -53,6 +53,10 @@ val composeProject = "weave-compose-test"
 val composeFile = rootProject.layout.projectDirectory.file("compose.yaml")
 val composeEnvFile = layout.buildDirectory.file("compose-test.env")
 
+// compose는 이미지를 buildx bake로 빌드하고, bake는 작업 디렉터리 밖의 파일(docker/service.Dockerfile, 각 모듈의 build/libs)을
+// 읽지 않는다(CI의 buildx가 fs.read 권한을 요구하며 멈춘다). compose 명령은 모두 루트에서 돌린다
+val composeWorkingDir = rootProject.layout.projectDirectory.asFile
+
 fun dockerCompose(vararg args: String): List<String> =
     listOf(
         "docker",
@@ -97,6 +101,7 @@ val composeTestLogs =
         doLast {
             val file = logFile.get().asFile.apply { parentFile.mkdirs() }
             ProcessBuilder(command)
+                .directory(composeWorkingDir)
                 .redirectErrorStream(true)
                 .redirectOutput(file)
                 .start()
@@ -108,6 +113,7 @@ val composeTestDown =
     tasks.register<Exec>("composeTestDown") {
         description = "Compose 테스트 환경을 볼륨까지 지운다."
         dependsOn(composeTestLogs)
+        workingDir(composeWorkingDir)
         commandLine(dockerCompose("down", "-v"))
     }
 
@@ -123,6 +129,7 @@ val composeTestUp =
             val log = preDownLog.get().asFile.apply { parentFile.mkdirs() }
             val down =
                 ProcessBuilder(preDownCommand)
+                    .directory(composeWorkingDir)
                     .redirectErrorStream(true)
                     .redirectOutput(log)
                     .start()
@@ -131,6 +138,7 @@ val composeTestUp =
         }
         // compose.yaml이 각 서비스의 build/libs를 빌드 컨텍스트로 쓰므로 bootJar가 먼저 있어야 한다
         inputs.files(serviceJars).withPropertyName("serviceJars")
+        workingDir(composeWorkingDir)
         commandLine(dockerCompose("up", "-d", "--build", "--wait"))
         // 띄우다 실패해도(헬스 체크 실패 등) 반쯤 뜬 컨테이너를 내린다
         finalizedBy(composeTestDown)
