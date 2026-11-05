@@ -105,3 +105,13 @@
 - 바꾼 파일: `libs/observability/build.gradle.kts`(`compileOnly` spring-webmvc, jakarta.servlet-api), `.../ObservabilityAutoConfiguration.kt`, `.../TraceLoggingFilter.kt`, `libs/observability/CLAUDE.md`
 - 다음 반복(2.4)이 알아 둘 것: 지금 풀 스레드에서 나간 하위 서비스 호출은 새 trace를 시작한다(1.4 "다섯 호출"에서 post traceId가 X-Trace-Id와 다름). 2.4 재현 테스트는 이 상태를 `propagate-context=false`로 명시해 고정하면 된다. 토글은 요청 스레드라 이미 이어진다.
 ---
+
+## 2026-11-05 15:26 - 2.4 공유 스레드 풀 끊김 재현 테스트
+- `FeedTracePropagationOffTest`(`Integration`, F-004, RANDOM_PORT, `properties = ["spring.task.execution.propagate-context=false"]`) 1개: "F-004 전파를 끄면 끊긴다: …". `GET /feed` 200 뒤 하위 서비스 다섯 경로에 요청이 하나씩 왔고, 각 `traceparent` traceId가 있지만 `X-Trace-Id`와 다르다.
+- 확인: `:feed-service:integrationTest`에서 새 테스트 통과. 실패는 아직 구현하지 않은 7개뿐: 1.4의 전파 둘("다섯 호출"은 post traceId 다름, "post 뒤 호출"은 user traceId 다름)과 오류 본문, 1.5 넷. `:feed-service:ktlintCheck`, `compileTestKotlin`, `:feed-service:test` 통과.
+- tasks의 "1.4의 전파 시나리오 세 개는 여전히 실패한다"와 달리 토글 전파는 2.3부터 통과 중이다(요청 스레드에서 호출). 풀을 거치는 두 개만 실패하는 것이 맞는 상태다.
+- 바꾼 파일: `feed-service/src/test/kotlin/com/weave/feed/FeedTracePropagationOffTest.kt`
+- 다음 반복이 알아 둘 것:
+  - 2.6 커밋 본문에 적을 재현 결과: `propagate-context=false`에서 풀 스레드의 RestClient가 새 trace를 시작해 post·recommendation·ad·user·like 다섯 요청의 traceId가 모두 `X-Trace-Id`와 달랐다. 토글(요청 스레드)은 이어졌다.
+  - 3.2 주의(확인됨): 오류 본문 시나리오는 Tomcat `dispatcherServlet`의 ERROR 줄(`Servlet.service() ... threw exception`)의 `message`와 `stack_trace`에 `503 Service Unavailable: "<본문>"`이 실려 실패한다. Gateway 로그만으로는 통과하지 않는다.
+---
