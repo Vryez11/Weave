@@ -18,6 +18,11 @@ dependencies {
     testImplementation("com.ninja-squad:springmockk:5.0.1")
 }
 
+// plain jar를 만들지 않는다. build/libs에 bootJar 하나만 남아 docker/service.Dockerfile이 jar 이름을 몰라도 된다.
+tasks.named<Jar>("jar") {
+    enabled = false
+}
+
 // 실행 jar(bootJar)를 다른 모듈이 받아 쓸 수 있게 내놓는다. e2e 모듈이 서비스를 프로세스로 띄울 때 쓴다.
 val bootJarElements =
     configurations.create("bootJarElements") {

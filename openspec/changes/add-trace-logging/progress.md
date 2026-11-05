@@ -22,6 +22,10 @@
 - 하위 서비스 실패 분류는 `com.weave.feed.gateway.DownstreamFailure.of(throwable)`(`cause`, `exception`)다. F-001의 새 `cause` 값도 여기에 더한다. 실패 로그는 `DownstreamFailure.log(dependency, error)`, 조회 future는 `Gateways.kt`의 `logFailure`.
 - 하위 서비스 오류의 예외 메시지에는 본문이 없다(`HttpClientConfig.bodylessErrorMessages`, design 결정 6). 처리되지 않은 예외는 Tomcat이 메시지·스택 트레이스와 함께 ERROR로 남기므로, 로그에 남기면 안 되는 값은 예외 메시지에도 넣지 않는다.
 - 테스트 결과는 `<모듈>/build/test-results/<태스크>/*.xml`의 `<testsuite ... timestamp=...>`로 실제로 다시 돌았는지 확인한다. Gradle 출력만으로는 몇 초 만에 끝나 헷갈린다.
+- Compose 확인용 env 파일은 `e2e/build/compose-check.env`(임의 값의 `LIKE_DB_USERNAME`, `LIKE_DB_PASSWORD`, `MYSQL_ROOT_PASSWORD`)로 Write 도구로 만든다. 이름이 `.env.`로 시작하지 않아 pre-file 훅에 걸리지 않는다. 명령: `docker compose --env-file e2e/build/compose-check.env up -d --build --wait` → `... ps -a` → `... down -v`.
+- 이 환경에서 `docker run`과 호스트 `curl`은 허가가 필요하다. `docker compose`만 허용이라 컨테이너 안 요청은 `docker compose ... exec feed-service curl ...`로 한다(서비스 이미지에 curl이 있다).
+- `eclipse-temurin:25-jre`에는 curl·wget이 없다. `docker/service.Dockerfile`이 curl을 설치한다. 새 헬스 체크도 curl로 쓴다.
+- Compose 서비스 이름은 모듈 이름과 같다(`feed-service` 등). 서비스끼리는 `http://<모듈 이름>:<포트>`로 부르고, 호스트에는 8080만 열려 있다. 공통 라벨은 `x-service`, 헬스 체크 공통값은 `x-service-healthcheck` 앵커다.
 
 ---
 
@@ -177,4 +181,15 @@
 - 확인: `./gradlew :e2e:integrationTest --rerun` 통과. 테스트 결과 XML의 timestamp(06:43Z)로 실제로 다시 돈 것을 확인했다. `TraceLogEndToEndScenarioTest` 2개(1.6)와 `FeedEndToEndScenarioTest` 2개(F-006) 통과, `TraceLookupComposeScenarioTest` 2개는 skipped. `openspec validate` 통과.
 - 바꾼 파일: `openspec/changes/add-trace-logging/tasks.md`, `progress.md`
 - 다음 반복(5.1)이 알아 둘 것: Docker Compose 작업이다. 서비스 로그 `service`·스팬 `service.name`은 `spring.application.name`으로 보므로 Compose 서비스 이름은 자유롭다(1.7 기록). `.env.example`은 훅이 허용하지만 `.env`는 읽지 않는다. 임의 계정 env 파일은 `e2e/build/` 같은 빌드 폴더에 만든다.
+---
+
+## 2026-11-05 15:52 - 5.1 서비스 6개와 MySQL을 Compose로
+- `weave.spring-service`에서 `jar` 태스크를 껐다(`:post-service:jar SKIPPED` 확인). e2e는 `bootJarElements`로 받아 영향 없음.
+- `docker/service.Dockerfile`(`eclipse-temurin:25-jre`, curl 설치, 시스템 사용자 `weave`, `COPY *.jar app.jar`)과 `docker/service.Dockerfile.dockerignore`(`*-plain.jar`)를 만들었다. jar를 끄기 전의 plain jar가 `build/libs`에 남아 있어도 BuildKit이 Dockerfile 옆 ignore 파일로 걸러 `COPY *.jar`가 jar 하나만 받는다. 실제로 오래된 plain jar가 남은 상태에서 빌드가 통과했다.
+- 루트 `compose.yaml`: 서비스 6개(라벨 `weave.logs=true`, `/actuator/health` curl 헬스 체크, feed만 8080 공개, feed에 하위 서비스 주소 환경 변수), `mysql:9.7`(`weave_like`, 계정은 `${VAR:?}`로 env 파일에서, 볼륨 `mysql-data`, `mysqladmin ping -h 127.0.0.1` 헬스 체크), like-service는 mysql healthy 뒤 시작하고 `LIKE_DB_URL`은 Compose 파일에 적었다.
+- `.env.example`에 `MYSQL_ROOT_PASSWORD`를 더하고 `LIKE_DB_*`가 Compose에서 어떻게 쓰이는지 적었다.
+- 처음에는 헬스 체크가 모두 unhealthy였다. 기본 이미지에 curl이 없어서였고, Dockerfile에서 설치해 고쳤다.
+- 확인: `./gradlew bootJar` 뒤 `docker compose --env-file e2e/build/compose-check.env up -d --build --wait`가 0으로 끝남, `ps -a`에서 7개 모두 healthy. `exec feed-service curl -H "X-User-Id: 1" localhost:8080/feed?size=2`가 200과 `X-Trace-Id`, 게시글·좋아요·추천·광고를 돌려줌. `down -v` 뒤 `ps -a` 비어 있음. `./gradlew ktlintCheck build --continue` 통과(`:e2e:integrationTest` 다시 돌아 4개 통과, Compose 2개 skipped). `openspec validate` 통과.
+- 바꾼 파일: `buildSrc/src/main/kotlin/weave.spring-service.gradle.kts`, `docker/service.Dockerfile`, `docker/service.Dockerfile.dockerignore`, `compose.yaml`, `.env.example`
+- 다음 반복(5.2)이 알아 둘 것: 관찰 인프라는 같은 `compose.yaml`에 더하고 설정은 `docker/<이름>/`에 둔다. Loki 라벨 `service`는 Compose 서비스 이름(=모듈 이름)이다. OTLP 주소 환경 변수는 `x-service` 앵커에 `environment`로 넣으면 feed·like의 `environment`가 덮어쓰므로(병합 키는 얕다) 서비스마다 넣거나 앵커 구조를 바꿔야 한다. Prometheus는 `<모듈 이름>:<포트>/actuator/prometheus`를 긁는다.
 ---

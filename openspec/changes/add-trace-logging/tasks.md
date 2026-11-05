@@ -78,7 +78,7 @@
 
 ## 5. Docker Compose
 
-- [ ] 5.1 서비스 6개와 MySQL을 Compose로 띄운다(design 결정 7).
+- [x] 5.1 서비스 6개와 MySQL을 Compose로 띄운다(design 결정 7).
   - `weave.spring-service`에서 `jar` 태스크를 끈다.
   - `docker/service.Dockerfile`과 루트 `compose.yaml`을 만들고, 서비스마다 헬스 체크와 로그 수집 라벨(`weave.logs=true`)을 단다.
   - `.env.example`에 MySQL 항목을 설명과 함께 더한다.

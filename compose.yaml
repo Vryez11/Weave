@@ -1,0 +1,105 @@
+# 서비스 6개와 MySQL을 띄운다 (add-trace-logging design 결정 7).
+# 띄우는 법: `./gradlew bootJar` 뒤 `docker compose up -d --build --wait`. MySQL 계정은 `.env`에서 읽는다(.env.example).
+# 호스트에는 feed-service(8080)만 연다. 서비스끼리는 Compose 서비스 이름으로 부른다.
+
+x-service: &service
+  labels:
+    # Alloy가 stdout을 모아 Loki로 보낼 컨테이너 표시
+    weave.logs: "true"
+
+# 헬스 체크 공통값. start_period 동안은 2초마다 보고, 실패해도 횟수에 세지 않는다
+x-service-healthcheck: &service-healthcheck
+  interval: 10s
+  timeout: 3s
+  retries: 3
+  start_period: 60s
+  start_interval: 2s
+
+services:
+  feed-service:
+    <<: *service
+    build:
+      context: ./feed-service/build/libs
+      dockerfile: ../../../docker/service.Dockerfile
+    environment:
+      POST_BASE_URL: http://post-service:8081
+      USER_BASE_URL: http://user-service:8082
+      LIKE_BASE_URL: http://like-service:8083
+      RECOMMENDATION_BASE_URL: http://recommendation-service:8084
+      AD_BASE_URL: http://ad-service:8085
+    ports:
+      - "8080:8080"
+    healthcheck:
+      <<: *service-healthcheck
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:8080/actuator/health"]
+
+  post-service:
+    <<: *service
+    build:
+      context: ./post-service/build/libs
+      dockerfile: ../../../docker/service.Dockerfile
+    healthcheck:
+      <<: *service-healthcheck
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:8081/actuator/health"]
+
+  user-service:
+    <<: *service
+    build:
+      context: ./user-service/build/libs
+      dockerfile: ../../../docker/service.Dockerfile
+    healthcheck:
+      <<: *service-healthcheck
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:8082/actuator/health"]
+
+  like-service:
+    <<: *service
+    build:
+      context: ./like-service/build/libs
+      dockerfile: ../../../docker/service.Dockerfile
+    environment:
+      LIKE_DB_URL: jdbc:mysql://mysql:3306/weave_like
+      LIKE_DB_USERNAME: ${LIKE_DB_USERNAME:?.env에 LIKE_DB_USERNAME을 채운다}
+      LIKE_DB_PASSWORD: ${LIKE_DB_PASSWORD:?.env에 LIKE_DB_PASSWORD를 채운다}
+    depends_on:
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      <<: *service-healthcheck
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:8083/actuator/health"]
+
+  recommendation-service:
+    <<: *service
+    build:
+      context: ./recommendation-service/build/libs
+      dockerfile: ../../../docker/service.Dockerfile
+    healthcheck:
+      <<: *service-healthcheck
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:8084/actuator/health"]
+
+  ad-service:
+    <<: *service
+    build:
+      context: ./ad-service/build/libs
+      dockerfile: ../../../docker/service.Dockerfile
+    healthcheck:
+      <<: *service-healthcheck
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:8085/actuator/health"]
+
+  mysql:
+    # like-service 테스트(Testcontainers)와 같은 버전
+    image: mysql:9.7
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?.env에 MYSQL_ROOT_PASSWORD를 채운다}
+      MYSQL_DATABASE: weave_like
+      MYSQL_USER: ${LIKE_DB_USERNAME:?.env에 LIKE_DB_USERNAME을 채운다}
+      MYSQL_PASSWORD: ${LIKE_DB_PASSWORD:?.env에 LIKE_DB_PASSWORD를 채운다}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      # 초기화 중의 임시 서버는 TCP를 열지 않으므로 127.0.0.1로 물어 진짜 서버가 뜬 뒤에만 healthy가 된다.
+      # ping은 인증 실패여도 서버가 살아 있으면 0으로 끝나 계정이 필요 없다
+      <<: *service-healthcheck
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "--silent"]
+
+volumes:
+  mysql-data:
