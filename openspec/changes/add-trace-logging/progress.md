@@ -19,7 +19,9 @@
 - 처리되지 않은 예외의 Tomcat 로그는 요청 완료 로그(필터 `finally`)보다 늦게 쓰인다. "남기지 않는다"를 판정할 때는 그 요청의 줄이 아니라 뒤에 보낸 확인용 요청의 줄을 기다린다.
 - `@SpringBootTest`에서는 메트릭 내보내기가 꺼져 `/actuator/prometheus`가 404다. 테스트에 `@AutoConfigureMetrics`를 붙인다(`PostPrometheusEndpointTest`).
 - 셸 훅은 `;`·`>`·`xargs`로 이은 명령이나 `$(...)`가 든 명령을 막는다. 빌드 결과는 `./gradlew ... 2>&1 | grep ...` 파이프 하나로 본다. `~/.gradle` 아래는 읽을 수 없다.
-- 하위 서비스 실패 분류는 `com.weave.feed.gateway.DownstreamFailure.of(throwable)`(`cause`, `exception`)다. F-001의 새 `cause` 값도 여기에 더한다.
+- 하위 서비스 실패 분류는 `com.weave.feed.gateway.DownstreamFailure.of(throwable)`(`cause`, `exception`)다. F-001의 새 `cause` 값도 여기에 더한다. 실패 로그는 `DownstreamFailure.log(dependency, error)`, 조회 future는 `Gateways.kt`의 `logFailure`.
+- 하위 서비스 오류의 예외 메시지에는 본문이 없다(`HttpClientConfig.bodylessErrorMessages`, design 결정 6). 처리되지 않은 예외는 Tomcat이 메시지·스택 트레이스와 함께 ERROR로 남기므로, 로그에 남기면 안 되는 값은 예외 메시지에도 넣지 않는다.
+- 테스트 결과는 `<모듈>/build/test-results/<태스크>/*.xml`의 `<testsuite ... timestamp=...>`로 실제로 다시 돌았는지 확인한다. Gradle 출력만으로는 몇 초 만에 끝나 헷갈린다.
 
 ---
 
@@ -160,4 +162,12 @@
 - 다음 반복(3.2)이 알아 둘 것:
   - 연결 타임아웃(`ConnectTimeoutException`)은 `ConnectException`이 아니라 `io_failure`로 나온다. design 표를 그대로 따랐다. 타임아웃은 F-001에서 따로 값을 둔다.
   - 3.2의 로그는 `DownstreamFailure.of(e)`의 두 값과 `event`, `dependency`만 key-value로 넣는다. 오류 본문 시나리오(1.4)는 Gateway 로그 말고도 Tomcat `dispatcherServlet`의 ERROR 줄에 본문이 실려 실패한다(2.4 기록). 응답 동작을 바꾸지 않고 막을 방법이 없으면 BLOCKED.
+---
+
+## 2026-11-05 15:42 - 3.2 Gateway 실패 로그
+- `DownstreamFailure.log(dependency, error)`가 WARN 한 줄(`event` `downstream_call_failed`, `dependency`, `cause`, `exception`)을 SLF4J key-value로 남긴다. 예외 객체는 로거에 넘기지 않는다. 조회 Gateway 넷은 `supplyAsync(...).logFailure("<의존성>")`(`whenComplete`, 그 future를 돌려줌), 토글은 `try`/`catch`에서 남기고 다시 던진다.
+- 오류 본문 시나리오(1.4): Gateway 로그만으로는 Tomcat ERROR 줄(`Servlet.service() ... threw exception`)의 `message`·`stack_trace`에 `503 Service Unavailable: "<본문>"`이 남는다. 응답을 바꾸지 않는 방법이 있어 멈추지 않았다. `HttpClientConfig`에 `RestClientHttpServiceGroupConfigurer`를 두어 그룹 클라이언트마다 `defaultStatusHandler(HttpStatusCode::isError)`로 같은 예외 종류(`HttpClientErrorException.create`/`HttpServerErrorException.create`/`UnknownHttpStatusCodeException`)·상태 코드·본문 바이트를 만들되 메시지는 `<상태 코드> <상태 문구>`만 넣는다. design 결정 6에 이 결정을 한 줄 더했다(검토 때 볼 것).
+- 확인: `:feed-service:test :feed-service:integrationTest` 모두 통과(1.5 넷, 1.4 아홉 포함, F-006 기존 24개 포함). `./gradlew ktlintCheck build --continue` 통과(e2e 6개 서비스 테스트 포함, Compose 2개는 skipped). `openspec validate` 통과.
+- 바꾼 파일: `feed-service/src/main/kotlin/com/weave/feed/gateway/DownstreamFailure.kt`, `.../gateway/Gateways.kt`, `.../client/HttpClientConfig.kt`, `feed-service/CLAUDE.md`(새로), `openspec/changes/add-trace-logging/design.md`
+- 다음 반복(4.1)이 알아 둘 것: 이번 `build`에서 `:e2e:integrationTest`의 1.6 두 개가 이미 통과했다. 4.1은 고칠 것 없이 확인만 하면 된다.
 ---

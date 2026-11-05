@@ -1,5 +1,6 @@
 package com.weave.feed.gateway
 
+import org.slf4j.LoggerFactory
 import org.springframework.web.client.ResourceAccessException
 import org.springframework.web.client.RestClientResponseException
 import java.net.ConnectException
@@ -19,6 +20,23 @@ data class DownstreamFailure(
     val exception: String,
 ) {
     companion object {
+        private val logger = LoggerFactory.getLogger(DownstreamFailure::class.java)
+
+        /** [dependency] 호출 실패를 `downstream_call_failed` WARN 한 줄로 남긴다. 예외 객체는 로거에 넘기지 않는다. */
+        fun log(
+            dependency: String,
+            error: Throwable,
+        ) {
+            val failure = of(error)
+            logger
+                .atWarn()
+                .addKeyValue("event", "downstream_call_failed")
+                .addKeyValue("dependency", dependency)
+                .addKeyValue("cause", failure.cause)
+                .addKeyValue("exception", failure.exception)
+                .log("{} 호출 실패: {}", dependency, failure.cause)
+        }
+
         fun of(error: Throwable): DownstreamFailure {
             val unwrapped = if (error is CompletionException && error.cause != null) error.cause!! else error
             val chain = causeChain(unwrapped)

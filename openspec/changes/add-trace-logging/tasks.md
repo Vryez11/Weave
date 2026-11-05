@@ -67,7 +67,7 @@
 ## 3. feed-service 호출 실패 로그
 
 - [x] 3.1 `cause` 분류 함수를 만든다(design 결정 6). `CompletionException`을 벗기고, 예외 종류별로 `http_<상태>`, `connect_failure`, `io_failure`, `other`와 가장 안쪽 예외 클래스 이름을 돌려준다. 확인: 예외 종류마다 값을 보는 단위 테스트가 `./gradlew :feed-service:test -Pkotest.filter.tests='*F-004*'`로 통과한다.
-- [ ] 3.2 Gateway에 실패 로그를 붙인다.
+- [x] 3.2 Gateway에 실패 로그를 붙인다.
   - 조회 메서드는 `whenComplete`, 토글은 `try`/`catch` 뒤 다시 던진다.
   - SLF4J key-value로 `event`, `dependency`, `cause`, `exception`을 넣고, 예외 객체는 로거에 넘기지 않는다.
   - 확인: 1.5의 네 시나리오와 1.4의 "하위 서비스 오류 본문" 시나리오가 통과하고, `./gradlew :feed-service:test :feed-service:integrationTest`가 모두 통과한다.

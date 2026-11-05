@@ -9,6 +9,13 @@ import org.springframework.beans.factory.annotation.Value
 import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import org.springframework.http.HttpStatusCode
+import org.springframework.http.client.ClientHttpResponse
+import org.springframework.web.client.HttpClientErrorException
+import org.springframework.web.client.HttpServerErrorException
+import org.springframework.web.client.RestClientResponseException
+import org.springframework.web.client.UnknownHttpStatusCodeException
+import org.springframework.web.client.support.RestClientHttpServiceGroupConfigurer
 import org.springframework.web.service.registry.ImportHttpServices
 
 /**
@@ -37,6 +44,32 @@ class HttpClientConfig {
         if (maxConnectionsPerRoute == null) return builder
         return builder.withConnectionManagerCustomizer {
             it.setMaxConnPerRoute(maxConnectionsPerRoute).setMaxConnTotal(maxConnectionsPerRoute)
+        }
+    }
+
+    /**
+     * 오류 응답의 예외 메시지에 하위 서비스의 응답 본문을 넣지 않는다(`trace-logging` "로그에 남기지 않는 것").
+     * 기본 처리기는 메시지 끝에 본문을 붙이고, 처리되지 않은 예외를 Tomcat이 메시지·스택 트레이스와 함께 ERROR로 남겨 본문이 로그에 실린다.
+     * 예외 종류, 상태 코드, 본문 바이트는 기본 처리기와 같아 실패 분류와 응답(500)은 바뀌지 않는다.
+     */
+    @Bean
+    fun bodylessErrorMessages(): RestClientHttpServiceGroupConfigurer =
+        RestClientHttpServiceGroupConfigurer { groups ->
+            groups.forEachClient { _, builder ->
+                builder.defaultStatusHandler(HttpStatusCode::isError) { _, response -> throw errorWithoutBodyInMessage(response) }
+            }
+        }
+
+    private fun errorWithoutBodyInMessage(response: ClientHttpResponse): RestClientResponseException {
+        val status = response.statusCode
+        val statusText = response.statusText
+        val message = "${status.value()} $statusText"
+        val body = response.body.readAllBytes()
+        val charset = response.headers.contentType?.charset
+        return when {
+            status.is4xxClientError -> HttpClientErrorException.create(message, status, statusText, response.headers, body, charset)
+            status.is5xxServerError -> HttpServerErrorException.create(message, status, statusText, response.headers, body, charset)
+            else -> UnknownHttpStatusCodeException(message, status.value(), statusText, response.headers, body, charset)
         }
     }
 }
