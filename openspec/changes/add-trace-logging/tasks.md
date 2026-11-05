@@ -13,7 +13,7 @@
 - [x] 1.2 `trace-logging`의 "JSON 로그 형식" 시나리오 두 개를 `libs/observability` 테스트로 옮긴다.
   - 테스트 소스에 요청을 받아 로그를 쓰는 엔드포인트와 예외를 담아 로그를 쓰는 엔드포인트가 있는 작은 웹 애플리케이션을 둔다.
   - 확인: `./gradlew :libs:observability:integrationTest`가 새 테스트에서 실패하고, `./gradlew :libs:observability:test`는 통과한다.
-- [ ] 1.3 `trace-logging`의 "요청 완료 로그" 중 "요청 하나에 한 줄", "헬스 체크"를 post-service 테스트로 옮긴다. 확인: `./gradlew :post-service:integrationTest`가 새 테스트에서 실패하고, `./gradlew :post-service:test`는 통과한다.
+- [x] 1.3 `trace-logging`의 "요청 완료 로그" 중 "요청 하나에 한 줄", "헬스 체크"를 post-service 테스트로 옮긴다. 확인: `./gradlew :post-service:integrationTest`가 새 테스트에서 실패하고, `./gradlew :post-service:test`는 통과한다.
 - [ ] 1.4 `trace-logging` 시나리오 중 feed-service 경로를 쓰는 것을 feed-service 테스트로 옮긴다.
   - 응답 헤더(정상, 오류), 들어온 trace 잇기(둘), 하위 서비스 호출로 전파(셋), 요청 완료 로그의 "실패한 요청", 로그에 남기지 않는 것의 "하위 서비스 오류 본문"이다.
   - 기존 `DownstreamWireMock`을 쓰고, `traceparent`는 WireMock 요청 기록에서 읽는다. "post가 끝난 뒤 시작한 호출"은 post에 200ms 고정 지연을 준다.
