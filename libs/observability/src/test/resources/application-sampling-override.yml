@@ -1,0 +1,6 @@
+# ObservabilityDefaultsTest: 서비스의 application.yml이 라이브러리 기본 속성을 이기는지 본다.
+# 프로필 파일도 application.yml과 같은 설정 파일(ConfigData) 경로로 읽힌다.
+management:
+  tracing:
+    sampling:
+      probability: 0.25

@@ -10,6 +10,11 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-autoconfigure")
     // logback-spring.xml의 JSON 인코더(design 결정 1). Boot BOM에 없어 버전을 적는다
     implementation("net.logstash.logback:logstash-logback-encoder:9.0")
+    // 트레이싱(design 결정 3). 메트릭 OTLP 레지스트리까지 가져오는 spring-boot-starter-opentelemetry 대신 모듈을 골라 넣는다
+    implementation("org.springframework.boot:spring-boot-micrometer-tracing-opentelemetry")
+    implementation("io.micrometer:micrometer-tracing-bridge-otel")
+    implementation("io.opentelemetry:opentelemetry-exporter-otlp")
+    implementation("io.micrometer:context-propagation")
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.springframework.boot:spring-boot-starter-webmvc")
     testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")

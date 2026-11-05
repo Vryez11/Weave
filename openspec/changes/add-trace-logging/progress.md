@@ -14,6 +14,7 @@
 - `progress.md`는 작업 커밋에 함께 넣는다. 따로 커밋해도 `commit-msg` 훅이 본문 `- ` 항목을 요구한다.
 - Compose 테스트 주소는 시스템 속성 `weave.compose.feed-url`, `weave.compose.loki-url`, `weave.compose.tempo-url`이다(`TraceLookupComposeScenarioTest` KDoc). 5.3의 `composeTest`가 이 이름으로 넘긴다.
 - `./gradlew build`는 `integrationTest`까지 돈다(e2e 포함). 아직 구현하지 않은 시나리오가 실패하는 동안에는 `--continue`로 돌려 실패한 태스크·테스트가 그 시나리오뿐인지 본다.
+- 라이브러리 기본 속성은 `libs/observability/src/main/resources/observability-defaults.properties`에 한 줄 더하면 된다(2.6 `propagate-context`, 2.7 노출 엔드포인트). 우선순위 테스트는 `ObservabilityDefaultsTest`에 있다.
 - 처리되지 않은 예외의 Tomcat 로그는 요청 완료 로그(필터 `finally`)보다 늦게 쓰인다. "남기지 않는다"를 판정할 때는 그 요청의 줄이 아니라 뒤에 보낸 확인용 요청의 줄을 기다린다.
 
 ---
@@ -83,4 +84,13 @@
 - 확인: `:libs:observability:integrationTest`에서 "예외가 있는 로그"는 통과, "요청 처리 중의 로그"는 "Map did not contain the keys traceId, spanId"로만 실패. `./gradlew ktlintCheck build --continue`에서 실패한 것은 아직 구현하지 않은 1.2~1.6 시나리오 테스트뿐이고(e2e F-006 2개 등 기존 테스트는 JSON 로그로도 통과), `openspec validate` 통과.
 - 바꾼 파일: `libs/observability/build.gradle.kts`, `libs/observability/src/main/resources/logback-spring.xml`, `libs/observability/CLAUDE.md`
 - 다음 반복이 알아 둘 것: Spring의 commons-logging 브리지를 거친 로그에는 `"tags":["COMMONS-LOGGING"]`가 붙는다(마커). 스펙 필드와 부딪히지 않아 두었다. 2.2에서 트레이싱을 켜면 MDC에 `traceId`·`spanId`가 들어와 1.2 첫 시나리오가 통과해야 한다.
+---
+
+## 2026-11-05 15:17 - 2.2 트레이싱과 라이브러리 기본 속성
+- `libs/observability`에 design 결정 3의 모듈 네 개(`spring-boot-micrometer-tracing-opentelemetry`, `micrometer-tracing-bridge-otel`, `opentelemetry-exporter-otlp`, `context-propagation`)를 더했다. Boot 4.1.2 BOM으로 각각 4.1.2, 1.7.2, 1.62.0, 1.2.1로 풀린다.
+- `ObservabilityDefaultsPostProcessor`(Boot 4의 `org.springframework.boot.EnvironmentPostProcessor`, `META-INF/spring.factories`에 등록, 순서 `LOWEST_PRECEDENCE`)가 `observability-defaults.properties`(지금은 `management.tracing.sampling.probability=1.0` 하나)를 속성 소스 뒤에 붙인다. ConfigData보다 늦게 돌아야 서비스 `application.yml`이 이긴다.
+- `ObservabilityDefaultsTest`(`Integration`, F-004) 4개: 기본값 1.0과 환경 변수·시스템 속성보다 뒤 순서, 프로필 파일(`application-sampling-override.yml`, 0.25)이 기본값을 이김, OTLP 주소가 없으면 OTLP `SpanExporter` Bean 없음, 주소를 주면 생김(대조군).
+- 확인: `:libs:observability:integrationTest`에서 1.2 두 시나리오와 새 4개 통과. `./gradlew ktlintCheck build --continue`에서 실패한 것은 아직 구현하지 않은 1.3~1.6 시나리오(post 2, feed 13, e2e 2)뿐이고 기존 테스트는 트레이싱이 붙어도 통과했다. `openspec validate` 통과.
+- 바꾼 파일: `libs/observability/build.gradle.kts`, `.../ObservabilityDefaultsPostProcessor.kt`, `src/main/resources/observability-defaults.properties`, `src/main/resources/META-INF/spring.factories`, `src/test/.../testapp/ObservabilityDefaultsTest.kt`, `src/test/resources/application-sampling-override.yml`, `libs/observability/CLAUDE.md`
+- 다음 반복이 알아 둘 것: 속성 소스 맨 끝에는 Boot가 시작 뒤 `applicationInfo`를 붙인다. 2.3 필터는 `ServerHttpObservationFilter` 뒤에 두고, 필터용 `spring-webmvc`·`jakarta.servlet-api`를 `compileOnly`로 더해야 한다(design 결정 9).
 ---

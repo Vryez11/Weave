@@ -1,0 +1,2 @@
+org.springframework.boot.EnvironmentPostProcessor=\
+com.weave.observability.ObservabilityDefaultsPostProcessor

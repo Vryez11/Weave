@@ -34,7 +34,7 @@
   - logstash-logback-encoder 의존성을 더한다.
   - `logback-spring.xml`에 design 결정 1의 인코더 설정(필드 이름, `service`, 스택 트레이스 줄이기)과 비동기 appender(대기열 8192, `discardingThreshold` 0, `neverBlock` false)를 둔다.
   - 확인: 1.2의 "예외가 있는 로그"가 통과한다. "요청 처리 중의 로그"는 `traceId`·`spanId`만 빠져 실패한다.
-- [ ] 2.2 트레이싱을 켜고 라이브러리 기본 속성을 넣는다.
+- [x] 2.2 트레이싱을 켜고 라이브러리 기본 속성을 넣는다.
   - design 결정 3의 트레이싱 모듈 네 개를 더한다.
   - `EnvironmentPostProcessor`가 `observability-defaults.properties`를 속성 소스 맨 뒤에 붙이게 하고, `management.tracing.sampling.probability=1.0`만 넣는다. `propagate-context`는 아직 넣지 않는다.
   - OTLP 주소가 없으면 스팬을 내보내지 않는지 확인하는 테스트를 더한다(내보내기 Bean이 없거나, 요청 뒤 내보내기 오류 로그가 없다).
