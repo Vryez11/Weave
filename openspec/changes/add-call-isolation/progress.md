@@ -76,3 +76,13 @@
 - `DownstreamFailureConnectCauseTest`의 `ConnectionRequestTimeoutException` → `io_failure` 단언은 결정 7과 맞는다. `SocketTimeoutException` 판정이 이 예외를 잡지 않게만 하면 된다(이 예외는 `SocketTimeoutException`의 하위 타입이 아니라 `InterruptedIOException`의 하위 타입이다. 구현할 때 다시 확인한다).
 - 바꾼 파일: `progress.md`.
 ---
+
+## 2026-11-06 - 2.2 실패 분류와 막힘 풀기 (대화형)
+- `DownstreamFailureTest`의 `io_failure` 예를 `IOException("Connection reset")`으로 바꾸고(응답 타임아웃은 `timeout`), design 결정 7 표의 예외마다 `cause`와 "서킷이 센다" 단언을 더했다.
+- `DownstreamFailure.of`에 `circuit_open`(`CallNotPermittedException`), `bulkhead_full`(`BulkheadFullException`), `budget_exhausted`(새 예외 `TimeBudgetExhaustedException(dependency)`), `timeout`(`TimeoutException`, 원인이 `SocketTimeoutException`인 `ResourceAccessException`)을 더하고 `countsAsCircuitFailure(error)`를 뒀다. 2.4의 서킷 `record-failure-predicate`가 이 함수를 쓴다.
+- 앞으로 막힐 것을 미리 풀었다: `FeedAssemblerTest`가 `FeedAssembler(..., timeBudget = Duration, clock = Clock)`으로 만든다. 그래서 `FeedAssembler` 생성자에 `@Value("${weave.feed.time-budget:#{null}}") timeBudget: Duration?`과 `clock: Clock = Clock.systemUTC()`를 지금 더했다(아직 쓰지 않는다). 2.6은 이 이름을 그대로 쓴다. 값이 4.3 전에는 없을 수 있어 nullable이다. 4.3 뒤에 non-null로 바꿔도 테스트는 그대로 컴파일된다.
+- "F-001 호출 시간 상한을 넘긴다"(`FeedCallFailureLogScenarioTest`)는 이제 통과한다(그룹 `read-timeout` 200ms가 `SocketTimeoutException` → `timeout`으로 한 줄).
+- 확인: `:feed-service:test` 통과. `:feed-service:integrationTest` 129개 중 27개 실패, 모두 위 "정상인 실패" 목록(2.3 이후 구현을 기다린다).
+- 다음(2.3): HTTP 클라이언트의 그룹별 타임아웃·풀 크기 속성. Ralph로 넘긴다.
+---
+
