@@ -125,3 +125,10 @@
 - 사람이 정할 것(제안): (1) 이 테스트에 `weave.isolation.bulkhead-type=semaphore`를 더해 "Semaphore 모드(공유 풀)에서 `propagate-context=false`면 끊긴다"의 기록으로 남긴다. 단 그 속성은 2.9 전에는 읽히지 않으므로 2.9까지는 실패한다. 또는 (2) 공유 풀 끊김 기록은 고도화 1의 기록(아키텍처 7-3 첫 줄)으로 두고, 이 테스트를 `FeedBulkheadTracePropagationOffTest`가 대신한다고 적은 뒤 지운다. 어느 쪽이든 아키텍처 7-3 표의 "feed-service의 공유 풀" 줄의 테스트 칸도 같이 고친다. 고친 뒤 2.5를 체크하면 된다(나머지 확인은 위와 같이 통과했다).
 - 바꾼 파일: `feed-service/src/main/kotlin/com/weave/feed/gateway/TraceContextPropagator.kt`(새 파일), `IsolatedCalls.kt`, `feed-service/src/main/resources/application.yml`, `feed-service/build.gradle.kts`, `feed-service/CLAUDE.md`, `docs/architecture.md`, `progress.md`.
 ---
+
+## 2026-11-06 - 2.5 막힘 풀기 (대화형)
+- Ralph 제안 (1)을 골랐다. `FeedTracePropagationOffTest`에 `weave.isolation.bulkhead-type=semaphore`를 더해 "Semaphore 모드(공유 풀)에서 `propagate-context=false`면 끊긴다"의 기록으로 남겼다. 공유 풀은 Semaphore 모드에서 여전히 조회를 돌리므로 기록이 의미가 있다. 아키텍처 7-3 첫 줄의 테스트 칸도 고쳤다.
+- 이 테스트는 2.9(Semaphore 모드) 전까지 실패하는 것이 정상이다. 2.9의 확인에 이 테스트를 넣는다. Semaphore 모드의 호출 자체에는 `IsolatedCalls`가 따로 문맥을 펼치지 않는다(tasks 2.9).
+- 2.5를 체크했다. 다음(2.6): 요청 시간 예산. Ralph로 넘긴다.
+---
+

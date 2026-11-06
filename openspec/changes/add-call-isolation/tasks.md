@@ -60,7 +60,7 @@
   - `application.yml`에는 구조만 둔다: 인스턴스 이름 다섯, 서킷의 실패 판정 함수, 벌크헤드 대기열 0. 값은 4장에서 넣는다.
   - 이 작업 뒤 trace 테스트(`FeedTraceLogScenarioTest`의 다섯 호출·post 뒤 호출, `FeedCallFailureLogScenarioTest`의 traceId 단언, 1.7의 traceId 시나리오)는 벌크헤드 스레드에 문맥이 넘어가지 않아 실패한다. 그대로 두고 실패한 테스트 이름을 progress.md에 "끊김 재현"으로 적는다(PRD F-001 수용 기준).
   - 확인: 1.5의 상한·벌크헤드 시나리오, 1.6의 서킷 시나리오 중 토글·전이 로그를 뺀 것, 1.1의 바뀐 시나리오가 통과한다. 위 trace 테스트 말고 기존 feed-service 테스트가 통과한다.
-- [ ] 2.5 벌크헤드 스레드에 트레이스 문맥을 넘긴다(design 결정 8).
+- [x] 2.5 벌크헤드 스레드에 트레이스 문맥을 넘긴다(design 결정 8). (구현은 Ralph가 했다(9e2956e). 공유 풀의 끊김 기록 `FeedTracePropagationOffTest`는 기본 구성에서 공유 풀을 거치지 않게 돼 대화형으로 Semaphore 모드로 옮겼고, 2.9까지는 실패한다)
   - `TraceContextPropagator`를 만들고 `thread-pool-bulkhead.configs.default.context-propagators`에 등록한다.
   - `docs/architecture.md` 7-3의 표 두 개에 ThreadPool 벌크헤드 줄(전파 없이·고친 뒤·테스트)을 채운다.
   - 확인: 2.4에서 실패하던 trace 테스트와 1.7의 traceId 시나리오가 통과하고, `FeedBulkheadTracePropagationOffTest`도 통과한다(끊김을 단언한다).
@@ -75,7 +75,8 @@
   - 확인: 1.6의 "서킷이 열린다"와 1.7의 "지표가 있다", "환경 변수로 상한을 바꾼다"가 통과한다.
 - [ ] 2.9 Semaphore 모드를 넣는다(design 결정 11).
   - `weave.isolation.bulkhead-type: semaphore`면 `applicationTaskExecutor`에서 돌리고 Semaphore 벌크헤드로 감싼다. 기본은 `thread-pool`.
-  - 확인: `spring.threads.virtual.enabled=true`와 `semaphore`를 준 `FeedSemaphoreIsolationScenarioTest`(`Integration`)에서 피드가 200이고, 다섯 호출의 traceId가 `X-Trace-Id`와 같으며, 동시 호출 상한을 넘은 호출이 `bulkhead_full`로 끝난다. `./gradlew :feed-service:test :feed-service:integrationTest`가 1.2의 값 단언 말고는 통과한다.
+  - Semaphore 모드에서는 공유 풀의 `propagate-context`만으로 문맥을 잇는다. `IsolatedCalls`가 호출 자체에 따로 문맥을 펼치지 않는다(그러면 `FeedTracePropagationOffTest`의 끊김 기록이 성립하지 않는다).
+  - 확인: `spring.threads.virtual.enabled=true`와 `semaphore`를 준 `FeedSemaphoreIsolationScenarioTest`(`Integration`)에서 피드가 200이고, 다섯 호출의 traceId가 `X-Trace-Id`와 같으며, 동시 호출 상한을 넘은 호출이 `bulkhead_full`로 끝난다. `FeedTracePropagationOffTest`(Semaphore 모드의 끊김 기록)가 통과한다. `./gradlew :feed-service:test :feed-service:integrationTest`가 1.2의 값 단언 말고는 통과한다.
 - [ ] 2.10 아키텍처 문서를 구현에 맞춘다.
   - 1장(장애 대응 줄: 레지스트리로 감싸는 방식), 4-2 표(고도화 3 줄), 5-2(어노테이션 대신 `IsolatedCalls`, design 결정 1), 5-4(순서가 코드 한 곳에 있다), 5-5(429는 세지 않음, 결정 7), 12·13장의 F-001 항목을 고친다. 값(4-3, 5-6)은 4장에서 채운다.
   - 확인: 문서의 클래스·속성 이름이 코드에 있다(`grep`으로 확인).
