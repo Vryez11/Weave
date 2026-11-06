@@ -83,7 +83,7 @@
   - `docker/toxiproxy/toxiproxy.json`에 프록시 5개, `compose.yaml`에 Toxiproxy 서비스(버전 고정 이미지, 별칭 5개, 헬스 체크, 관리 API `127.0.0.1:8474`)를 둔다. feed-service는 Toxiproxy가 healthy가 된 뒤 뜬다.
   - feed-service의 `*_BASE_URL`을 별칭 주소로 바꾸고, 하위 서비스 5개에 `SPRING_PROFILES_ACTIVE=experiment`를 준다.
   - 확인: `./gradlew :e2e:composeTest`에서 1.7의 프록시 시나리오 두 개와 기존 Loki·Tempo 시나리오가 통과한다.
-- [ ] 5.2 자원 상한과 k6 서비스를 더한다(design 결정 10).
+- [x] 5.2 자원 상한과 k6 서비스를 더한다(design 결정 10).
   - 서비스마다 `deploy.resources.limits`(feed CPU 2·1GB, 하위 서비스 각 CPU 1·512MB, MySQL·Toxiproxy 각 CPU 1, 관찰 인프라 상한, k6 CPU 2·2GB)를 둔다.
   - `grafana/k6` 이미지(버전 고정)를 `profiles: [experiment]` 서비스로 두고 `experiments/`를 마운트한다.
   - 확인: `docker compose up -d --build --wait` 뒤 `docker compose ps`에서 k6 말고 모두 healthy(헬스 체크가 없는 이미지는 running)이고, `docker inspect`로 상한이 걸린 것을 본다. `docker compose run --rm k6 version`이 버전을 출력한다. 이 확인 명령을 progress.md에 적는다.

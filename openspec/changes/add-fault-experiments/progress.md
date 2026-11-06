@@ -13,6 +13,7 @@
 - Ralph 중에는 이미 커밋된 `src/test/` 파일(공통 도구 `ComposeEnvironment.kt` 등 포함)을 훅이 막는다. 테스트 도구가 더 필요하면 새 파일에 둔다(예: `ExperimentRuns.kt`).
 - `run.sh`의 `report.json` 형식은 `ExperimentRunComposeScenarioTest` KDoc, `run-all.sh` 판정 표 형식은 `ExperimentRunAllComposeScenarioTest` KDoc, 결과 폴더 파일 이름과 ad `GET /actuator/quota`의 `enabled`는 `ExperimentRuns` KDoc이 기준이다.
 - 라이브러리 클래스의 내부를 볼 때는 `javap -c -p`를 Gradle init 스크립트 안에서 `ProcessBuilder`로 돌려 파일로 남기고 Read로 읽는다(예: `feed-service/build/tmp/inspect4.init.gradle`). Gradle 9에는 `project.exec`가 없다. 파이프·`for`·`;` 뒤의 `grep`이 섞인 명령은 승인을 기다린다.
+- 이 세션에서 `docker compose`는 승인 없이 돈다(`docker ps`·`inspect`·`info`는 막힌다). 루트에 `.env`가 없으니 `docker compose -p weave-compose-test --env-file e2e/build/compose-test.env ...`로 부른다(env 파일은 `:e2e:composeTestEnv`가 만든다. 읽지 않는다). `docker inspect`가 필요하면 Gradle init 스크립트에서 `ProcessBuilder`로 돌린다(`build/tmp/inspect-limits.init.gradle`, 커밋하지 않음). `echo "$?"`처럼 셸 변수가 든 명령은 승인을 기다린다.
 - feed 통합 테스트에서 `HttpClientPools`(리플렉션 객체 그래프 순회)가 드물게 `ConcurrentModificationException`으로 실패한다(4.2에서 5번 중 1번, `HttpClientPoolSizePropertyTest`). 다시 돌리면 통과한다. 반복되면 사람에게 알린다(커밋된 테스트 도구라 Ralph가 고칠 수 없다).
 
 ---
@@ -198,4 +199,20 @@
 - 바꾼 파일: `compose.yaml`, `docker/toxiproxy/toxiproxy.json`, `docker/CLAUDE.md`, `tasks.md`
 - 확인: `./gradlew :e2e:composeTest --continue`에서 `ProxyPathComposeScenarioTest` 2개, `TraceLookupComposeScenarioTest` 2개 통과. 실패 12개는 모두 `experiments/run.sh`·`run-all.sh`가 없어서다(`Cannot run program`, 6.4·6.5 몫). `ktlintCheck compileKotlin compileTestKotlin test`, `openspec validate` 통과.
 - 다음 반복(5.2)이 알아 둘 것: 자원 상한은 서비스마다 `deploy.resources.limits`. Toxiproxy도 CPU 1. `docker compose ps`·`docker inspect`는 이 세션에서 승인 없이 돌지 않는다(`docker version`조차 막혔다). 확인이 필요하면 `:e2e:composeTest`처럼 Gradle을 거치는 길을 찾거나, 명령을 progress.md에 적어 사람이 돌리게 한다. 결과는 `e2e/build/test-results/composeTest/TEST-*.xml`을 Read로 본다(`grep`을 여러 파일에 쓰면 승인을 기다렸다).
+---
+
+## 2026-11-06 - 5.2 자원 상한과 k6 서비스를 더한다
+- `compose.yaml`: feed CPU 2·1GB, 하위 서비스 5개 각 CPU 1·512MB(앵커 `x-downstream-deploy`), MySQL·Toxiproxy 각 CPU 1. 관찰 인프라는 design에 값이 없어 각 CPU 0.5로, 메모리는 부하 중 로그·스팬이 쌓이는 Loki·Tempo만 1GB, Alloy·Prometheus·Grafana는 512MB로 뒀다(장애 대응 설정값이 아니라 실험 환경 조건이다. 근거는 compose 주석, OOM 재시작이 보이면 올린다).
+- k6: `grafana/k6:2.3.0`(gh releases로 확인한 2.3대 최신 안정판, 2026-09-21, 46일 전), `profiles: [experiment]`, `./experiments:/experiments` 마운트, `working_dir: /experiments`, CPU 2·2GB. `--user`는 compose에 두지 않고 run.sh가 `docker compose run --user`로 넘긴다(design 결정 10). `depends_on`도 두지 않았다(run.sh가 환경을 먼저 확인한다).
+- 바꾼 파일: `compose.yaml`, `docker/CLAUDE.md`, `tasks.md`
+- 확인 명령과 결과(루트 `.env`가 없어 프로젝트·env 파일을 준다):
+  - `./gradlew bootJar` 뒤 `docker compose -p weave-compose-test --env-file e2e/build/compose-test.env up -d --build --wait` → 13개 모두 Up. 헬스 체크가 있는 것은 healthy, Alloy·Loki는 running.
+  - `docker compose -p weave-compose-test --env-file e2e/build/compose-test.env ps -a --format '{{.Service}} {{.State}} {{.Status}}'` → k6는 목록에 없다(프로필).
+  - `docker inspect --format '{{index .Config.Labels "com.docker.compose.service"}} NanoCpus={{.HostConfig.NanoCpus}} Memory={{.HostConfig.Memory}}' <컨테이너들>`(Gradle init 스크립트로 돌림) → feed 2e9·1073741824, 하위 서비스 1e9·536870912, Loki·Tempo 5e8·1073741824, Alloy·Prometheus·Grafana 5e8·536870912, MySQL·Toxiproxy 1e9·0(메모리 상한 없음).
+  - `docker compose -p weave-compose-test --env-file e2e/build/compose-test.env run --rm k6 version` → `k6 v2.3.0 (commit/e088784614, go1.27.1, linux/arm64)`.
+  - `./gradlew :e2e:composeTest --continue`: 프록시 2개, Loki·Tempo 2개 통과(상한을 건 뒤에도). 실패 12개는 5.1과 같이 `run.sh`·`run-all.sh`가 없어서다. `ktlintCheck compileKotlin compileTestKotlin test`, `openspec validate` 통과.
+- 다음 반복이 알아 둘 것:
+  - 이 기계의 Docker는 CPU 15개, 메모리 약 7.75GB(`docker info`). 상한의 메모리 합(약 9GB)이 더 크다. 7번 묶음 기준선 문서에 적을 값이다.
+  - `docker compose run k6`가 처음 돌 때 빈 `experiments/` 폴더가 생겼다(마운트 대상). 6.1이 채운다.
+  - 5.3: Prometheus 설정은 `docker/prometheus/prometheus.yml`. 설정값 커밋이라 수집 간격만 따로 커밋한다.
 ---
