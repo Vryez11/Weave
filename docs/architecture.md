@@ -309,7 +309,7 @@ Retry-After 동안 호출을 막는 방법(서킷을 그 시간만큼 열어 두
   ```
 
 - **스팬:** 서비스는 `MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT=http://alloy:4318/v1/traces`(Compose에서만 준다, 7-1)로 OTLP HTTP를 보내고, Alloy가 묶어 Tempo(gRPC 4317)로 넘긴다. Tempo에서는 `/api/traces/<traceId>`로 조회한다.
-- **메트릭:** Prometheus가 서비스 6개의 `/actuator/prometheus`를 15초마다 긁는다(`docker/prometheus/prometheus.yml`).
+- **메트릭:** Prometheus가 서비스 6개의 `/actuator/prometheus`를 5초마다 긁는다(`docker/prometheus/prometheus.yml`, 9-1). feed-service는 Compose에서 Actuator를 관리 포트 8090으로 열어(`MANAGEMENT_SERVER_PORT`) 업무 요청이 Tomcat 스레드를 모두 묶어도 긁힌다. 관리 포트는 호스트에 열지 않는다.
 - **저장:** Loki·Tempo는 단일 프로세스이고 컨테이너 안에만 저장한다. 내리면 지워진다.
 - **포트:** 호스트에는 feed-service 8080과 관찰 인프라만 연다. 모두 `127.0.0.1`에만 묶는다(feed-service 8080, Grafana 3000, Loki 3100, Tempo 3200, Prometheus 9090, Alloy UI 12345). Grafana는 로그인 없이 연다.
 
@@ -345,7 +345,7 @@ traceId는 스레드에 붙은 컨텍스트(MDC, 관찰 컨텍스트)에 있어�
 
 대시보드는 `add-fault-experiments`(F-007)에서 만들었다. 데이터 소스와 같이 파일로 두고 Grafana가 띄울 때 불러온다. 공급자 설정은 `docker/grafana/provisioning/dashboards/`, 대시보드는 `docker/grafana/dashboards/feed-experiments.json`(uid `weave-feed`, `http://localhost:3000/d/weave-feed`)이다. 화면에서 고친 내용은 저장되지 않으니 JSON을 고친다. 실험 리포트의 Grafana 링크는 이 대시보드에 측정 구간(`from`, `to`)을 붙인 것이다.
 
-지표마다 그 지표를 만드는 단계에서 패널을 더한다. 지금 있는 패널은 모두 feed-service(`instance="feed-service:8080"`)의 지표다.
+지표마다 그 지표를 만드는 단계에서 패널을 더한다. 지금 있는 패널은 모두 feed-service(`instance="feed-service:8090"`, 관리 포트)의 지표다.
 
 | 행 | 패널 | 지표 | 더한 단계 |
 |---|---|---|---|
@@ -383,7 +383,7 @@ traceId는 스레드에 붙은 컨텍스트(MDC, 관찰 컨텍스트)에 있어�
 
 | 대상 | 자원 상한 (`deploy.resources.limits`) | 메모 |
 |---|---|---|
-| feed-service | CPU 2, 메모리 1GB | Tomcat 최대 스레드 200을 `application.yml`에 명시한다(Boot 기본값, 4-2) |
+| feed-service | CPU 2, 메모리 1GB | Tomcat 최대 스레드 200을 `application.yml`에 명시한다(Boot 기본값, 4-2). Actuator는 관리 포트 8090(`MANAGEMENT_SERVER_PORT`)이고 헬스 체크와 Prometheus가 이 포트를 본다 |
 | 하위 서비스 5개 | 각 CPU 1, 메모리 512MB | |
 | MySQL, Toxiproxy | 각 CPU 1 | Redis는 post stale 캐시와 함께 F-002에서 더한다 |
 | Alloy, Prometheus, Grafana | 각 CPU 0.5, 메모리 512MB | 실험 대상이 아니라 상한만 건다. OOM 재시작이 보이면 근거와 함께 올린다 |
@@ -462,12 +462,13 @@ experiments/run-all.sh --list                                 # 돌릴 목록
 | 항목 | 출처 |
 |---|---|
 | 시나리오, 커밋(더러우면 `-dirty`), 실행 시각, RPS, 준비·측정 시간, 기대 결과, 판정과 넘은 기준 | run.sh, `lib/verdict.sh` |
-| 측정 요청 수, 보내지 못한 요청 수, p50·p95·p99(실패한 요청 포함) | k6 요약 |
+| 측정 요청 수, 보내지 못한 요청 수, p50·p95·p99(실패한 요청 포함). 지연은 k6가 요청 앞뒤로 잰 경과 시간 `feed_latency`다. k6의 `http_req_duration`은 시간 초과된 요청을 0으로 남길 수 있어 쓰지 않는다 | k6 요약 |
 | 가용성 = 200 수 ÷ (측정 요청 수 + 보내지 못한 요청 수) | k6 요약 |
 | 의존성별 호출 p99, 실패율, 요청 배율(하위 서비스가 받은 요청 ÷ 피드 요청) | Prometheus |
 | 자원 사용량의 측정 구간 최댓값·평균: Tomcat 사용 중 스레드, 공유 풀 활성 스레드·대기열, 의존성별 커넥션 풀 사용 중·대기, feed-service CPU | Prometheus |
+| feed-service 지표 수집 비율(측정 구간 `up` 표본 중 1인 비율). 1보다 작으면 자원 사용량이 긁힌 구간만의 값이라고 적는다 | Prometheus |
 | degrade 비율, 서킷 상태 | MVP에는 없어 "없음". F-002, F-001이 채운다 |
-| 장애를 넣은 시각과 거둔 시각, 10초 구간 표(요청 수, p99, 가용성), 복구 시간(S-08) | k6 원본, `lib/windows.sh` |
+| 장애를 넣은 시각과 거둔 시각, 10초 구간 표(요청 수, `feed_latency` p99, 가용성), 복구 시간(S-08) | k6 원본, `lib/windows.sh` |
 | Grafana 링크(측정 구간을 붙인 `weave-feed` 대시보드, 7-4) | run.sh |
 
 원본 결과는 커밋하지 않는다. 기준선과 비교 요약은 `docs/experiments/`와 PR 설명에 적는다.
