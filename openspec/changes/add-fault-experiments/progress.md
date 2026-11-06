@@ -306,3 +306,12 @@
 - 확인: `./gradlew bootJar :e2e:composeTestEnv` 뒤 `docker compose -p weave-compose-test --env-file e2e/build/compose-test.env up -d --build --wait`, `e2e/build/tmp/runsh-s02.init.gradle`(`-Drunsh.args="S-01 --rps 5 --warmup 5s --duration 20s"`)로 문서의 명령을 돌려 **0 종료**(`S-01: SLO 충족, 기대와 같음`, 측정 요청 101, p99 105ms, 보내지 못한 요청 0). 끝나고 `down -v`. `openspec validate --all --strict` 통과. 문서만 바꿔 Gradle 검사는 영향이 없다(6.8에서 전체를 돌린다).
 - 다음 반복(6.8)이 알아 둘 것: `:e2e:composeTest`는 약 6분이다. 손으로 띄운 `weave-compose-test` 환경은 이번에 내려 두었다.
 ---
+
+## 2026-11-06 - 6.8 전체 검사
+- 코드는 바꾸지 않고 확인만 했다.
+- `./gradlew ktlintCheck build`: 처음엔 캐시로 10초 만에 통과(134개 중 133개 UP-TO-DATE)해서, `--rerun-tasks`로 다시 돌렸다. 134개 태스크를 모두 실행해 2분 24초 만에 통과(모든 모듈의 `test`·`integrationTest`, `:e2e:integrationTest` 포함).
+- `./gradlew :e2e:composeTest`: 5분 51초 만에 통과. 실행된 18개(`ExperimentRunComposeScenarioTest` 10, `ExperimentRunAllComposeScenarioTest` 1, `ExperimentDashboardComposeScenarioTest` 1, `ProxyPathComposeScenarioTest` 2, `TraceLookupComposeScenarioTest` 2)가 실패 없이 통과했고, `Integration` 태그 11개는 skipped다(의도한 대로).
+- `openspec validate --all --strict --no-interactive`: 8개 통과.
+- 바꾼 파일: `tasks.md`, `progress.md`
+- **6번 묶음까지 끝남, 7번 묶음은 사람과 함께 `/opsx:apply`로 진행.** tasks.md 7장 머리말에 따라 Ralph 루프는 여기서 멈춘다. 측정 하나가 반복 세션의 명령 시간 제한(10분)을 넘고(`run-all.sh`는 약 1시간), 노트북 상태(전원 연결, 무거운 프로그램 끄기)를 사람이 맞춰야 하기 때문이다.
+---

@@ -117,7 +117,7 @@
   - `docs/architecture.md` 3장, 9장(프록시 표, 장애 주입 방법, 명령, 리포트 항목), 브랜치 규칙의 "장애 실험 세트 통과"
   - README의 실행 방법
   - 확인: 문서에 적은 명령을 그대로 돌려 `experiments/run.sh S-01 --rps 5 --warmup 5s --duration 20s`가 0으로 끝난다.
-- [ ] 6.8 전체 검사를 돌린다. 확인: `./gradlew ktlintCheck build`, `./gradlew :e2e:composeTest`, `openspec validate --all --strict --no-interactive`가 통과한다.
+- [x] 6.8 전체 검사를 돌린다. 확인: `./gradlew ktlintCheck build`, `./gradlew :e2e:composeTest`, `openspec validate --all --strict --no-interactive`가 통과한다.
 
 ## 7. 실험 RPS와 기준선
 
