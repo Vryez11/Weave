@@ -5,6 +5,8 @@
 - Gradle 9는 테스트 소스가 있는데 발견된 테스트가 없으면 `test` 태스크를 실패시킨다. 새 모듈에는 스펙을 하나 이상 둔다(`Integration` 태그만 있어도 된다).
 - 장애 주입 테스트 앱: `libs/fault-injection`의 `com.weave.faultinjection.testapp.FaultInjectionTestApplication`, 업무 엔드포인트 `GET /work`(본문 `WorkController.WORK_RESPONSE`).
 - 새 모듈은 `scripts/harness/stop-check.sh`의 모듈 목록에도 넣는다(Stop 훅이 바뀐 모듈만 검사한다).
+- Spring 테스트에서 `/actuator/prometheus`를 보려면 `@AutoConfigureMetrics`가 있어야 한다(없으면 404).
+- 스펙 하나만 돌리기: `./gradlew :<모듈>:integrationTest -Pkotest.filter.specs='*<스펙 클래스>'`.
 
 ---
 
@@ -41,4 +43,12 @@
 - 바꾼 파일: `ad-service/src/test/kotlin/com/weave/ad/{AdjustableClock,AdQuotaScenarioTest,AdQuotaDisabledScenarioTest}.kt`, `tasks.md`
 - 확인: `:ad-service:integrationTest`에서 `AdQuotaScenarioTest` 6개가 404로 실패(그 밖의 실패는 1.3의 `AdFaultsEndpointScenarioTest`뿐), 전체 `ktlintCheck compileKotlin compileTestKotlin test`, `openspec validate` 통과.
 - 다음 반복(3.1)이 알아 둘 것: 테스트가 가정한 형식은 `POST /actuator/quota` `{"limit":n,"windowSeconds":w}` → 2xx, `DELETE` → 2xx, `GET` → 200(본문 형식은 자유. 400 전후로 본문이 같아야 한다). `Retry-After`는 정수 초 헤더. 구현은 컨텍스트의 `Clock`을 `ObjectProvider<Clock>.getIfAvailable { Clock.systemUTC() }`처럼 받아야 테스트 시계가 먹는다. 엔드포인트는 기본으로 꺼져 있어야 한다(노출해도 404).
+---
+
+## 2026-11-06 - 1.5 "feed-service의 실험 지표"를 feed-service 테스트로 옮긴다
+- `FeedExperimentMetricsScenarioTest`(`@AutoConfigureMetrics`, `RANDOM_PORT`, `DownstreamWireMock`): 테스트마다 다섯 의존성을 정상 스텁하고 `GET /feed` 뒤 `/actuator/prometheus`를 최대 5초 동안 다시 긁는다(`eventually`). 단언을 Tomcat, 공유 풀, 의존성별 커넥션 풀(5개), 의존성별 호출 지연 히스토그램(5개), `/feed` 히스토그램으로 나눠 13개 테스트로 뒀다. 4.1·4.2가 단언 묶음별로 통과를 확인할 수 있다.
+- Prometheus 텍스트를 읽는 `PrometheusSamples`(파일 안 private 클래스). 실패하면 같은 이름 표본의 라벨을 보여 준다.
+- 바꾼 파일: `feed-service/src/test/kotlin/com/weave/feed/FeedExperimentMetricsScenarioTest.kt`, `tasks.md`
+- 확인: `:feed-service:integrationTest -Pkotest.filter.specs='*FeedExperimentMetricsScenarioTest'`에서 13개 중 12개 실패(표본 없음). `ktlintCheck compileKotlin compileTestKotlin :feed-service:test`, `openspec validate` 통과.
+- 다음 반복(4.2)이 알아 둘 것: **공유 풀 테스트는 지금도 통과한다.** Boot 4.1이 `applicationTaskExecutor`에 실행기 지표(`executor_active_threads`, `executor_queued_tasks`, `name="applicationTaskExecutor"`)를 이미 붙인다. 4.2에서 직접 묶지 말고 design 결정 4에 "자동으로 붙는다"고 적는다. 지금 `http_client_requests_seconds_bucket`·`http_server_requests_seconds_bucket`은 이름 자체가 없다(히스토그램 꺼짐).
 ---
