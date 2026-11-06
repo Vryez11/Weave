@@ -96,7 +96,7 @@
 - [x] 6.1 실험 설정과 시나리오 정의를 만든다(design 결정 5, 8, 9).
   - `experiments/config.json`(RPS 200은 출발점이고 7.1에서 정한다, 준비 1분, 측정 5분, 요청 시간 초과 5초, 사용자 ID 1~1,000), `slo.json`(PRD 2장), `expectations.json`(고도화 2: S-01만 `meet`), `scenarios/S-01.json`~`S-09.json`
   - 확인: 1.6의 "시나리오마다의 장애" 시나리오가 통과한다.
-- [ ] 6.2 k6 스크립트를 만든다(design 결정 5).
+- [x] 6.2 k6 스크립트를 만든다(design 결정 5).
   - `k6/feed.js`: `warmup`·`measure`·`faults` 시나리오, `measure` 태그로 건 threshold, 가용성 `Rate`, 보내지 못한 요청, `kind: fault` 태그. `setup()`·`teardown()`이 되돌리기를 한다.
   - `k6/contract.js`(MVP는 부분 응답 없음), `k6/reset.js`(되돌리기만)
   - 확인: Compose 환경에서 `docker compose run --rm k6 run` 으로 S-02를 RPS 5, 준비 5초, 측정 20초로 직접 돌려 요약의 `measure` 요청 수가 95~105, p50이 3,000ms 이상이고, 끝난 뒤 Toxiproxy `GET /proxies`에 톡식이 없다. 명령과 결과를 progress.md에 적는다.
