@@ -27,6 +27,9 @@ weave:
 server:
   port: 8080
   tomcat:
+    threads:
+      # Boot 기본값 그대로. 기준선이 이 값에서 재졌다는 것을 보이게 명시한다 (add-fault-experiments design 결정 10, 아키텍처 4-2)
+      max: 200
     # Tomcat 스레드 지표(tomcat_threads_busy_threads)를 내보낸다 (add-fault-experiments design 결정 4)
     mbeanregistry:
       enabled: true

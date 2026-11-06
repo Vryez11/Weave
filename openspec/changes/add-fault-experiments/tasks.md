@@ -73,7 +73,7 @@
   - 그룹마다 커넥션 매니저에 Micrometer HttpClient 5 풀 바인더를 그룹 이름으로 등록한다. 매니저를 얻은 방법을 design 결정 4에 적는다.
   - MVP의 HTTP 클라이언트 구성(재시도 끔, 풀 크기, 타임아웃 기본값)이 바뀌면 멈추고 design을 고친다.
   - 확인: 1.5가 모두 통과하고 `HttpClientPoolCapacityTest`, `MvpTimeoutDefaultsTest`, `HttpClientGroupTest`, `HttpClientRetryDefaultsTest`를 포함한 `./gradlew :feed-service:test :feed-service:integrationTest`가 통과한다.
-- [ ] 4.3 feed-service의 Tomcat 최대 스레드를 명시한다(design 결정 10).
+- [x] 4.3 feed-service의 Tomcat 최대 스레드를 명시한다(design 결정 10).
   - `server.tomcat.threads.max: 200`. 설정값 커밋이라 다른 변경과 섞지 않는다. 커밋 본문에 Boot 기본값과 같고 아키텍처 4-2에서 확인한 값이라고 적는다.
   - 확인: `MvpTimeoutDefaultsTest`의 Tomcat 단언이 그대로 통과한다.
 
