@@ -47,7 +47,7 @@
   - `ResilienceAutoConfigurationTest`(`Integration`)에서 레지스트리 네 개가 `resilience4j.*` 설정의 인스턴스를 만들고, `/actuator/prometheus`에 서킷·벌크헤드(ThreadPool, Semaphore)·TimeLimiter 지표가 `name` 라벨로 나오는지 본다. 실제 지표 이름과 벌크헤드 거절을 지표로 셀 수 있는지를 design 결정 2와 Open Questions에 적는다.
   - 하나라도 안 되면 우회하지 말고 멈춘다(progress.md에 적고 BLOCKED).
   - 확인: `./gradlew :feed-service:integrationTest -Pkotest.filter.tests='*ResilienceAutoConfiguration*'`가 통과한다.
-- [ ] 2.2 실패 분류를 넓힌다(design 결정 7).
+- [x] 2.2 실패 분류를 넓힌다(design 결정 7). (대화형으로 했다. Ralph가 커밋된 `DownstreamFailureTest`를 고쳐야 해서 멈췄다. 함수 이름 `DownstreamFailure.countsAsCircuitFailure`, 예산 초과는 `TimeBudgetExhaustedException`)
   - `DownstreamFailure.of`에 `timeout`, `circuit_open`, `bulkhead_full`, `budget_exhausted`를 더하고, 서킷이 셀 실패인지 돌려주는 함수를 같은 곳에 둔다. 응답 타임아웃(`SocketTimeoutException`이 원인)은 `io_failure`가 아니라 `timeout`이다.
   - feed-service `CLAUDE.md`의 실패 원인 설명을 고친다.
   - 확인: `DownstreamFailureTest`에 design 결정 7 표의 예외마다 `cause`와 "서킷이 센다" 단언이 있고 `./gradlew :feed-service:test`가 통과한다.
