@@ -1,0 +1,8 @@
+{
+  "id": "S-03",
+  "title": "추천 서비스 무응답",
+  "prd": "recommendation 무응답 또는 연결 끊김",
+  "faults": [
+    { "at": 0, "action": "timeout", "target": "recommendation" }
+  ]
+}

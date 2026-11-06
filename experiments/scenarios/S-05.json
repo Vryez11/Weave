@@ -1,0 +1,8 @@
+{
+  "id": "S-05",
+  "title": "좋아요 서비스 에러율 50%",
+  "prd": "like-service 에러율 50%",
+  "faults": [
+    { "at": 0, "action": "errorRate", "target": "like", "errorRate": 0.5 }
+  ]
+}
