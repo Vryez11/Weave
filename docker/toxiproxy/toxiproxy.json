@@ -1,0 +1,32 @@
+[
+  {
+    "name": "post",
+    "listen": "0.0.0.0:18081",
+    "upstream": "post-service:8081",
+    "enabled": true
+  },
+  {
+    "name": "user",
+    "listen": "0.0.0.0:18082",
+    "upstream": "user-service:8082",
+    "enabled": true
+  },
+  {
+    "name": "like",
+    "listen": "0.0.0.0:18083",
+    "upstream": "like-service:8083",
+    "enabled": true
+  },
+  {
+    "name": "recommendation",
+    "listen": "0.0.0.0:18084",
+    "upstream": "recommendation-service:8084",
+    "enabled": true
+  },
+  {
+    "name": "ad",
+    "listen": "0.0.0.0:18085",
+    "upstream": "ad-service:8085",
+    "enabled": true
+  }
+]

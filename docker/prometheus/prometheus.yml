@@ -1,13 +1,15 @@
 # 서비스 6개의 Actuator를 긁는다 (add-trace-logging design 결정 7). 주소는 Compose 서비스 이름과 포트다.
+# feed-service는 관리 포트 8090을 긁는다. 업무 포트 8080의 Tomcat이 차도 긁히게 한다 (add-fault-experiments design 결정 10).
+# 수집 간격 5초: 측정 5분의 표본이 60개가 되고, S-09의 10초 장애가 두 번 이상 긁힌다 (add-fault-experiments design 결정 10).
 global:
-  scrape_interval: 15s
+  scrape_interval: 5s
 
 scrape_configs:
   - job_name: services
     metrics_path: /actuator/prometheus
     static_configs:
       - targets:
-          - feed-service:8080
+          - feed-service:8090
           - post-service:8081
           - user-service:8082
           - like-service:8083

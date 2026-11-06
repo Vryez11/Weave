@@ -1,0 +1,8 @@
+{
+  "id": "S-06",
+  "title": "게시글 서비스 다운",
+  "prd": "post-service 다운",
+  "faults": [
+    { "at": 0, "action": "down", "target": "post" }
+  ]
+}

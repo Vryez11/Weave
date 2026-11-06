@@ -1,0 +1,294 @@
+{
+  "uid": "weave-feed",
+  "title": "weave 피드 실험",
+  "description": "피드 SLO, 의존성별 호출, feed-service 자원 사용량 (add-fault-experiments design 결정 11, 아키텍처 7-4). 서킷·벌크헤드·degrade 패널은 F-001·F-002에서 더한다.",
+  "tags": ["weave", "experiment"],
+  "editable": false,
+  "graphTooltip": 1,
+  "refresh": "5s",
+  "schemaVersion": 41,
+  "version": 1,
+  "time": { "from": "now-15m", "to": "now" },
+  "timezone": "browser",
+  "templating": { "list": [] },
+  "annotations": { "list": [] },
+  "links": [],
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "피드 SLO",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "panels": []
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "피드 RPS (응답 코드별)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 1 },
+      "fieldConfig": { "defaults": { "unit": "reqps", "min": 0 }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (status) (rate(http_server_requests_seconds_count{instance=\"feed-service:8090\",uri=\"/feed\"}[$__rate_interval]))",
+          "legendFormat": "{{status}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "피드 가용성 (200 비율, SLO 99.9%)",
+      "description": "200 응답 수 ÷ 피드 요청 수. k6가 보내지 못한 요청은 들어가지 않는다(리포트의 가용성은 넣는다).",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 1 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "decimals": 3,
+          "custom": { "thresholdsStyle": { "mode": "line" } },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 0.999 }] }
+        },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "none" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "(sum(rate(http_server_requests_seconds_count{instance=\"feed-service:8090\",uri=\"/feed\",status=\"200\"}[$__rate_interval])) or vector(0)) / sum(rate(http_server_requests_seconds_count{instance=\"feed-service:8090\",uri=\"/feed\"}[$__rate_interval]))",
+          "legendFormat": "가용성"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "피드 지연 p50·p95·p99 (SLO p99 300ms)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 1 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "custom": { "thresholdsStyle": { "mode": "line" } },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 0.3 }] }
+        },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(http_server_requests_seconds_bucket{instance=\"feed-service:8090\",uri=\"/feed\"}[$__rate_interval])))",
+          "legendFormat": "p50"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_requests_seconds_bucket{instance=\"feed-service:8090\",uri=\"/feed\"}[$__rate_interval])))",
+          "legendFormat": "p95"
+        },
+        {
+          "refId": "C",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(http_server_requests_seconds_bucket{instance=\"feed-service:8090\",uri=\"/feed\"}[$__rate_interval])))",
+          "legendFormat": "p99"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "row",
+      "title": "의존성 호출 (feed-service에서 잰 값)",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 },
+      "panels": []
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "의존성별 호출 p99",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 10 },
+      "fieldConfig": { "defaults": { "unit": "s", "min": 0 }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "histogram_quantile(0.99, sum by (client_name, le) (rate(http_client_requests_seconds_bucket{instance=\"feed-service:8090\"}[$__rate_interval])))",
+          "legendFormat": "{{client_name}}"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "의존성별 호출 실패율",
+      "description": "outcome이 SUCCESS가 아닌 호출 ÷ 전체 호출. 실패가 없는 의존성도 0으로 보이게 분자를 채운다.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 10 },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1 }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "(sum by (client_name) (rate(http_client_requests_seconds_count{instance=\"feed-service:8090\",outcome!=\"SUCCESS\"}[$__rate_interval])) or sum by (client_name) (rate(http_client_requests_seconds_count{instance=\"feed-service:8090\"}[$__rate_interval])) * 0) / sum by (client_name) (rate(http_client_requests_seconds_count{instance=\"feed-service:8090\"}[$__rate_interval]))",
+          "legendFormat": "{{client_name}}"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "의존성별 호출 RPS",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 10 },
+      "fieldConfig": { "defaults": { "unit": "reqps", "min": 0 }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (client_name) (rate(http_client_requests_seconds_count{instance=\"feed-service:8090\"}[$__rate_interval]))",
+          "legendFormat": "{{client_name}}"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "row",
+      "title": "자원 사용량 (feed-service)",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 18 },
+      "panels": []
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Tomcat 사용 중 스레드",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 19 },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0, "decimals": 0 }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(tomcat_threads_busy_threads{instance=\"feed-service:8090\"})",
+          "legendFormat": "사용 중"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(tomcat_threads_config_max_threads{instance=\"feed-service:8090\"})",
+          "legendFormat": "최대"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "공유 풀 활성 스레드 (applicationTaskExecutor)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 19 },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0, "decimals": 0 }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(executor_active_threads{instance=\"feed-service:8090\",name=\"applicationTaskExecutor\"})",
+          "legendFormat": "활성"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "공유 풀 대기열 (applicationTaskExecutor)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 19 },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0, "decimals": 0 }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(executor_queued_tasks{instance=\"feed-service:8090\",name=\"applicationTaskExecutor\"})",
+          "legendFormat": "대기 중 작업"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "의존성별 커넥션 풀 사용 중",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 27 },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0, "decimals": 0 }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (httpclient) (httpcomponents_httpclient_pool_total_connections{instance=\"feed-service:8090\",state=\"leased\"})",
+          "legendFormat": "{{httpclient}}"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "의존성별 커넥션 풀 대기",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 27 },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0, "decimals": 0 }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (httpclient) (httpcomponents_httpclient_pool_total_pending{instance=\"feed-service:8090\"})",
+          "legendFormat": "{{httpclient}}"
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "type": "timeseries",
+      "title": "feed-service CPU (실험 RPS 기준 0.7 미만)",
+      "description": "process_cpu_usage. JVM이 보는 CPU(컨테이너 상한 2개) 전체에 대한 비율이다. 실험 RPS는 S-01에서 이 값의 최댓값이 0.7 미만인 값으로 고른다(design 결정 12).",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 27 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "custom": { "thresholdsStyle": { "mode": "line" } },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 0.7 }] }
+        },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "none" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "max(process_cpu_usage{instance=\"feed-service:8090\"})",
+          "legendFormat": "CPU"
+        }
+      ]
+    }
+  ]
+}

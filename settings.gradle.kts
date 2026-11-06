@@ -8,5 +8,6 @@ include(
     "recommendation-service",
     "ad-service",
     "libs:observability",
+    "libs:fault-injection",
     "e2e",
 )

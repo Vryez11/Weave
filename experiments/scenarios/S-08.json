@@ -1,0 +1,9 @@
+{
+  "id": "S-08",
+  "title": "추천 서비스 무응답 뒤 복구",
+  "prd": "S-02~S-06의 장애를 거둔다 (복구)",
+  "faults": [
+    { "at": 0, "action": "timeout", "target": "recommendation" },
+    { "at": 120, "action": "clear", "target": "recommendation" }
+  ]
+}
