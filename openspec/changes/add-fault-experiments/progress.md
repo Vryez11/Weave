@@ -9,7 +9,9 @@
 - 스펙 하나만 돌리기: `./gradlew :<모듈>:integrationTest -Pkotest.filter.specs='*<스펙 클래스>'`.
 - 실험 세트 스크립트의 인자·출력 형식은 e2e 테스트 KDoc이 기준이다: 시나리오 JSON과 `run-all.sh --list`는 `ExperimentScenarioDefinitionTest`, `lib/verdict.sh`는 `ExperimentVerdictScenarioTest`, `lib/windows.sh`(와 `slo.json` 형식)는 `ExperimentWindowsScenarioTest`.
 - e2e `Compose` 태그 테스트는 `integrationTest` 리포트에 skipped로 나온다(돌지는 않는다). "리포트에 없다"는 확인은 이것으로 본다.
-- 이 반복 세션에서는 `python3`, `docker`, `jq -f`, 셸 변수(`$x`)가 든 인자가 승인 없이 돌지 않는다. 일회용 생성이 필요하면 `./gradlew -I <빌드 폴더의 init 스크립트> help`로 Kotlin을 돌린다.
+- 이 반복 세션에서는 `python3`, `docker`, `jq -f`, 셸 변수(`$x`)가 든 인자, `sed -i`가 승인 없이 돌지 않는다. 일회용 생성이 필요하면 `./gradlew -I <빌드 폴더의 init 스크립트> help`로 Kotlin을 돌린다.
+- Ralph 중에는 이미 커밋된 `src/test/` 파일(공통 도구 `ComposeEnvironment.kt` 등 포함)을 훅이 막는다. 테스트 도구가 더 필요하면 새 파일에 둔다(예: `ExperimentRuns.kt`).
+- `run.sh`의 `report.json` 형식은 `ExperimentRunComposeScenarioTest` KDoc, `run-all.sh` 판정 표 형식은 `ExperimentRunAllComposeScenarioTest` KDoc, 결과 폴더 파일 이름과 ad `GET /actuator/quota`의 `enabled`는 `ExperimentRuns` KDoc이 기준이다.
 
 ---
 
@@ -80,4 +82,18 @@
   - 5.1: Toxiproxy 프록시 **이름은 의존성 이름**(`post`, `user`, `like`, `recommendation`, `ad`)이어야 한다(테스트가 `/proxies/recommendation`을 부른다). 관리 API는 `127.0.0.1:8474`.
   - 6.6: 대시보드 질의에는 시간 변수(`$__rate_interval`, `$__interval`, `$__range`) 말고 변수를 두지 않는다. 장애가 없는 S-01 뒤에도 모든 질의가 시계열을 돌려줘야 하므로, 실패율 질의는 분자가 비지 않게 쓴다(예: `sum by (client_name) (rate(...{outcome!="SUCCESS"}[..])) or ...`처럼 0을 채운다).
   - 1.8: run.sh는 `ComposeEnvironment.experiment("run.sh", ..., timeout = ...)`로 돌리면 프로젝트·env 파일이 넘어간다. "환경이 떠 있지 않다"는 `environment = mapOf("COMPOSE_PROJECT_NAME" to "<없는 이름>")`으로 덮는다. SIGTERM이 필요하면 `ProcessBuilder`를 따로 쓴다(`experiment`는 끝날 때까지 기다린다).
+---
+
+## 2026-11-06 - 1.8 `run.sh`·`run-all.sh` 시나리오를 e2e `Compose` 테스트로 옮긴다
+- `ExperimentRunComposeScenarioTest`(10개): S-02 짧은 실행 하나(`by lazy`)를 "짧게 돌린다"(측정 요청 95~105, p50 ≥ 3,000ms, `SLO 미충족, 기대와 같음`, 0 종료)·"정상 종료 뒤"·"리포트 항목"이 이어서 본다. 그 밖에 "없는 시나리오"(S-99 → 2, ID 목록 출력, 미리 넣은 장애 상태·결과 폴더가 그대로), "환경이 떠 있지 않다"(`COMPOSE_PROJECT_NAME=weave-no-such-env` → 2, `docker compose ... up` 안내, 결과 폴더·그 프로젝트의 컨테이너 없음), "앞에 남은 장애"(post 지연 1,000ms·like 에러율 1 → 가용성 1, feed `State.StartedAt`이 늦어짐), "준비 구간은 세지 않는다"(준비 10초), "모든 요청이 실패한다"(S-06 가용성 0, p50·p95·p99 있음), "중간에 멈춘다"(S-05 측정 60초, `raw.json`에 `scenario: measure`의 `http_req_duration` 점이 생기면 `Process.destroy()`), "부하 도구가 실패한다"(문법 오류 `scenarios/S-97.json`을 잠시 두고 → 2, 깨끗한 상태).
+- `ExperimentRunAllComposeScenarioTest`: `run-all.sh --rps 5 --warmup 5s --duration 20s S-01 S-02` → 마크다운 표 두 줄(`| S-`로 시작, 5칸), 판정 `기대와 같음`, 리포트 폴더에 `report.json`, 0 종료.
+- 공통 도구 `ExperimentRuns.kt`(새 파일. 커밋된 `ComposeEnvironment.kt`는 Ralph 훅이 막아 고치지 않았다).
+- 바꾼 파일: `e2e/src/test/kotlin/com/weave/e2e/{ExperimentRuns,ExperimentRunComposeScenarioTest,ExperimentRunAllComposeScenarioTest}.kt`, `e2e/CLAUDE.md`, `tasks.md`
+- 확인: `:e2e:compileTestKotlin`, 전체 `ktlintCheck compileKotlin compileTestKotlin test`, `openspec validate` 통과. `:e2e:integrationTest`에서 새 테스트 11개는 skipped(돌지 않음), 실패는 1.6의 9개(예정된 것)뿐. `:e2e:composeTest`는 돌리지 않았다(run.sh가 아직 없다).
+- 다음 반복이 알아 둘 것:
+  - 3.1: 테스트가 ad `GET /actuator/quota` 본문의 `enabled`(꺼지면 `false`)를 본다. 켜면 `{"enabled":true,"limit":n,"windowSeconds":w}`.
+  - 6.2·6.4: 결과 폴더에 `report.md`, `report.json`, `summary.json`, k6 원본은 도는 동안 `raw.json`, 끝나면 `raw.json.gz`. `report.json`의 `faults`는 시나리오의 `clear`가 아닌 항목마다 `injectedAtSeconds`·`removedAtSeconds`(측정 시작부터 잰 초, 거둔 시각은 같은 target의 다음 `clear` 또는 teardown `reset`)·`skipped`.
+  - 6.4: "있는 시나리오"는 `scenarios/<ID>.json` 파일이 있는 것. 문법 오류 JSON은 되돌리기 뒤에 k6가 실패해야 테스트가 통과한다(테스트가 장애를 미리 넣어 둔다). 없는 ID와 환경 없음은 아무것도 바꾸지 않고 2.
+  - 6.5: 표 줄 말고는 표준 출력에 `| S-`로 시작하는 줄을 쓰지 않는다. 리포트 칸은 레포 루트 기준 상대 경로나 절대 경로.
+  - `composeTest`에 run.sh 실행이 8번(run-all 2번 포함) 더해져 10분 남짓 길어진다. Kotest 기본 테스트 시간 제한 안에 들도록 run-all 테스트의 시간 제한을 8분으로 뒀다.
 ---

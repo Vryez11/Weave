@@ -33,7 +33,7 @@
   - "프록시에 지연을 넣는다", "한 의존성의 프록시를 끊는다": Toxiproxy API(`127.0.0.1:8474`)를 테스트가 직접 부른다. 하위 서비스 호출 실패 로그는 `docker compose logs feed-service`에서 읽는다. 끝나면 `POST /reset`으로 되돌린다.
   - "대시보드를 불러온다": Grafana `/api/search`와 `/api/dashboards/uid/weave-feed`, Prometheus `/api/v1/query`를 쓴다. 패널 질의의 시간 변수는 `5m`으로 바꿔 부른다.
   - 확인: `./gradlew :e2e:compileTestKotlin`이 통과하고, `./gradlew :e2e:test :e2e:integrationTest`에서 이 테스트가 돌지 않는다(테스트 리포트에 없다).
-- [ ] 1.8 `run.sh`·`run-all.sh`의 시나리오를 `e2e`의 `Compose` 태그 테스트로 옮긴다.
+- [x] 1.8 `run.sh`·`run-all.sh`의 시나리오를 `e2e`의 `Compose` 태그 테스트로 옮긴다.
   - 대상: "짧게 돌린다", "없는 시나리오", "환경이 떠 있지 않다", "앞에 남은 장애", "정상 종료 뒤", "중간에 멈춘다", "준비 구간은 세지 않는다", "모든 요청이 실패한다", "리포트 항목", "부하 도구가 실패한다", "판정 표".
   - `run.sh`는 `ProcessBuilder`로 돌리고 `COMPOSE_PROJECT_NAME`, `COMPOSE_ENV_FILE`을 시스템 속성에서 받아 넘긴다(design 결정 6). 리포트는 결과 폴더의 `report.json`을 읽는다.
   - 하위 서비스의 장애 설정은 `docker compose exec <서비스> curl localhost:<포트>/actuator/faults`로, 프록시는 Toxiproxy API로 확인한다.
