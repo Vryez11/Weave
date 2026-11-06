@@ -103,7 +103,7 @@
 - [x] 6.3 판정과 10초 구간 계산 스크립트를 만든다(design 결정 7, 8).
   - `experiments/lib/verdict.sh`, `experiments/lib/windows.sh`. 1.6에서 정한 인자와 출력 형식을 따른다. bash 3.2에서 돈다.
   - 확인: 1.6의 판정·복구 시나리오가 `./gradlew :e2e:integrationTest`로 통과한다.
-- [ ] 6.4 `experiments/run.sh`를 만든다(design 결정 6, 7).
+- [x] 6.4 `experiments/run.sh`를 만든다(design 결정 6, 7).
   - 옵션 확인, 환경 확인, `trap` 되돌리기(`k6/reset.js`), feed-service 다시 띄우기, k6 실행, Prometheus 질의, `report.md`·`report.json`, 종료 코드 0/1/2
   - 확인: 1.8 중 `run-all.sh` 말고 모든 시나리오가 `./gradlew :e2e:composeTest`로 통과한다.
 - [ ] 6.5 `experiments/run-all.sh`를 만든다(design 결정 8).
