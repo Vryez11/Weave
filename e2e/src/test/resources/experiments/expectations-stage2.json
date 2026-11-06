@@ -1,0 +1,14 @@
+{
+  "stage": "고도화 2",
+  "scenarios": {
+    "S-01": "meet",
+    "S-02": "miss",
+    "S-03": "miss",
+    "S-04": "miss",
+    "S-05": "miss",
+    "S-06": "miss",
+    "S-07": "miss",
+    "S-08": "miss",
+    "S-09": "miss"
+  }
+}

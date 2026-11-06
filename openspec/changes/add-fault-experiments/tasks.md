@@ -23,7 +23,7 @@
   - 기존 `DownstreamWireMock`으로 하위 서비스 5개가 정상 응답하게 하고 `GET /feed` 뒤 `/actuator/prometheus` 본문을 본다.
   - 지표 이름은 design 결정 4의 표를 따른다. 의존성은 `client_name`과 `httpclient` 라벨의 값(`post` 등)으로 찾는다.
   - 확인: `./gradlew :feed-service:integrationTest`가 새 테스트에서 실패하고, `./gradlew :feed-service:test`는 통과한다.
-- [ ] 1.6 실험 세트의 계산·판정 시나리오를 `e2e`의 `Integration` 태그 테스트로 옮긴다(design 결정 13).
+- [x] 1.6 실험 세트의 계산·판정 시나리오를 `e2e`의 `Integration` 태그 테스트로 옮긴다(design 결정 13).
   - "시나리오마다의 장애", "기본 목록": `experiments/scenarios/S-*.json`과 `run-all.sh`의 기본 목록을 읽는다.
   - "기대대로 SLO를 못 지킨다", "기대와 다르다": 미리 만든 k6 요약 파일로 `experiments/lib/verdict.sh <요약> <시나리오 ID>`를 돌려 출력(판정 문구)과 종료 코드를 본다.
   - "복구 시간", "복구하지 못함": 미리 만든 k6 원본 파일로 `experiments/lib/windows.sh`를 돌려 10초 구간 표와 복구 시간을 본다.

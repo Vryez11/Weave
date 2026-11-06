@@ -1,0 +1,74 @@
+{
+  "root_group": {
+    "name": "",
+    "path": "",
+    "id": "d41d8cd98f00b204e9800998ecf8427e",
+    "groups": [],
+    "checks": []
+  },
+  "metrics": {
+    "http_req_duration": {
+      "avg": 41.6,
+      "min": 18.2,
+      "med": 37.9,
+      "max": 151.3,
+      "p(50)": 37.9,
+      "p(95)": 72.4,
+      "p(99)": 104.8
+    },
+    "http_req_duration{scenario:warmup}": {
+      "avg": 63.0,
+      "min": 19.1,
+      "med": 41.2,
+      "max": 151.3,
+      "p(50)": 41.2,
+      "p(95)": 133.7,
+      "p(99)": 149.9,
+      "thresholds": {
+        "p(99)<100": true
+      }
+    },
+    "http_req_duration{scenario:measure}": {
+      "avg": 40.9,
+      "min": 18.2,
+      "med": 37.5,
+      "max": 118.6,
+      "p(50)": 37.5,
+      "p(95)": 70.8,
+      "p(99)": 98.1,
+      "thresholds": {
+        "p(99)<300": false
+      }
+    },
+    "availability{scenario:measure}": {
+      "passes": 100,
+      "fails": 0,
+      "value": 1,
+      "thresholds": {
+        "rate>=0.999": false
+      }
+    },
+    "http_reqs": {
+      "count": 125,
+      "rate": 4.9
+    },
+    "http_reqs{scenario:measure}": {
+      "count": 100,
+      "rate": 5,
+      "thresholds": {
+        "count>=0": false
+      }
+    },
+    "dropped_iterations{scenario:measure}": {
+      "count": 0,
+      "rate": 0,
+      "thresholds": {
+        "count>=0": false
+      }
+    },
+    "iterations": {
+      "count": 125,
+      "rate": 4.9
+    }
+  }
+}

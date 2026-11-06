@@ -45,6 +45,14 @@ tasks.named<Test>("integrationTest") {
         }
 }
 
+// 실험 세트 테스트가 루트의 experiments/(시나리오 JSON, lib/ 스크립트, run.sh)를 읽고 돌린다(add-fault-experiments design 결정 13).
+// 결과 폴더는 입력에서 뺀다. 실행마다 바뀌고 커밋하지 않는다
+val experimentsDir = rootProject.layout.projectDirectory.dir("experiments")
+tasks.withType<Test>().configureEach {
+    systemProperty("weave.experiments.dir", experimentsDir.asFile.absolutePath)
+    inputs.files(fileTree(experimentsDir) { exclude("results/**") }).withPropertyName("experiments")
+}
+
 // ---------- Compose 테스트 (add-trace-logging design 결정 10) ----------
 // 루트 compose.yaml을 프로젝트 이름 weave-compose-test로 띄우고 Compose 태그 테스트만 돌린 뒤,
 // 성공·실패와 관계없이 내린다. 손으로 띄운 로컬 환경(프로젝트 weave)과 컨테이너·볼륨이 섞이지 않는다.

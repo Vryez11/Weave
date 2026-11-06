@@ -1,0 +1,72 @@
+{
+  "root_group": {
+    "name": "",
+    "path": "",
+    "id": "d41d8cd98f00b204e9800998ecf8427e",
+    "groups": [],
+    "checks": []
+  },
+  "metrics": {
+    "http_req_duration": {
+      "avg": 2950.31,
+      "min": 21.4,
+      "med": 3021.7,
+      "max": 3112.9,
+      "p(50)": 3021.7,
+      "p(95)": 3061.2,
+      "p(99)": 3088.4
+    },
+    "http_req_duration{scenario:measure}": {
+      "avg": 3024.8,
+      "min": 3004.1,
+      "med": 3021.9,
+      "max": 3112.9,
+      "p(50)": 3021.9,
+      "p(95)": 3062.0,
+      "p(99)": 3090.3,
+      "thresholds": {
+        "p(99)<300": true
+      }
+    },
+    "availability{scenario:measure}": {
+      "passes": 100,
+      "fails": 0,
+      "value": 1,
+      "thresholds": {
+        "rate>=0.999": false
+      }
+    },
+    "http_reqs": {
+      "count": 131,
+      "rate": 4.6
+    },
+    "http_reqs{scenario:measure}": {
+      "count": 100,
+      "rate": 5,
+      "thresholds": {
+        "count>=0": false
+      }
+    },
+    "dropped_iterations{scenario:measure}": {
+      "count": 0,
+      "rate": 0,
+      "thresholds": {
+        "count>=0": false
+      }
+    },
+    "iterations": {
+      "count": 131,
+      "rate": 4.6
+    },
+    "vus": {
+      "value": 3,
+      "min": 1,
+      "max": 17
+    },
+    "vus_max": {
+      "value": 33,
+      "min": 33,
+      "max": 33
+    }
+  }
+}

@@ -7,6 +7,8 @@
 - 새 모듈은 `scripts/harness/stop-check.sh`의 모듈 목록에도 넣는다(Stop 훅이 바뀐 모듈만 검사한다).
 - Spring 테스트에서 `/actuator/prometheus`를 보려면 `@AutoConfigureMetrics`가 있어야 한다(없으면 404).
 - 스펙 하나만 돌리기: `./gradlew :<모듈>:integrationTest -Pkotest.filter.specs='*<스펙 클래스>'`.
+- 실험 세트 스크립트의 인자·출력 형식은 e2e 테스트 KDoc이 기준이다: 시나리오 JSON과 `run-all.sh --list`는 `ExperimentScenarioDefinitionTest`, `lib/verdict.sh`는 `ExperimentVerdictScenarioTest`, `lib/windows.sh`(와 `slo.json` 형식)는 `ExperimentWindowsScenarioTest`.
+- 이 반복 세션에서는 `python3`, `docker`, `jq -f`, 셸 변수(`$x`)가 든 인자가 승인 없이 돌지 않는다. 일회용 생성이 필요하면 `./gradlew -I <빌드 폴더의 init 스크립트> help`로 Kotlin을 돌린다.
 
 ---
 
@@ -51,4 +53,18 @@
 - 바꾼 파일: `feed-service/src/test/kotlin/com/weave/feed/FeedExperimentMetricsScenarioTest.kt`, `tasks.md`
 - 확인: `:feed-service:integrationTest -Pkotest.filter.specs='*FeedExperimentMetricsScenarioTest'`에서 13개 중 12개 실패(표본 없음). `ktlintCheck compileKotlin compileTestKotlin :feed-service:test`, `openspec validate` 통과.
 - 다음 반복(4.2)이 알아 둘 것: **공유 풀 테스트는 지금도 통과한다.** Boot 4.1이 `applicationTaskExecutor`에 실행기 지표(`executor_active_threads`, `executor_queued_tasks`, `name="applicationTaskExecutor"`)를 이미 붙인다. 4.2에서 직접 묶지 말고 design 결정 4에 "자동으로 붙는다"고 적는다. 지금 `http_client_requests_seconds_bucket`·`http_server_requests_seconds_bucket`은 이름 자체가 없다(히스토그램 꺼짐).
+---
+
+## 2026-11-06 - 1.6 실험 세트의 계산·판정 시나리오를 e2e `Integration` 테스트로 옮긴다
+- `ExperimentScenarioDefinitionTest`: "시나리오마다의 장애"(S-01~S-09 파일만 있고 장애 시간표가 PRD 4장과 같다)와 "기본 목록"(`run-all.sh --list`가 S-01~S-09 출력, 0 종료).
+- `ExperimentVerdictScenarioTest`: `lib/verdict.sh <요약> <ID> <기대 결과 파일>`. 스펙의 두 시나리오에 더해, 측정 구간 threshold만 보는지(준비 구간 threshold는 넘어도 충족), miss인데 지키면 1, 요약이 없으면 2인지 본다.
+- `ExperimentWindowsScenarioTest`: `lib/windows.sh <원본.json.gz> 300`. "복구 시간"(20초), "복구하지 못함". 구간은 보낸 시각(점 시각 − 지연)으로 나누고, 준비·장애·setup·teardown 요청과 보내지 못한 요청 처리를 함께 본다.
+- 공통 도구 `ExperimentScripts`(폴더 위치, 픽스처, gzip, 스크립트 실행). e2e `build.gradle.kts`가 모든 `Test` 태스크에 `weave.experiments.dir`과 `experiments/` 입력을 넘긴다.
+- 픽스처 `e2e/src/test/resources/experiments/`: `expectations-stage2.json`, `summary-S-0{1,2}-*.json`(k6 `--summary-export` 형식), `raw-S-08-{recovered,not-recovered}.json`(k6 `--out json` 형식, 1 RPS·준비 10초·측정 300초. 일회용 Gradle init 스크립트로 만들었고 모양은 테스트 KDoc에 적었다).
+- 바꾼 파일: `e2e/build.gradle.kts`, `e2e/src/test/kotlin/com/weave/e2e/{ExperimentScripts,ExperimentScenarioDefinitionTest,ExperimentVerdictScenarioTest,ExperimentWindowsScenarioTest}.kt`, `e2e/src/test/resources/experiments/*`, `e2e/CLAUDE.md`, `tasks.md`
+- 확인: `:e2e:integrationTest`에서 새 테스트 9개가 실패(파일·스크립트 없음), 기존 종단 간 테스트 4개 통과, Compose 2개 skipped. `:e2e:test`, 전체 `ktlintCheck compileKotlin compileTestKotlin test`, `openspec validate` 통과.
+- 다음 반복이 알아 둘 것:
+  - 6.1: 시나리오 `action`은 `latency`(`latencyMs`), `timeout`, `down`, `errorRate`(`errorRate`), `quota`(`windowSeconds`, `limitRatio`. 한도 = RPS × 창 × 비율), `clear`. `slo.json`은 `{"availability": 0.999, "p99Ms": 300}`.
+  - 6.2: `--summary-export`에서 threshold 값 `true`가 "넘음(실패)"이라고 보고 픽스처를 만들었다(k6 summary-wrapper의 `!threshold.ok`). 실제 k6 실행 결과로 한 번 확인한다. 측정 구간 지표 키는 `http_req_duration{scenario:measure}`, `availability{scenario:measure}`처럼 `{scenario:measure}`가 붙어야 판정에 들어간다. 장애 요청에는 `kind: fault`, `action`, `target` 태그를, setup·teardown 되돌리기에는 `action: reset`을 붙인다.
+  - 6.3: jq의 `fromdateiso8601`은 소수 초를 받지 않는다. 원본 시각은 소수 자릿수가 줄마다 다르고 없을 수도 있다(픽스처에 `01:01:03.5Z` 같은 줄이 있다). epoch 밀리초(약 1.8e12)는 double로 정확하지만 나노초는 아니다.
 ---
