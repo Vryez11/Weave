@@ -1,5 +1,5 @@
 {
-  "rps": 200,
+  "rps": 400,
   "warmup": "1m",
   "duration": "5m",
   "requestTimeout": "5s",
