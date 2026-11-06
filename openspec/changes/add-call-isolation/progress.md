@@ -68,3 +68,11 @@
 - 바꾼 파일: `feed-service/src/test/kotlin/com/weave/feed/ResilienceAutoConfigurationTest.kt`(새 파일), `feed-service/build.gradle.kts`, `design.md`, `tasks.md`, `progress.md`.
 - 다음(2.2): `DownstreamFailure.of`에 `timeout`·`circuit_open`·`bulkhead_full`·`budget_exhausted`와 "서킷이 센다" 함수. `DownstreamFailureTest`는 이미 커밋된 테스트라 Ralph 중에는 고칠 수 없다. 새 단언은 새 파일(예: `DownstreamFailureIsolationCauseTest`)에 둔다.
 ---
+
+## 2026-11-06 - 2.2 실패 분류 넓히기 (Ralph, 멈춤)
+- 구현하지 않고 멈췄다. 바꾼 코드 없음.
+- 이유: 이미 커밋된 테스트를 고쳐야 통과한다. `feed-service/src/test/kotlin/com/weave/feed/gateway/DownstreamFailureTest.kt`의 "F-004 그 밖의 ResourceAccessException은 io_failure다"(42~48행)가 `ResourceAccessException("I/O error", SocketTimeoutException("Read timed out"))`를 `io_failure`로 단언한다. design 결정 7의 표와 tasks 2.2는 바로 이 경우(원인이 `SocketTimeoutException`인 응답 타임아웃)를 `timeout`으로 바꾸라고 한다. 구현하면 이 단언이 깨지고, Ralph 중에는 훅이 이 파일 수정을 막는다. 2.2의 확인 방법도 `DownstreamFailureTest`에 단언을 더하는 것이라 같은 파일을 고쳐야 한다.
+- 사람이 할 일(대화형 `/opsx:apply` 제안): `DownstreamFailureTest`의 그 테스트에서 `SocketTimeoutException` 예를 타임아웃이 아닌 I/O 오류(예: `IOException("Connection reset")`)로 바꾸고, 같은 파일에 design 결정 7 표의 예외마다 `cause`와 "서킷이 센다" 단언(응답 타임아웃·TimeLimiter `TimeoutException` → `timeout`, `CallNotPermittedException` → `circuit_open`, `BulkheadFullException` → `bulkhead_full`, 4xx·429·벌크헤드 거절은 세지 않음 등)을 더한 뒤 커밋한다. 테스트 쪽을 고치고 나면 2.2 구현은 Ralph가 이어 갈 수 있다. `budget_exhausted`는 예외가 아니라 `FeedAssembler`가 마감에서 남기는 값(결정 4)이라, 그 값을 어떤 입력으로 단언할지(전용 예외 타입을 둘지)도 테스트를 쓸 때 정해 두면 좋다.
+- `DownstreamFailureConnectCauseTest`의 `ConnectionRequestTimeoutException` → `io_failure` 단언은 결정 7과 맞는다. `SocketTimeoutException` 판정이 이 예외를 잡지 않게만 하면 된다(이 예외는 `SocketTimeoutException`의 하위 타입이 아니라 `InterruptedIOException`의 하위 타입이다. 구현할 때 다시 확인한다).
+- 바꾼 파일: `progress.md`.
+---
