@@ -15,7 +15,7 @@
 - [x] 1.3 "실험 프로필로 띄운다"를 하위 서비스 5개의 테스트로, "feed-service에는 없다"를 feed-service 테스트로 옮긴다.
   - 서비스마다 `experiment` 프로필로 띄워 `GET /actuator/faults`를 부른다. like-service는 기존 MySQL Testcontainers 설정을 쓴다.
   - 확인: `./gradlew integrationTest`에서 하위 서비스 5개의 새 테스트가 실패하고, feed-service의 새 테스트는 통과한다(이미 404다). `./gradlew test`는 통과한다.
-- [ ] 1.4 `ad-serving` 델타의 "요청 한도" 시나리오 여섯 개를 ad-service 테스트로 옮긴다.
+- [x] 1.4 `ad-serving` 델타의 "요청 한도" 시나리오 여섯 개를 ad-service 테스트로 옮긴다.
   - 테스트 설정이 시각을 옮길 수 있는 `Clock` Bean을 넣는다. 구현은 컨텍스트의 `Clock`을 쓰고, 없을 때만 시스템 시계를 쓴다(design 결정 3).
   - "다음 창"만 실제 시계로 `Retry-After`만큼 기다린다.
   - 확인: `./gradlew :ad-service:integrationTest`가 새 테스트에서 실패하고, `./gradlew :ad-service:test`는 통과한다.

@@ -33,3 +33,12 @@
 - 확인: `./gradlew integrationTest --continue`에서 새 테스트 중 하위 서비스 5개가 404로 실패하고 feed는 통과. 그 밖의 실패는 1.2의 `FaultInjectionScenarioTest`(예정된 것)뿐. `./gradlew ktlintCheck test` 통과.
 - 다음 반복이 알아 둘 것: `libs/fault-injection`의 테스트 도구(`FaultsHttpClient`, `FaultSettings`)는 testFixtures가 아니라 서비스 테스트에서 못 쓴다. 서비스 테스트는 `java.net.http.HttpClient`와 `tools.jackson.databind.json.JsonMapper`로 직접 부른다.
 ---
+
+## 2026-11-06 - 1.4 `ad-serving` "요청 한도" 시나리오를 ad-service 테스트로 옮긴다
+- `AdQuotaScenarioTest`(`@ActiveProfiles("experiment")`, `RANDOM_PORT`, `@Import(AdjustableClockConfiguration::class)`): 한도를 넘는다(3번 뒤 시계를 4초 옮겨 4번째가 429), 다음 창(실제 시계, `Retry-After`만큼 잔다), 한도 0, 꺼진 한도(100번), 잘못된 한도 2가지. 테스트마다 `beforeTest`에서 시계를 멈추고 `DELETE /actuator/quota`.
+- `AdQuotaDisabledScenarioTest`: 프로필 없이, 노출 목록에 `quota`를 넣고 404(지금도 통과).
+- 테스트 시계 `AdjustableClock`(`freeze`/`advance`/`useRealTime`)은 `@TestConfiguration`이라 컴포넌트 스캔에서 빠진다. 다른 ad 테스트에는 들어가지 않는다.
+- 바꾼 파일: `ad-service/src/test/kotlin/com/weave/ad/{AdjustableClock,AdQuotaScenarioTest,AdQuotaDisabledScenarioTest}.kt`, `tasks.md`
+- 확인: `:ad-service:integrationTest`에서 `AdQuotaScenarioTest` 6개가 404로 실패(그 밖의 실패는 1.3의 `AdFaultsEndpointScenarioTest`뿐), 전체 `ktlintCheck compileKotlin compileTestKotlin test`, `openspec validate` 통과.
+- 다음 반복(3.1)이 알아 둘 것: 테스트가 가정한 형식은 `POST /actuator/quota` `{"limit":n,"windowSeconds":w}` → 2xx, `DELETE` → 2xx, `GET` → 200(본문 형식은 자유. 400 전후로 본문이 같아야 한다). `Retry-After`는 정수 초 헤더. 구현은 컨텍스트의 `Clock`을 `ObjectProvider<Clock>.getIfAvailable { Clock.systemUTC() }`처럼 받아야 테스트 시계가 먹는다. 엔드포인트는 기본으로 꺼져 있어야 한다(노출해도 404).
+---
