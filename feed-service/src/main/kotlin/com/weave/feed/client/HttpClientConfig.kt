@@ -7,10 +7,12 @@ import com.weave.feed.client.recommendation.RecommendationClient
 import com.weave.feed.client.user.UserClient
 import io.micrometer.common.KeyValue
 import io.micrometer.core.instrument.MeterRegistry
+import org.apache.hc.core5.util.Timeout
 import org.springframework.beans.factory.ObjectProvider
-import org.springframework.beans.factory.annotation.Value
+import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder
 import org.springframework.boot.http.client.HttpClientSettings
+import org.springframework.boot.http.client.HttpComponentsClientHttpRequestFactoryBuilder
 import org.springframework.boot.http.client.autoconfigure.service.HttpServiceClientProperties
 import org.springframework.boot.ssl.SslBundles
 import org.springframework.context.annotation.Bean
@@ -46,20 +48,21 @@ import java.io.InputStream
 @ImportHttpServices(group = "like", types = [LikeClient::class])
 @ImportHttpServices(group = "recommendation", types = [RecommendationClient::class])
 @ImportHttpServices(group = "ad", types = [AdClient::class])
+@EnableConfigurationProperties(HttpClientProperties::class)
 class HttpClientConfig {
     /**
      * HttpClient 5의 자동 재시도는 늘 끈다(design 결정 3). 기본 전략은 429·503에 1초 뒤 한 번 더 보내고 토글 POST도 다시 보낸다.
-     * 그룹마다의 커넥션 풀 크기(라우트당 최대, 전체 최대)는 속성이 있을 때만 바꾸고, 없으면 HttpClient 기본값을 쓴다.
+     * 모든 그룹의 커넥션 풀 크기(라우트당 최대, 전체 최대)와 커넥션 대기 상한(add-call-isolation design 결정 3)은 속성이 있을 때만
+     * 바꾸고, 없으면 HttpClient 기본값을 쓴다. 그룹별 풀 크기 덮어쓰기는 [ConnectionPoolMetrics]가 그룹마다 더한다.
      */
     @Bean
-    fun clientHttpRequestFactoryBuilder(
-        @Value("\${weave.http-client.max-connections-per-route:#{null}}") maxConnectionsPerRoute: Int?,
-    ): ClientHttpRequestFactoryBuilder<*> {
-        val builder = ClientHttpRequestFactoryBuilder.httpComponents().withHttpClientCustomizer { it.disableAutomaticRetries() }
-        if (maxConnectionsPerRoute == null) return builder
-        return builder.withConnectionManagerCustomizer {
-            it.setMaxConnPerRoute(maxConnectionsPerRoute).setMaxConnTotal(maxConnectionsPerRoute)
+    fun clientHttpRequestFactoryBuilder(properties: HttpClientProperties): HttpComponentsClientHttpRequestFactoryBuilder {
+        var builder = ClientHttpRequestFactoryBuilder.httpComponents().withHttpClientCustomizer { it.disableAutomaticRetries() }
+        properties.connectionRequestTimeout?.let { timeout ->
+            builder = builder.withDefaultRequestConfigCustomizer { it.setConnectionRequestTimeout(Timeout.of(timeout)) }
         }
+        properties.maxConnectionsPerRoute?.let { builder = builder.withMaxConnections(it) }
+        return builder
     }
 
     /**
@@ -99,12 +102,13 @@ class HttpClientConfig {
     @Bean
     fun connectionPoolMetrics(
         properties: HttpServiceClientProperties,
+        httpClientProperties: HttpClientProperties,
         sslBundles: ObjectProvider<SslBundles>,
         httpClientSettings: ObjectProvider<HttpClientSettings>,
-        requestFactoryBuilder: ClientHttpRequestFactoryBuilder<*>,
+        requestFactoryBuilder: HttpComponentsClientHttpRequestFactoryBuilder,
         meterRegistry: ObjectProvider<MeterRegistry>,
     ): RestClientHttpServiceGroupConfigurer =
-        ConnectionPoolMetrics(properties, sslBundles, httpClientSettings, requestFactoryBuilder, meterRegistry)
+        ConnectionPoolMetrics(properties, httpClientProperties, sslBundles, httpClientSettings, requestFactoryBuilder, meterRegistry)
 
     private class GroupNameObservationConvention(
         private val groupName: String,
@@ -150,3 +154,9 @@ class HttpClientConfig {
         }
     }
 }
+
+/** 라우트당·전체 최대 커넥션을 [maxConnections]로 둔다. 그룹마다 하위 서비스 주소가 하나라 라우트도 하나여서 둘을 같게 둔다. */
+internal fun HttpComponentsClientHttpRequestFactoryBuilder.withMaxConnections(
+    maxConnections: Int,
+): HttpComponentsClientHttpRequestFactoryBuilder =
+    withConnectionManagerCustomizer { it.setMaxConnPerRoute(maxConnections).setMaxConnTotal(maxConnections) }

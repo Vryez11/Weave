@@ -86,3 +86,12 @@
 - 다음(2.3): HTTP 클라이언트의 그룹별 타임아웃·풀 크기 속성. Ralph로 넘긴다.
 ---
 
+
+## 2026-11-06 - 2.3 HTTP 클라이언트의 그룹별 타임아웃·풀 크기 속성 (Ralph)
+- `HttpClientProperties`(`@ConfigurationProperties("weave.http-client")`: `max-connections-per-route`, `connection-request-timeout`, `groups.<그룹>.max-connections`)를 새로 두고 `HttpClientConfig`가 켠다. `@Value` 읽기를 이 클래스로 바꿨다. 값은 넣지 않았다(main `application.yml` 그대로).
+- 커넥션 대기 상한은 `clientHttpRequestFactoryBuilder` Bean의 `withDefaultRequestConfigCustomizer`로 모든 그룹에 넣는다. 그룹별 풀 크기는 `ConnectionPoolMetrics`가 그룹마다 Bean 빌더에 `withMaxConnections`(HttpClientConfig.kt의 확장 함수)를 더해 덮는다. Bean 반환 타입을 `HttpComponentsClientHttpRequestFactoryBuilder`로 좁혔다.
+- Boot 그룹 설정의 `connect-timeout`·`read-timeout`은 이미 그룹 HttpClient에 들어간다는 것을 테스트로 확인했다(그룹마다 다른 값이 섞이지 않는다).
+- 확인: 새 `HttpClientBuilderSettingsTest`(단위 3) 통과, 새 `HttpClientGroupSettingsTest`(`Integration` 3), 기존 `HttpClientGroupTest`·`HttpClientPoolSizePropertyTest`·`HttpClientRetryDefaultsTest` 통과. `:feed-service:integrationTest` 실패 27개는 위 "정상인 실패"와 같다. `ktlintCheck`, `:feed-service:test`, `openspec validate` 통과.
+- 바꾼 파일: `feed-service/src/main/kotlin/com/weave/feed/client/HttpClientProperties.kt`(새 파일), `HttpClientConfig.kt`, `ConnectionPoolMetrics.kt`, 테스트 두 파일(새 파일), `feed-service/CLAUDE.md`, `tasks.md`, `progress.md`.
+- 다음(2.4): `IsolatedCalls`. 2.4 뒤 trace 테스트가 끊김으로 실패하는 것은 정상이고, 이름을 "끊김 재현"으로 적는다.
+---
