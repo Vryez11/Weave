@@ -295,3 +295,14 @@
 - 확인: `./gradlew :e2e:composeTest --continue`(5분 57초)에서 `ExperimentDashboardComposeScenarioTest` 통과, `ExperimentRunComposeScenarioTest` 10개·`ExperimentRunAllComposeScenarioTest`·프록시 2개·Loki·Tempo 2개도 모두 통과(실패 없음). `ktlintCheck :e2e:test`, `openspec validate --all --strict` 통과.
 - 다음 반복(6.7)이 알아 둘 것: 대시보드 주소는 `http://localhost:3000/d/weave-feed`(아키텍처 7-4). 6.7 확인의 `experiments/run.sh S-01 --rps 5 --warmup 5s --duration 20s`는 루트 `.env`가 없어 이 세션에서는 `COMPOSE_PROJECT_NAME=weave-compose-test COMPOSE_ENV_FILE=e2e/build/compose-test.env`로 Gradle init 스크립트에서 돌려야 한다(알아 둘 패턴 16·19).
 ---
+
+## 2026-11-06 - 6.7 명령과 구성을 문서에 적는다
+- 하네스 규칙: 5장에 "장애 실험 시나리오 하나"(`run.sh` 옵션, 하는 일, 리포트 위치, 종료 코드 0/1/2, `COMPOSE_*` 환경 변수)와 "장애 실험 세트"(`run-all.sh`, 시나리오 없이 0이면 통과) 줄. Compose 테스트 설명을 지금 범위로 고쳤다. 2-3의 "어느 시나리오든 SLO를 넘으면 merge하지 않는다"를 "기대(`expectations.json`)와 다르면"으로 고쳤다(design 결정 8과 맞춤). 맨 위 상태 줄도.
+- `CLAUDE.md`: 구조 표에 `experiments/`, `libs/fault-injection/`, 명령 표에 시나리오 하나·실험 세트, 로컬 인프라에 Toxiproxy, 필요한 호스트 도구.
+- 아키텍처: 3장 트리(`libs/fault-injection`, `e2e`, `compose.yaml`, S-01~S-09, S-10·S-11은 F-003), 2장 프록시 예를 별칭으로, 9장을 실제 구성으로 다시 썼다(9-1 자원 상한 표·Toxiproxy·Prometheus 5초·프록시 표, 9-2 장애 종류별 방법, 9-3 폴더 구조·시나리오 표·명령·판정·리포트 항목). 4-3과 13장은 7.3 몫이라 건드리지 않았다.
+- 브랜치 규칙: 맨 위에 "장애 실험 세트 통과" = `run-all.sh`가 시나리오 없이 0으로 끝남(단계 기대와 같음).
+- README: Compose 구성에 Toxiproxy, 주소 표에 대시보드·Toxiproxy API, "장애 실험" 절, 라이브러리 표에 `libs/fault-injection`.
+- 바꾼 파일: `CLAUDE.md`, `README.md`, `conventions/{harness,branch}.md`, `docs/architecture.md`, `tasks.md`
+- 확인: `./gradlew bootJar :e2e:composeTestEnv` 뒤 `docker compose -p weave-compose-test --env-file e2e/build/compose-test.env up -d --build --wait`, `e2e/build/tmp/runsh-s02.init.gradle`(`-Drunsh.args="S-01 --rps 5 --warmup 5s --duration 20s"`)로 문서의 명령을 돌려 **0 종료**(`S-01: SLO 충족, 기대와 같음`, 측정 요청 101, p99 105ms, 보내지 못한 요청 0). 끝나고 `down -v`. `openspec validate --all --strict` 통과. 문서만 바꿔 Gradle 검사는 영향이 없다(6.8에서 전체를 돌린다).
+- 다음 반복(6.8)이 알아 둘 것: `:e2e:composeTest`는 약 6분이다. 손으로 띄운 `weave-compose-test` 환경은 이번에 내려 두었다.
+---
