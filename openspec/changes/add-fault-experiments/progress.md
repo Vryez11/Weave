@@ -8,6 +8,7 @@
 - Spring 테스트에서 `/actuator/prometheus`를 보려면 `@AutoConfigureMetrics`가 있어야 한다(없으면 404).
 - 스펙 하나만 돌리기: `./gradlew :<모듈>:integrationTest -Pkotest.filter.specs='*<스펙 클래스>'`.
 - 실험 세트 스크립트의 인자·출력 형식은 e2e 테스트 KDoc이 기준이다: 시나리오 JSON과 `run-all.sh --list`는 `ExperimentScenarioDefinitionTest`, `lib/verdict.sh`는 `ExperimentVerdictScenarioTest`, `lib/windows.sh`(와 `slo.json` 형식)는 `ExperimentWindowsScenarioTest`.
+- e2e `Compose` 태그 테스트는 `integrationTest` 리포트에 skipped로 나온다(돌지는 않는다). "리포트에 없다"는 확인은 이것으로 본다.
 - 이 반복 세션에서는 `python3`, `docker`, `jq -f`, 셸 변수(`$x`)가 든 인자가 승인 없이 돌지 않는다. 일회용 생성이 필요하면 `./gradlew -I <빌드 폴더의 init 스크립트> help`로 Kotlin을 돌린다.
 
 ---
@@ -67,4 +68,16 @@
   - 6.1: 시나리오 `action`은 `latency`(`latencyMs`), `timeout`, `down`, `errorRate`(`errorRate`), `quota`(`windowSeconds`, `limitRatio`. 한도 = RPS × 창 × 비율), `clear`. `slo.json`은 `{"availability": 0.999, "p99Ms": 300}`.
   - 6.2: `--summary-export`에서 threshold 값 `true`가 "넘음(실패)"이라고 보고 픽스처를 만들었다(k6 summary-wrapper의 `!threshold.ok`). 실제 k6 실행 결과로 한 번 확인한다. 측정 구간 지표 키는 `http_req_duration{scenario:measure}`, `availability{scenario:measure}`처럼 `{scenario:measure}`가 붙어야 판정에 들어간다. 장애 요청에는 `kind: fault`, `action`, `target` 태그를, setup·teardown 되돌리기에는 `action: reset`을 붙인다.
   - 6.3: jq의 `fromdateiso8601`은 소수 초를 받지 않는다. 원본 시각은 소수 자릿수가 줄마다 다르고 없을 수도 있다(픽스처에 `01:01:03.5Z` 같은 줄이 있다). epoch 밀리초(약 1.8e12)는 double로 정확하지만 나노초는 아니다.
+---
+
+## 2026-11-06 - 1.7 프록시 경로와 대시보드 시나리오를 e2e `Compose` 태그 테스트로 옮긴다
+- `ProxyPathComposeScenarioTest`: "프록시에 지연을 넣는다"(recommendation에 latency 톡식 3,000ms → 3초 이상, 톡식 `DELETE` 뒤 1초 안에 200), "한 의존성의 프록시를 끊는다"(user `enabled:false` → 응답 `X-Trace-Id`의 `downstream_call_failed` 줄이 user만, 켜면 200). 테스트마다 앞뒤로 Toxiproxy `POST /reset`.
+- `ExperimentDashboardComposeScenarioTest`: GIVEN대로 `run.sh S-01 --rps 5 --warmup 5s --duration 20s`를 직접 돌리고(0 종료), Grafana `/api/search`에 uid `weave-feed`, 패널 질의(접힌 행 포함)의 시간 변수를 `5m`으로 바꿔 Prometheus `/api/v1/query`가 success·시계열 1개 이상. 리포트 자원·SLO 지표 이름 8개가 질의에 있는지도 본다.
+- 공통 도구 `ComposeEnvironment`(주소, `dockerCompose`, `experiment`). `composeTest`에 시스템 속성 6개를 더했다.
+- 바꾼 파일: `e2e/build.gradle.kts`, `e2e/src/test/kotlin/com/weave/e2e/{ComposeEnvironment,ProxyPathComposeScenarioTest,ExperimentDashboardComposeScenarioTest}.kt`, `e2e/CLAUDE.md`, `tasks.md`
+- 확인: `:e2e:compileTestKotlin`, 전체 `ktlintCheck compileKotlin compileTestKotlin test`, `openspec validate` 통과. `:e2e:integrationTest`에서 새 테스트 3개는 돌지 않는다. 다만 리포트에 **skipped**로 나온다(기존 `TraceLookupComposeScenarioTest`와 같은 Kotest 동작, e2e/CLAUDE.md). tasks의 "리포트에 없다"를 "돌지 않는다(skipped)"로 읽었다. `:e2e:composeTest`는 돌리지 않았다(Toxiproxy·대시보드가 아직 없다).
+- 다음 반복이 알아 둘 것:
+  - 5.1: Toxiproxy 프록시 **이름은 의존성 이름**(`post`, `user`, `like`, `recommendation`, `ad`)이어야 한다(테스트가 `/proxies/recommendation`을 부른다). 관리 API는 `127.0.0.1:8474`.
+  - 6.6: 대시보드 질의에는 시간 변수(`$__rate_interval`, `$__interval`, `$__range`) 말고 변수를 두지 않는다. 장애가 없는 S-01 뒤에도 모든 질의가 시계열을 돌려줘야 하므로, 실패율 질의는 분자가 비지 않게 쓴다(예: `sum by (client_name) (rate(...{outcome!="SUCCESS"}[..])) or ...`처럼 0을 채운다).
+  - 1.8: run.sh는 `ComposeEnvironment.experiment("run.sh", ..., timeout = ...)`로 돌리면 프로젝트·env 파일이 넘어간다. "환경이 떠 있지 않다"는 `environment = mapOf("COMPOSE_PROJECT_NAME" to "<없는 이름>")`으로 덮는다. SIGTERM이 필요하면 `ProcessBuilder`를 따로 쓴다(`experiment`는 끝날 때까지 기다린다).
 ---

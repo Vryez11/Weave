@@ -162,6 +162,13 @@ tasks.register<Test>("composeTest") {
     systemProperty("weave.compose.feed-url", "http://localhost:8080")
     systemProperty("weave.compose.loki-url", "http://localhost:3100")
     systemProperty("weave.compose.tempo-url", "http://localhost:3200")
+    // 실험 세트 테스트(ComposeEnvironment KDoc): Toxiproxy·Grafana·Prometheus 주소와, docker compose·run.sh에 넘길 프로젝트
+    systemProperty("weave.compose.toxiproxy-url", "http://localhost:8474")
+    systemProperty("weave.compose.grafana-url", "http://localhost:3000")
+    systemProperty("weave.compose.prometheus-url", "http://localhost:9090")
+    systemProperty("weave.compose.project", composeProject)
+    systemProperty("weave.compose.file", composeFile.asFile.absolutePath)
+    systemProperty("weave.compose.env-file", composeEnvFile.get().asFile.absolutePath)
     // 테스트 대상은 매번 새로 띄운 환경이라 입력이 같아도 다시 돌린다
     outputs.upToDateWhen { false }
     dependsOn(composeTestUp)

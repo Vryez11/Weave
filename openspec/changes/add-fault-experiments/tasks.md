@@ -29,7 +29,7 @@
   - "복구 시간", "복구하지 못함": 미리 만든 k6 원본 파일로 `experiments/lib/windows.sh`를 돌려 10초 구간 표와 복구 시간을 본다.
   - 스크립트의 인자와 출력(JSON) 형식은 이 작업에서 정해 테스트 KDoc에 적는다. 픽스처는 `e2e/src/test/resources/experiments/`에 둔다.
   - 확인: `./gradlew :e2e:integrationTest`가 새 테스트에서 실패하고, 기존 종단 간 테스트는 통과한다. `./gradlew :e2e:test`는 통과한다.
-- [ ] 1.7 프록시 경로와 대시보드 시나리오를 `e2e`의 `Compose` 태그 테스트로 옮긴다.
+- [x] 1.7 프록시 경로와 대시보드 시나리오를 `e2e`의 `Compose` 태그 테스트로 옮긴다.
   - "프록시에 지연을 넣는다", "한 의존성의 프록시를 끊는다": Toxiproxy API(`127.0.0.1:8474`)를 테스트가 직접 부른다. 하위 서비스 호출 실패 로그는 `docker compose logs feed-service`에서 읽는다. 끝나면 `POST /reset`으로 되돌린다.
   - "대시보드를 불러온다": Grafana `/api/search`와 `/api/dashboards/uid/weave-feed`, Prometheus `/api/v1/query`를 쓴다. 패널 질의의 시간 변수는 `5m`으로 바꿔 부른다.
   - 확인: `./gradlew :e2e:compileTestKotlin`이 통과하고, `./gradlew :e2e:test :e2e:integrationTest`에서 이 테스트가 돌지 않는다(테스트 리포트에 없다).
