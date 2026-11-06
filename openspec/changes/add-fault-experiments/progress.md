@@ -336,3 +336,9 @@
 - 8.1의 사람 확인 두 가지(`libs/fault-injection`과 코드 공유 규칙, Grafana에서 기준선 S-03 그래프)가 남았다.
 - PRD F-007 수용 기준 6개를 체크했다. "S-01~S-09마다 k6 스크립트"는 스크립트 하나(`k6/feed.js`)와 시나리오마다의 JSON(`scenarios/S-xx.json`)으로 만들었다(design 결정 5).
 ---
+
+## 2026-11-06 - 8.1 사람 확인, 8.2 완료 조건
+- Grafana 그래프 확인은 사람이 건너뛰기로 했다. 기준선 Compose 환경을 내려 Prometheus 시계열이 없고, 리포트의 자원 최댓값·평균과 지표 수집 비율 1(9개 모두)로 대신한다.
+- `libs/fault-injection`과 "하위 서비스끼리 코드를 공유하지 않는다": design 결정 2의 해석(실험 프로필에서만 켜지는 실험 도구이고 서비스 사이 계약에 끼지 않는다)대로 둔다.
+- 8.2(하네스 규칙 4장): tasks 모두 체크, 시나리오마다 테스트가 있고 통과, 자동 검사 로컬 통과(`ktlintCheck build`, `:e2e:composeTest`, `openspec validate`), 막는 지적 없음(1건은 6.14로 고침), 장애 실험 세트 결과는 7.3 기준선(`docs/experiments/baseline-mvp.md`, PR 설명에 판정 표), PRD F-007 수용 기준 체크.
+---
