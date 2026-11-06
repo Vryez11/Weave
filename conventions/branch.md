@@ -2,6 +2,8 @@
 
 `main`은 언제든 빌드·테스트·장애 실험 세트가 통과하는 상태로 두고, 개발은 `develop`에 모은다. OpenSpec change 하나는 브랜치 하나에서 구현한다.
 
+"장애 실험 세트 통과"는 Compose 환경에서 `experiments/run-all.sh`를 시나리오 없이 돌려 0으로 끝나는 것이다. 모든 시나리오가 SLO를 지킨다는 뜻이 아니라, 시나리오마다의 결과가 그 단계의 기대(`experiments/expectations.json`)와 같다는 뜻이다. 장애 대응 change는 자기가 고친 시나리오의 기대를 `meet`으로 바꾼다([하네스 규칙](harness.md) 5장).
+
 ## 브랜치
 
 | 브랜치 | 역할 | 어디서 만드나 | 어디로 합치나 |

@@ -112,7 +112,7 @@
   - 공급자 설정, `docker/grafana/dashboards/feed-experiments.json`(uid `weave-feed`), `compose.yaml`의 마운트
   - `docs/architecture.md` 7-4에 지금 있는 패널과, 서킷·벌크헤드·degrade 패널은 F-001·F-002에서 더한다는 것을 적는다.
   - 확인: 1.7의 "대시보드를 불러온다"가 `./gradlew :e2e:composeTest`로 통과한다.
-- [ ] 6.7 명령과 구성을 문서에 적는다(design 결정 14).
+- [x] 6.7 명령과 구성을 문서에 적는다(design 결정 14).
   - 하네스 규칙 5장과 `CLAUDE.md` 명령 표에 `experiments/run.sh`, `experiments/run-all.sh`(Compose 환경을 먼저 띄운다)
   - `docs/architecture.md` 3장, 9장(프록시 표, 장애 주입 방법, 명령, 리포트 항목), 브랜치 규칙의 "장애 실험 세트 통과"
   - README의 실행 방법
