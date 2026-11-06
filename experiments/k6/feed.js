@@ -13,7 +13,7 @@
 import http from 'k6/http';
 import exec from 'k6/execution';
 import { sleep } from 'k6';
-import { Counter, Rate } from 'k6/metrics';
+import { Counter, Rate, Trend } from 'k6/metrics';
 import { FaultSchedule, resetAll, sortByTime, validate } from './faults.js';
 import { missingSections } from './contract.js';
 
@@ -84,7 +84,7 @@ export const options = {
   },
   thresholds: {
     // 판정 기준은 slo.json(PRD 2장)뿐이다. 시나리오마다 바꾸지 않는다(design 결정 8)
-    [`http_req_duration{scenario:measure}`]: [`p(99)<${slo.p99Ms}`],
+    [`feed_latency{scenario:measure}`]: [`p(99)<${slo.p99Ms}`],
     [`availability{scenario:measure}`]: [`rate>=${slo.availability}`],
     // 측정 구간의 요청 수와 보내지 못한 요청 수를 요약에 남기려는 것이다. 늘 통과한다
     [`http_reqs{scenario:measure}`]: ['count>=0'],
@@ -96,6 +96,9 @@ export const options = {
 // 200을 받은 요청 비율. 200이 아닌 응답, 연결 실패, 요청 시간 초과는 실패다.
 // http_req_failed는 장애 요청(Toxiproxy·Actuator)도 섞이므로 피드 요청만 따로 센다
 const availability = new Rate('availability');
+// 피드 요청을 보내기 직전부터 끝난 직후까지의 경과 시간(밀리초). `status` 태그를 붙인다(0은 연결 실패·요청 시간 초과).
+// http_req_duration은 쓰지 않는다. 요청 시간 초과로 끝난 요청이 0으로 남을 수 있다(design 결정 5)
+const feedLatency = new Trend('feed_latency', true);
 // 응답에서 빠진 영역(contract.js). 의존성 이름을 `section` 태그로 붙인다
 const degraded = new Counter('degraded_sections');
 
@@ -107,7 +110,9 @@ export function setup() {
 
 export function feed() {
   const userId = config.userIds.min + Math.floor(Math.random() * (config.userIds.max - config.userIds.min + 1));
+  const sentAt = Date.now();
   const res = http.get(feedUrl, { headers: { 'X-User-Id': String(userId) }, timeout: requestTimeout });
+  feedLatency.add(Date.now() - sentAt, { status: String(res.status) });
   availability.add(res.status === 200);
   missingSections(res).forEach((section) => degraded.add(1, { section }));
 }

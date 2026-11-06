@@ -325,6 +325,8 @@ q_cpu="$(prom query_range "max(process_cpu_usage{$FEED})")" || prometheus_failed
 q_leased="$(prom query_range "sum by (httpclient) (httpcomponents_httpclient_pool_total_connections{$FEED,state=\"leased\"})")" || prometheus_failed=1
 q_pending="$(prom query_range "sum by (httpclient) (httpcomponents_httpclient_pool_total_pending{$FEED})")" || prometheus_failed=1
 q_circuit="$(prom query "max by (name, state) (max_over_time(resilience4j_circuitbreaker_state{$FEED}[$range]))")" || prometheus_failed=1
+# 측정 구간에 feed-service 지표를 긁은 비율. 1보다 작으면 자원 사용량은 긁힌 구간만의 값이다
+q_up="$(prom query_range "up{$FEED}")" || prometheus_failed=1
 
 commit="$(git -C "$root" rev-parse --short HEAD 2>/dev/null)" || commit="unknown"
 if [ "$commit" != unknown ] && [ -n "$(git -C "$root" status --porcelain 2>/dev/null)" ]; then
@@ -359,7 +361,8 @@ report="$(
     --argjson cpu "$q_cpu" \
     --argjson leased "$q_leased" \
     --argjson pending "$q_pending" \
-    --argjson circuit "$q_circuit" '
+    --argjson circuit "$q_circuit" \
+    --argjson up "$q_up" '
     def round_to($digits): pow(10; $digits) as $f | . * $f | round / $f;
     # Prometheus 값은 문자열이다. NaN·Inf는 null로 둔다
     def num: if type == "string" and test("^[-+]?[0-9]*\\.?[0-9]+([eE][-+]?[0-9]+)?$") then tonumber else null end;
@@ -378,7 +381,7 @@ report="$(
     | $summary[0].metrics as $m
     | ($m["http_reqs{scenario:measure}"].count // 0) as $requests
     | ($m["dropped_iterations{scenario:measure}"].count // 0) as $dropped
-    | ($m["http_req_duration{scenario:measure}"] // {}) as $latency
+    | ($m["feed_latency{scenario:measure}"] // {}) as $latency
     | ($m["availability{scenario:measure}"].passes // 0) as $ok
 
     | ($p99 | instant_by("client_name")) as $p99By
@@ -440,6 +443,12 @@ report="$(
                        end),
         grafanaUrl: $grafana,
         prometheusFailed: ($prometheusFailed == 1),
+        # 표본이 하나도 없으면(대상이 없다) 0이다
+        feedScrapeRatio: (if $up == null then null
+                          else [$up[]?.values[]?[1] | num | select(. != null)] as $v
+                            | if ($v | length) == 0 then 0
+                              else ([$v[] | select(. == 1)] | length) / ($v | length) | round_to(4) end
+                          end),
         faults: [range(0; $entries | length) as $i | $entries[$i] as $e
           | if $e.at >= $durationSeconds then
               {at: $e.at, action: $e.action, target: $e.target, injectedAtSeconds: null, removedAtSeconds: null, skipped: true}
@@ -487,6 +496,7 @@ jq -r '
     row(["측정 구간(UTC)", "\(.measure.startEpochMs | utc) ~ \(.measure.endEpochMs | utc)"]),
     row(["기대 결과", (if .expectation == "meet" then "SLO 충족(meet)" else "SLO 미충족(miss)" end)]),
     row(["Grafana", .grafanaUrl]),
+    row(["feed-service 지표 수집 비율", .feedScrapeRatio]),
     "",
     "## 피드",
     "",
@@ -519,6 +529,9 @@ jq -r '
     (.resources.connectionPools | to_entries[]
       | row(["커넥션 풀 \(.key) 사용 중", .value.leased.max, .value.leased.avg]),
         row(["커넥션 풀 \(.key) 대기", .value.pending.max, .value.pending.avg])),
+    (if .feedScrapeRatio != null and .feedScrapeRatio < 1
+     then ["", "측정 구간 중 Prometheus가 feed-service 지표를 긁지 못한 때가 있다(수집 비율 \(.feedScrapeRatio)). 위 값은 긁힌 구간만의 값이다."][]
+     else empty end),
     (if .prometheusFailed then ["", "Prometheus 질의 중 실패한 것이 있어 값 없음인 항목이 있다(표준 오류 출력 참고)."][] else empty end),
     "",
     "## 장애 시각 (측정 시작부터 잰 초)",

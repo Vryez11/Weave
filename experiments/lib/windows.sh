@@ -3,7 +3,9 @@
 #
 #   lib/windows.sh <k6 원본 파일(.json.gz)> <측정 시간(초)>
 #
-# - k6 원본은 `k6 run --out json`의 결과를 gzip한 파일이다. Point 줄 중 http_req_duration과 dropped_iterations만 읽는다.
+# - k6 원본은 `k6 run --out json`의 결과를 gzip한 파일이다. Point 줄 중 피드 요청의 feed_latency, 장애 요청(kind: fault)의
+#   http_req_duration, dropped_iterations만 읽는다. 피드 요청의 http_req_duration은 시간 초과된 요청이 0으로 남을 수 있어
+#   읽지 않는다(add-fault-experiments design 결정 5).
 # - 보낸 시각은 요청이면 data.time - data.value(k6는 끝난 시각에 점을 찍는다), 보내지 못한 요청이면 data.time이다.
 # - 측정 시작은 scenario가 measure인 요청 중 가장 이른 보낸 시각이다. 시각은 모두 이것부터 잰 초로 적는다.
 # - SLO는 experiments/slo.json에서 읽는다.
@@ -41,11 +43,13 @@ result="$(
       capture("^(?<s>[^.Z]+)(\\.(?<f>[0-9]+))?Z$")
       | ((.s + "Z") | fromdateiso8601) * 1000
         + (if .f == null then 0 else ((.f + "000000000")[0:9] | tonumber) / 1000000 end);
-    select(.type == "Point" and (.metric == "http_req_duration" or .metric == "dropped_iterations"))
+    select(.type == "Point"
+      and (.metric == "feed_latency" or .metric == "dropped_iterations"
+        or (.metric == "http_req_duration" and .data.tags.kind == "fault")))
     | .data as $d
     | ($d.time | epoch_ms) as $t
     | ($d.tags | {scenario, status, kind, action, target}) as $tags
-    | if .metric == "http_req_duration"
+    | if .metric != "dropped_iterations"
       then [$t - $d.value, "req", $d.value, $tags]
       else [$t, "dropped", $d.value, $tags]
       end
