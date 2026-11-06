@@ -87,7 +87,7 @@
   - 서비스마다 `deploy.resources.limits`(feed CPU 2·1GB, 하위 서비스 각 CPU 1·512MB, MySQL·Toxiproxy 각 CPU 1, 관찰 인프라 상한, k6 CPU 2·2GB)를 둔다.
   - `grafana/k6` 이미지(버전 고정)를 `profiles: [experiment]` 서비스로 두고 `experiments/`를 마운트한다.
   - 확인: `docker compose up -d --build --wait` 뒤 `docker compose ps`에서 k6 말고 모두 healthy(헬스 체크가 없는 이미지는 running)이고, `docker inspect`로 상한이 걸린 것을 본다. `docker compose run --rm k6 version`이 버전을 출력한다. 이 확인 명령을 progress.md에 적는다.
-- [ ] 5.3 Prometheus 수집 간격을 5초로 바꾼다(design 결정 10).
+- [x] 5.3 Prometheus 수집 간격을 5초로 바꾼다(design 결정 10).
   - 설정값 커밋이라 다른 변경과 섞지 않는다. 커밋 본문에 측정 5분의 표본 수(20 → 60)와 S-09의 10초 장애 계산을 적는다.
   - 확인: Compose 환경의 Prometheus `/api/v1/status/config`에서 `scrape_interval: 5s`가 보이고, `./gradlew :e2e:composeTest`가 통과한다.
 
