@@ -15,6 +15,7 @@
 - 라이브러리 클래스의 내부를 볼 때는 `javap -c -p`를 Gradle init 스크립트 안에서 `ProcessBuilder`로 돌려 파일로 남기고 Read로 읽는다(예: `feed-service/build/tmp/inspect4.init.gradle`). Gradle 9에는 `project.exec`가 없다. 파이프·`for`·`;` 뒤의 `grep`이 섞인 명령은 승인을 기다린다.
 - 이 세션에서 `docker compose`는 승인 없이 돈다(`docker ps`·`inspect`·`info`는 막힌다). 루트에 `.env`가 없으니 `docker compose -p weave-compose-test --env-file e2e/build/compose-test.env ...`로 부른다(env 파일은 `:e2e:composeTestEnv`가 만든다. 읽지 않는다). `docker inspect`가 필요하면 Gradle init 스크립트에서 `ProcessBuilder`로 돌린다(`build/tmp/inspect-limits.init.gradle`, 커밋하지 않음). `echo "$?"`처럼 셸 변수가 든 명령은 승인을 기다린다.
 - `experiments/config.json` 형식은 테스트가 정하지 않아 6.1에서 정했다: `{"rps": 200, "warmup": "1m", "duration": "5m", "requestTimeout": "5s", "userIds": {"min": 1, "max": 1000}}`. 키 이름은 `run.sh` 옵션(`--rps`, `--warmup`, `--duration`)과 같다. 시간은 k6 형식 문자열이다.
+- k6 스크립트(`experiments/k6/`)의 입력은 환경 변수 `SCENARIO`(필수), `RPS`, `WARMUP`, `DURATION`(없으면 `config.json`)이다. Compose에서 직접 돌리기: `docker compose -p weave-compose-test --env-file e2e/build/compose-test.env run --rm --user 501:20 -e SCENARIO=S-02 -e RPS=5 -e WARMUP=5s -e DURATION=20s k6 run --quiet --summary-export results/<폴더>/summary.json --out json=results/<폴더>/raw.json k6/feed.js`(작업 폴더 `/experiments`, 결과 폴더는 호스트에서 먼저 만든다). k6 종료 코드: 0 통과, 99 threshold 넘음, 107 스크립트 오류(시나리오 JSON 문법 오류 등, 요약 파일 없음), `exec.test.abort`(되돌리기 실패)는 문서상 108인데 직접 확인하지 않았다.
 - feed 통합 테스트에서 `HttpClientPools`(리플렉션 객체 그래프 순회)가 드물게 `ConcurrentModificationException`으로 실패한다(4.2에서 5번 중 1번, `HttpClientPoolSizePropertyTest`). 다시 돌리면 통과한다. 반복되면 사람에게 알린다(커밋된 테스트 도구라 Ralph가 고칠 수 없다).
 
 ---
@@ -235,4 +236,20 @@
 - 다음 반복(6.2)이 알아 둘 것:
   - `feed.js`는 `config.json`의 `requestTimeout`을 요청 `timeout`으로, `userIds.min`~`max`에서 `X-User-Id`를 고르게 뽑는다. 가상 사용자 수는 RPS × 시간 초과(초) × 1.1(design 결정 5)로 계산한다. 옵션 값은 run.sh가 k6 환경 변수로 넘기는 식이면 config 기본값을 덮을 수 있다.
   - `quota` 한도 = `floor(rps × windowSeconds × limitRatio)`. S-07의 기본 RPS 200이면 1,000, 스모크 5 RPS면 25.
+---
+
+## 2026-11-06 - 6.2 k6 스크립트
+- `experiments/k6/feed.js`: `config.json`·`slo.json`·`scenarios/<SCENARIO>.json`을 `open()`으로 읽는다. `warmup`(`gracefulStop: 0s`)·`measure`(`gracefulStop` = 요청 시간 초과 + 1초)는 `constant-arrival-rate`, 가상 사용자 = ceil(RPS × 5초 × 1.1)을 미리 다 만든다. `faults`는 가상 사용자 1명·1회, `maxDuration` = 측정 시간, 측정 시간 이상인 `at`은 넣지 않는다. threshold는 `{scenario:measure}` 태그로만(`http_req_duration` p99 < slo, `availability` Rate ≥ slo, 요약용 `http_reqs`·`dropped_iterations` `count>=0`). `summaryTrendStats`에 p(50)·p(95)·p(99). 요청은 `GET /feed`, `X-User-Id` 1~1,000 고르게, 요청 `timeout` = `requestTimeout`.
+- `experiments/k6/faults.js`(새 공통 모듈): 동작별 요청(`latency`·`timeout`은 톡식 `weave_latency`·`weave_timeout`, downstream / `down`은 프록시 `enabled:false` / `errorRate`·`quota`는 Actuator), `clear`는 그 의존성에 넣은 장애를 반대 순서로 되돌린다(장애 하나에 요청 하나). `validate`가 init에서 시간표(시각, 의존성, 동작, 넣은 것 없는 `clear`)를 본다. `resetAll()`: Toxiproxy `POST /reset`(`target: all`) + 하위 서비스 5개 `DELETE /actuator/faults` + ad `DELETE /actuator/quota`, 모두 `kind: fault, action: reset`. 하나라도 2xx가 아니면 false.
+- `experiments/k6/contract.js`: `missingSections(res)`가 늘 빈 배열(MVP는 부분 응답 없음). feed.js가 `degraded_sections{section}`에 센다. `experiments/k6/reset.js`: `resetAll()`만, 실패하면 `exec.test.abort`.
+- 바꾼 파일: `experiments/k6/{feed,faults,contract,reset}.js`, `tasks.md`
+- 확인(Compose 환경 `./gradlew bootJar :e2e:composeTestEnv` 뒤 `docker compose -p weave-compose-test --env-file e2e/build/compose-test.env up -d --build --wait`, 끝나고 `down -v`):
+  - `... run --rm k6 run --quiet --summary-mode=disabled k6/reset.js` → 0
+  - `... run --rm --user 501:20 -e SCENARIO=S-02 -e RPS=5 -e WARMUP=5s -e DURATION=20s k6 run --quiet --summary-export results/manual-6.2/summary.json --out json=results/manual-6.2/raw.json k6/feed.js` → 99(threshold 넘음). 요약 `http_reqs{scenario:measure}` 101, `http_req_duration{scenario:measure}` p(50) 3,029ms·p(99) 3,057ms, `availability` 101/101, `dropped_iterations` 0, `vus_max` 29. 요약에서 넘은 threshold가 `true`(1.6 픽스처의 가정이 맞다). 끝난 뒤 `curl 127.0.0.1:8474/proxies` → 5개 모두 `enabled:true`, `toxics:[]`.
+  - 임시 시나리오(커밋하지 않고 지움)로 다섯 동작을 0초에 넣고 3초에 `clear` → 넣기 200, 거두기 200/204, 거둔 뒤 피드 200. 측정 시간 밖의 항목은 요청이 없었다. 문법 오류 시나리오 JSON → 107, 요약 파일 없음.
+  - `./gradlew ktlintCheck compileKotlin compileTestKotlin test`, `openspec validate --all --strict` 통과.
+- 다음 반복이 알아 둘 것:
+  - 6.3: 실제 원본의 시각은 나노초 9자리(`04:18:47.448429258Z`)다. setup·teardown 점에는 `scenario` 태그가 없고 `group`이 `::setup`/`::teardown`이다. 되돌리기 요청은 7개(`all`, 서비스 5개, ad 한도)이고 ad는 `target: ad`가 두 번 나온다(`name` 태그 URL로 구분).
+  - 6.4: run.sh는 `-e SCENARIO -e RPS -e WARMUP -e DURATION`과 `--user <id -u>:<id -g>`를 넘긴다. 결과 폴더는 k6 실행 전에 호스트에서 만든다. 리포트의 `faults`는 원본의 장애 요청이 시간표 항목마다 하나씩이라(clear도 넣은 장애마다 하나) 순서대로 짝지으면 된다.
+  - 가용성 threshold(`availability` Rate)는 보낸 요청만 센다. 보내지 못한 요청을 분모에 넣는 가용성(스펙 "가용성 계산")은 리포트(6.4)가 요약의 `passes`와 `dropped_iterations{scenario:measure}`로 계산한다. 보내지 못한 요청이 있으면 판정(threshold)과 리포트 가용성이 어긋날 수 있다. 7.1은 보내지 못한 요청 0을 조건으로 하므로 기준선에는 영향이 없지만, 8.1 검토에서 짚을 거리다.
 ---
