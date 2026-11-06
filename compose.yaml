@@ -188,10 +188,13 @@ services:
       # 스크립트·시나리오를 읽고 results/에 결과를 쓴다
       - ./experiments:/experiments
     working_dir: /experiments
+    environment:
+      # k6 원본의 시각을 Z로 끝나는 UTC로 남긴다. lib/windows.sh가 이 형식만 읽는다
+      TZ: UTC
     deploy:
       resources:
-        # 가상 사용자 1,100(design 결정 5)을 돌려도 부하 도구가 병목이 되지 않을 크기.
-        # S-01에서 보내지 못한 요청이 0인지로 확인한다(결정 12)
+        # 실험 RPS 400의 가상 사용자 2,200(design 결정 5: RPS × 5초 × 1.1)을 돌려도 부하 도구가 병목이 되지 않을 크기.
+        # 기준선에서 2,200이 모두 바쁜 S-02·S-03까지 보내지 못한 요청이 0이었다(docs/experiments/baseline-mvp.md)
         limits:
           cpus: "2"
           memory: 2G
