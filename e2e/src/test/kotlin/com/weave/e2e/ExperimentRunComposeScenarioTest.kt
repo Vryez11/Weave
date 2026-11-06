@@ -27,7 +27,8 @@ import kotlin.time.Duration.Companion.minutes
 /**
  * `fault-experiments` 스펙 중 `experiments/run.sh`의 시나리오 (F-007).
  * "짧게 돌린다", "없는 시나리오", "환경이 떠 있지 않다", "앞에 남은 장애", "정상 종료 뒤", "중간에 멈춘다",
- * "준비 구간은 세지 않는다", "모든 요청이 실패한다", "리포트 항목", "부하 도구가 실패한다".
+ * "준비 구간은 세지 않는다", "모든 요청이 실패한다", "시간 초과된 요청", "리포트 항목", "부하 도구가 실패한다",
+ * "Tomcat 스레드가 모두 묶여도 긁힌다"(feed-service의 실험 지표).
  *
  * `:e2e:composeTest`가 띄운 환경에서 `run.sh`를 프로세스로 돌린다(design 결정 13). 결과 폴더와 장애 상태를 보는 법은 [ExperimentRuns] KDoc.
  *
@@ -48,11 +49,11 @@ import kotlin.time.Duration.Companion.minutes
  *   "measure": { "startEpochMs": 1793926810000, "endEpochMs": 1793926830000 },
  *   "requests": 100,                     // measure의 http_reqs
  *   "dropped": 0,                        // measure의 dropped_iterations
- *   "latencyMs": { "p50": 3012.1, "p95": 3020.4, "p99": 3031.0 },  // 실패한 요청 포함
+ *   "latencyMs": { "p50": 3012.1, "p95": 3020.4, "p99": 3031.0 },  // measure의 feed_latency(요청 앞뒤 경과 시간). 실패한 요청 포함
  *   "availability": 0.0,                 // 200 수 ÷ (requests + dropped)
  *   "sloMet": false, "expectation": "miss", "matchesExpectation": true,
  *   "verdict": "SLO 미충족, 기대와 같음",  // lib/verdict.sh의 출력 그대로(ExperimentVerdictScenarioTest)
- *   "failedThresholds": ["http_req_duration{scenario:measure}: p(99)<300"],
+ *   "failedThresholds": ["feed_latency{scenario:measure}: p(99)<300"],
  *   "dependencies": {                    // 의존성 5개 모두
  *     "post": { "p99Ms": 48.2, "failureRate": 0.0, "requestRatio": 1.0 }, ...
  *   },
@@ -66,6 +67,7 @@ import kotlin.time.Duration.Companion.minutes
  *   "degradeRatio": "없음",              // 이후 단계(F-002)가 값을 채운다
  *   "circuitState": "없음",              // 이후 단계(F-001)가 값을 채운다
  *   "grafanaUrl": "http://localhost:3000/d/weave-feed?from=1793926810000&to=1793926830000",
+ *   "feedScrapeRatio": 1.0,              // 측정 구간 up{feed-service} 표본 중 1인 비율. 질의가 실패하면 null
  *   "faults": [                          // 시나리오 JSON의 장애 중 clear가 아닌 항목마다
  *     { "at": 0, "action": "latency", "target": "recommendation",
  *       "injectedAtSeconds": 0.012, "removedAtSeconds": 20.03, "skipped": false }
@@ -199,6 +201,7 @@ class ExperimentRunComposeScenarioTest :
 
                 report["windows"].asList() shouldHaveSize 2
                 report["recovery"].shouldBeNull()
+                report["feedScrapeRatio"].asDouble() shouldBeInRangeOf 0.0..1.0
             }
             withClue("report.md") {
                 val markdown = folder.resolve("report.md").readText()
@@ -290,6 +293,28 @@ class ExperimentRunComposeScenarioTest :
                 report["availability"].asDouble() shouldBe (0.0 plusOrMinus 1e-9)
                 val latency = report["latencyMs"].asMap()
                 listOf("p50", "p95", "p99").forEach { latency[it].asDouble() shouldBeGreaterThan 0.0 }
+            }
+            ExperimentRuns.shouldBeClean()
+        }
+
+        // S-03 60 RPS 실행 하나를 "시간 초과된 요청"과 "Tomcat 스레드가 모두 묶여도 긁힌다"가 함께 본다.
+        // 동시 요청 60 × 5초 = 300개가 Tomcat 최대 스레드 200을 넘는다
+        val saturatedS03 by lazy { run("S-03", "--rps", "60", "--warmup", "5s", "--duration", "20s") }
+
+        test("F-007 시간 초과된 요청: recommendation이 응답하지 않는 S-03을 60 RPS로 돌리면 지연 p50은 4,500ms 이상이다") {
+            val (result, folder) = saturatedS03
+            val report = ExperimentRuns.report(folder)
+            withClue("$result\nreport.json: $report") {
+                report["latencyMs"].asMap()["p50"].asDouble() shouldBeGreaterThanOrEqualTo 4500.0
+            }
+        }
+
+        test("F-007 Tomcat 스레드가 모두 묶여도 긁힌다: S-03 60 RPS 실행의 feed-service 지표 수집 비율은 1이고 Tomcat 사용 중 스레드 최댓값은 200이다") {
+            val (result, folder) = saturatedS03
+            val report = ExperimentRuns.report(folder)
+            withClue("$result\nreport.json: $report") {
+                report["feedScrapeRatio"].asDouble() shouldBe (1.0 plusOrMinus 1e-9)
+                report["resources"].asMap()["tomcatBusyThreads"].asMap()["max"].asDouble() shouldBe 200.0
             }
             ExperimentRuns.shouldBeClean()
         }

@@ -16,7 +16,7 @@
       "p(95)": 72.4,
       "p(99)": 104.8
     },
-    "http_req_duration{scenario:warmup}": {
+    "feed_latency{scenario:warmup}": {
       "avg": 63.0,
       "min": 19.1,
       "med": 41.2,
@@ -28,7 +28,7 @@
         "p(99)<100": true
       }
     },
-    "http_req_duration{scenario:measure}": {
+    "feed_latency{scenario:measure}": {
       "avg": 40.9,
       "min": 18.2,
       "med": 37.5,

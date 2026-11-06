@@ -29,7 +29,7 @@ import tools.jackson.module.kotlin.readValue
  *   "expectation": "miss",
  *   "matchesExpectation": true,
  *   "verdict": "SLO 미충족, 기대와 같음",
- *   "failedThresholds": ["http_req_duration{scenario:measure}: p(99)<300"]
+ *   "failedThresholds": ["feed_latency{scenario:measure}: p(99)<300"]
  * }
  * ```
  * - `verdict`: `SLO 충족` 또는 `SLO 미충족`, 그리고 `기대와 같음` 또는 `기대와 다름`을 `, `로 잇는다. 리포트에 그대로 싣는다.
@@ -61,7 +61,7 @@ class ExperimentVerdictScenarioTest :
                 output["expectation"] shouldBe "miss"
                 output["matchesExpectation"] shouldBe true
                 output["verdict"] shouldBe "SLO 미충족, 기대와 같음"
-                (output["failedThresholds"] as List<*>) shouldContainExactly listOf("http_req_duration{scenario:measure}: p(99)<300")
+                (output["failedThresholds"] as List<*>) shouldContainExactly listOf("feed_latency{scenario:measure}: p(99)<300")
                 result.exitCode shouldBe 0
             }
         }
@@ -73,7 +73,7 @@ class ExperimentVerdictScenarioTest :
                 output["expectation"] shouldBe "meet"
                 output["matchesExpectation"] shouldBe false
                 output["verdict"] shouldBe "SLO 미충족, 기대와 다름"
-                (output["failedThresholds"] as List<*>) shouldContainExactly listOf("http_req_duration{scenario:measure}: p(99)<300")
+                (output["failedThresholds"] as List<*>) shouldContainExactly listOf("feed_latency{scenario:measure}: p(99)<300")
                 result.exitCode shouldBe 1
             }
         }

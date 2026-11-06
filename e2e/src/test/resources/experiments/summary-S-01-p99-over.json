@@ -16,7 +16,7 @@
       "p(95)": 241.7,
       "p(99)": 447.9
     },
-    "http_req_duration{scenario:measure}": {
+    "feed_latency{scenario:measure}": {
       "avg": 90.1,
       "min": 20.3,
       "med": 62.4,

@@ -20,7 +20,10 @@ import tools.jackson.module.kotlin.readValue
  *
  * **명령:** `experiments/lib/windows.sh <k6 원본 파일> <측정 시간(초)>`
  * - k6 원본 파일: `k6 run --out json`의 결과를 gzip한 파일(run.sh가 끝나면 gzip한다). 한 줄에 JSON 하나다.
- *   `"type":"Point"`인 줄 중 `http_req_duration`과 `dropped_iterations`만 읽고 나머지 줄은 건너뛴다.
+ *   `"type":"Point"`인 줄 중 피드 요청의 `feed_latency`(k6/feed.js가 요청 앞뒤 경과 시간으로 남긴다. `status` 태그가 있다),
+ *   장애 요청(`kind: fault`)의 `http_req_duration`, `dropped_iterations`만 읽고 나머지 줄은 건너뛴다.
+ *   피드 요청의 `http_req_duration`은 읽지 않는다. 시간 초과된 요청이 0으로 남을 수 있다(add-fault-experiments design 결정 5).
+ *   픽스처에는 k6처럼 두 점이 다 있고, 시간 초과된 요청(`status` 0)의 `http_req_duration`은 0이다.
  *   점의 `data.time`은 RFC 3339(UTC, 소수 자릿수가 줄마다 다르고 없을 수도 있다), `data.value`는 밀리초다.
  * - 보낸 시각: 요청은 `data.time - data.value`(k6는 요청이 끝난 시각에 점을 찍는다), 보내지 못한 요청은 `data.time`
  * - 측정 시작: `scenario`가 `measure`인 요청 중 가장 이른 보낸 시각. 시각은 모두 이것부터 잰 초로 적는다

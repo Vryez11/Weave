@@ -246,7 +246,7 @@ object ExperimentRuns {
         override fun toString(): String = "표준 출력:\n${stdout.readText()}\n표준 오류:\n${stderr.readText()}"
     }
 
-    /** k6 원본(`raw.json`)에 측정 구간 요청(`http_req_duration`, `scenario: measure`)의 점이 있다. */
+    /** k6 원본(`raw.json`)에 측정 구간 피드 요청(`feed_latency`, `scenario: measure`)의 점이 있다. */
     fun hasMeasureRequest(raw: Path): Boolean {
         if (!raw.exists()) return false
         return Files.newBufferedReader(raw).useLines { lines ->
@@ -255,7 +255,7 @@ object ExperimentRuns {
 
                 @Suppress("UNCHECKED_CAST")
                 val tags = (point["data"] as? Map<String, Any?>)?.get("tags") as? Map<String, Any?>
-                point["type"] == "Point" && point["metric"] == "http_req_duration" && tags?.get("scenario") == "measure"
+                point["type"] == "Point" && point["metric"] == "feed_latency" && tags?.get("scenario") == "measure"
             }
         }
     }

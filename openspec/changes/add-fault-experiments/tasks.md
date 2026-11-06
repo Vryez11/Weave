@@ -123,7 +123,7 @@
 
 7.3의 첫 기준선 실행(400 RPS)에서 S-02·S-03·S-08의 리포트 값이 실제와 달랐다. 고친 뒤 7.3을 다시 돈다(design 결정 5, 7, 10, 11).
 
-- [ ] 6.9 결함을 드러내는 시나리오를 테스트로 먼저 옮긴다.
+- [x] 6.9 결함을 드러내는 시나리오를 테스트로 먼저 옮긴다.
   - `ExperimentRunComposeScenarioTest`: "시간 초과된 요청", "Tomcat 스레드가 모두 묶여도 긁힌다"(같은 S-03 60 RPS 실행 하나로), "리포트 항목"의 수집 비율. KDoc의 `report.json` 형식에 `feedScrapeRatio`와 `feed_latency`를 적는다.
   - k6 원본·요약 픽스처와 `ExperimentRuns.hasMeasureRequest`, `ExperimentWindowsScenarioTest`, `ExperimentVerdictScenarioTest`를 `feed_latency`로 바꾼다.
   - 확인: 새 테스트와 바꾼 테스트가 지금 코드에서 실패한다.
