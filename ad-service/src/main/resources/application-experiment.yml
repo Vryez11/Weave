@@ -1,0 +1,10 @@
+# 장애 실험 환경에서만 앱 수준 장애 주입과 faults 엔드포인트를 켠다(add-fault-experiments design 결정 2)
+weave:
+  fault-injection:
+    enabled: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,faults

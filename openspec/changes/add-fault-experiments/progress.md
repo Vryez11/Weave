@@ -123,3 +123,11 @@
   - Boot 4 actuator에는 `@OptionalParameter`가 없다. 선택 인자는 Kotlin `Double?`로 충분하다.
   - main의 `.gitkeep`은 이번에도 `git rm`이 승인 없이 돌지 않아 남겼다.
 ---
+
+## 2026-11-06 - 2.3 하위 서비스 5개에 장애 주입을 붙인다
+- 다섯 서비스의 `build.gradle.kts`에 `implementation(project(":libs:fault-injection"))`를, `src/main/resources/application-experiment.yml`에 `weave.fault-injection.enabled: true`와 노출 목록 `health,info,prometheus,faults`를 뒀다(ad도 아직 `quota` 없음).
+- `docs/architecture.md` 11장 표에 "실험 전용 설정" 줄(파일 위치, 두는 것, ad의 `quota`, 라이브러리가 프로필 파일을 싣지 않는 이유)을 더했다.
+- 바꾼 파일: `{post,user,like,recommendation,ad}-service/build.gradle.kts`, `{post,user,like,recommendation,ad}-service/src/main/resources/application-experiment.yml`, `docs/architecture.md`, `tasks.md`
+- 확인: `./gradlew integrationTest --continue`에서 1.3의 하위 서비스 5개·feed 테스트 통과. 실패는 1.4(`AdQuotaScenarioTest` 6), 1.5(`FeedExperimentMetricsScenarioTest` 12), 1.6(e2e 9)뿐. 기존 e2e 종단 간 테스트는 통과(프로필 없이 뜬다). `ktlintCheck compileKotlin compileTestKotlin test`, `openspec validate` 통과.
+- 다음 반복(3.1)이 알아 둘 것: ad의 `application-experiment.yml` 노출 목록 끝에 `quota`를 더하고, 한도 엔드포인트를 켜는 속성도 같은 파일에 둔다. 노출 목록은 `libs/observability`의 `observability-defaults.properties`(`health,info,prometheus`)를 프로필 파일이 덮는 방식이다.
+---

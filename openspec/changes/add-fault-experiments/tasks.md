@@ -50,7 +50,7 @@
   - `weave.fault-injection.enabled`가 true일 때만 등록한다. 기본값(중앙값 20ms, p99 50ms, 에러율 0)은 속성 클래스에 둔다.
   - 필터는 `/actuator`, `/actuator/`로 시작하는 경로를 건너뛰고, `libs/observability`의 추적·요청 로그 필터 뒤에 둔다.
   - 확인: 1.2의 시나리오가 모두 `./gradlew :libs:fault-injection:integrationTest`로 통과한다. 넣은 500 응답의 요청 완료 로그에 `traceId`가 있는지 테스트 하나를 더한다.
-- [ ] 2.3 하위 서비스 5개에 장애 주입을 붙인다.
+- [x] 2.3 하위 서비스 5개에 장애 주입을 붙인다.
   - 다섯 서비스의 `build.gradle.kts`에 의존성을, `src/main/resources/application-experiment.yml`에 `weave.fault-injection.enabled: true`와 노출 목록(`health,info,prometheus,faults`)을 둔다. ad-service는 3.1에서 `quota`를 더한다.
   - `docs/architecture.md` 11장에 `application-experiment.yml`에 두는 것을 적는다.
   - 확인: 1.3의 테스트가 모두 통과하고 `./gradlew test integrationTest`가 1.4~1.6의 아직 구현하지 않은 시나리오 말고는 통과한다.
