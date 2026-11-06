@@ -278,3 +278,11 @@
   - run.sh 하나가 짧은 옵션에서 약 40초(되돌리기·재시작 약 10초, 부하 25초, Prometheus 기다림 약 6초)다.
   - 이 반복에서 쓴 일회용 init 스크립트(`e2e/build/tmp/runsh-{check,s02,term}.init.gradle`, 커밋하지 않음)는 run.sh를 Compose 환경(`weave-compose-test`)에 직접 돌린다. 쓰고 나면 `docker compose -p weave-compose-test --env-file e2e/build/compose-test.env down -v`로 내린다(composeTest가 먼저 내리긴 한다).
 ---
+
+## 2026-11-06 - 6.5 `experiments/run-all.sh`
+- 앞 반복이 `run-all.sh`와 `experiments/CLAUDE.md` 한 줄을 써 두고 확인 중에 끊겨 커밋하지 못했다(composeTest 로그가 테스트 전에 끝나 있었다). 이번 반복은 그 내용을 검토하고 확인만 다시 돌렸다. 스크립트는 고치지 않았다.
+- 동작: 인자(`--rps`·`--warmup`·`--duration`은 값만 확인하고 run.sh에 그대로 넘김, 없는 ID는 목록과 함께 2) → `--list`면 목록만 → 시나리오마다 run.sh를 백그라운드로 띄워 `wait`(신호를 받으면 run.sh에 TERM을 보내고 끝날 때까지 다시 `wait`) → `리포트:` 줄로 결과 폴더를 찾아 `report.json`의 `sloMet`·`expectation`·`matchesExpectation`으로 표 줄 → 끝까지 돈 뒤 표준 출력에 표만. 종료 코드는 가장 나쁜 것(0 같음, 1 다름, 2 실행하지 못함·중단).
+- 바꾼 파일: `experiments/run-all.sh`(100755), `experiments/CLAUDE.md`(스크립트가 스크립트를 부를 때의 신호 전달), `tasks.md`
+- 확인: `:e2e:integrationTest`에서 "기본 목록" 포함 모두 통과. `:e2e:composeTest --continue`(5분 58초)에서 `ExperimentRunAllComposeScenarioTest` 통과(80초), `ExperimentRunComposeScenarioTest` 10개·프록시 2개·Loki·Tempo 2개 통과. 실패는 `ExperimentDashboardComposeScenarioTest` 하나(Grafana 검색 응답 `[]`, 6.6 몫). 일회용 `e2e/build/tmp/runall-check.init.gradle`로 bash 3.2.57에서 `-n`, `--list`, `--list S-03 S-01`, `S-99`(2), `--bogus`(2), 값 없는 `--rps`(2), 없는 Compose 프로젝트(두 줄 모두 `실행하지 못함`, 2)를 봤다. `ktlintCheck :e2e:test`, `openspec validate` 통과.
+- 다음 반복(6.6)이 알아 둘 것: 대시보드 테스트는 run.sh S-01을 먼저 돌린다(지금 통과). 남은 것은 Grafana 공급자 설정·대시보드 JSON·마운트뿐이다. 질의 규칙은 1.7 메모(시간 변수만, 장애 없는 S-01에서도 시계열이 나오게)와 4.2 결정(커넥션 풀은 `httpcomponents_httpclient_pool_total_connections{state=...}`)을 따른다.
+---
