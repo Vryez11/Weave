@@ -1,5 +1,6 @@
 package com.weave.feed.gateway
 
+import io.github.resilience4j.bulkhead.BulkheadRegistry
 import io.github.resilience4j.bulkhead.ThreadPoolBulkhead
 import io.github.resilience4j.bulkhead.ThreadPoolBulkheadRegistry
 import io.github.resilience4j.circuitbreaker.CircuitBreaker
@@ -30,12 +31,15 @@ import java.util.function.Supplier
  *
  * 벌크헤드 거절 수는 Resilience4j 지표에 없어 `weave.bulkhead.rejected.calls`(태그 `name`)로 센다. 대시보드 질의가 장애 없이도
  * 시계열을 받게 의존성마다 0부터 등록한다(design Open Questions).
+ *
+ * 요청 스레드에서 동기로 부르는 호출(좋아요 토글)은 [callBlocking]으로 부른다(design 결정 6).
  */
 @Component
 class IsolatedCalls(
     circuitBreakers: CircuitBreakerRegistry,
     timeLimiters: TimeLimiterRegistry,
     bulkheads: ThreadPoolBulkheadRegistry,
+    semaphoreBulkheads: BulkheadRegistry,
     meterRegistry: MeterRegistry,
 ) : DisposableBean {
     private val timeoutScheduler =
@@ -51,6 +55,10 @@ class IsolatedCalls(
                 bulkheads.bulkhead(dependency),
             )
         }
+
+    private val circuitBreakers = isolations.mapValues { (_, isolation) -> isolation.circuitBreaker }
+
+    private val blockingBulkheads = BLOCKING_BULKHEADS.associateWith { semaphoreBulkheads.bulkhead(it) }
 
     init {
         isolations.forEach { (dependency, isolation) ->
@@ -98,6 +106,25 @@ class IsolatedCalls(
         return result
     }
 
+    /**
+     * [dependency]의 서킷 브레이커 → Semaphore 벌크헤드 [bulkhead] → [block] 순서로 부른 스레드에서 바로 부른다(design 결정 6).
+     *
+     * 호출 시간 상한은 걸지 않는다. 동기 호출에 상한을 걸려면 다른 스레드로 넘겨야 하고, 그룹의 응답 타임아웃이 같은 역할을 한다.
+     * 벌크헤드는 기다리지 않고 거절한다. 실패하면 [call]과 같은 실패 로그를 한 줄 남기고 실패를 그대로 던진다.
+     */
+    fun <T> callBlocking(
+        dependency: String,
+        bulkhead: String,
+        block: () -> T,
+    ): T =
+        try {
+            val semaphore = blockingBulkheads.getValue(bulkhead)
+            circuitBreakers.getValue(dependency).executeSupplier { semaphore.executeSupplier(block) }
+        } catch (e: Exception) {
+            DownstreamFailure.log(dependency, e)
+            throw e
+        }
+
     override fun destroy() {
         timeoutScheduler.shutdownNow()
     }
@@ -111,6 +138,12 @@ class IsolatedCalls(
     companion object {
         /** 격리하는 의존성. HTTP 서비스 그룹 이름, Resilience4j 인스턴스 이름과 같다. */
         val DEPENDENCIES = listOf("post", "user", "like", "recommendation", "ad")
+
+        /** 좋아요 토글의 Semaphore 벌크헤드 이름. 읽기 벌크헤드(`like`)와 자리를 나눈다(design 결정 6). */
+        const val LIKE_TOGGLE = "like-toggle"
+
+        /** [callBlocking]이 쓰는 Semaphore 벌크헤드. `resilience4j.bulkhead.instances`의 이름이다. */
+        val BLOCKING_BULKHEADS = listOf(LIKE_TOGGLE)
     }
 }
 

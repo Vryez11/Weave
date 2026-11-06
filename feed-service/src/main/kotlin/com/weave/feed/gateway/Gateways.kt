@@ -18,7 +18,7 @@ import java.util.concurrent.CompletableFuture
  * 의존성마다 하나씩 두는 Gateway Bean (design 결정 2, 아키텍처 5-2).
  *
  * 조회 메서드는 [IsolatedCalls]로만 하위 서비스를 부른다(add-call-isolation design 결정 1). 서킷 브레이커, 호출 시간 상한,
- * 의존성별 벌크헤드와 실패 로그는 그쪽이 맡고, Gateway는 의존성 이름과 부를 함수만 넘긴다.
+ * 의존성별 벌크헤드와 실패 로그는 그쪽이 맡고, Gateway는 의존성 이름과 부를 함수만 넘긴다. 좋아요 토글도 [IsolatedCalls.callBlocking]을 거친다.
  */
 
 @Component
@@ -47,17 +47,11 @@ class LikeGateway(
         postIds: List<Long>,
     ): CompletableFuture<List<LikeResponse>> = isolated.call("like") { client.getLikes(userId, postIds).likes }
 
-    /** 토글은 병렬로 부를 것이 없어 요청 스레드에서 바로 부른다. */
+    /** 토글은 병렬로 부를 것이 없어 요청 스레드에서 바로 부른다. 조회와 같은 `like` 서킷을 거친다(design 결정 6). */
     fun toggle(
         userId: Long,
         postId: Long,
-    ): ToggleResponse =
-        try {
-            client.toggle(userId, postId)
-        } catch (e: Exception) {
-            DownstreamFailure.log("like", e)
-            throw e
-        }
+    ): ToggleResponse = isolated.callBlocking("like", IsolatedCalls.LIKE_TOGGLE) { client.toggle(userId, postId) }
 }
 
 @Component

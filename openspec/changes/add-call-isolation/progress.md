@@ -20,6 +20,7 @@
 - 서킷 기본 설정(`resilience4j.circuitbreaker.configs.default`)에 `record-failure-predicate: CircuitFailurePredicate`와 `ignore-exceptions: BulkheadFullException`이 있다. 인스턴스는 `base-config: default`로 이어진다. 2.7의 토글도 같은 `like` 서킷이라 이 판정을 그대로 쓴다.
 - `io.micrometer:context-propagation`은 2.5에서 feed-service `build.gradle.kts`에 명시했다(BOM이 버전을 정한다).
 - 벌크헤드 스레드는 Resilience4j 전파기의 `clear`를 마친 뒤 결과 future를 끝낸다. 그래서 `thenCompose`로 이어 붙인 일은 문맥이 없다. `IsolatedCalls.call`이 부른 스레드의 스냅샷(`traceContexts.captureAll()`)을 펼친 채로 결과를 끝내 잇는다(2.5). 2.6에서 `FeedAssembler`가 future를 다른 스레드에서 끝내거나 2.9의 Semaphore 경로를 더할 때도 이 점을 지킨다.
+- `IsolatedCalls`는 `BulkheadRegistry`(Semaphore)도 받는다(2.7). 토글의 `like-toggle`은 `BLOCKING_BULKHEADS`로 시작할 때 꺼낸다. 2.9의 Semaphore 모드는 같은 레지스트리에서 의존성 다섯의 Semaphore 벌크헤드를 꺼내면 되고, `application.yml`의 `resilience4j.bulkhead.configs.default`(`max-wait-duration: 0`)에 `instances.<의존성>`만 더하면 된다.
 
 - 요청 시간 예산은 `FeedAssembler.kt`의 `RequestBudget`(2.6)이다. 2.9의 Semaphore 모드도 Gateway의 future만 바꾸면 예산은 그대로 적용된다. 예산을 넘겨 먼저 끝낸 future는 `IsolatedCalls`가 실패 로그를 다시 남기지 않는다(`!result.isDone`).
 
@@ -141,4 +142,12 @@
 - 확인: 새 `FeedAssemblerBudgetTest`(단위 5: 남은 시간 계산, 남은 시간 없으면 user·like를 부르지 않음, 남으면 부름, 끝나지 않은 것만 `budget_exhausted`, 먼저 실패하면 그 실패) 통과. `FeedCallIsolationBudgetScenarioTest` 두 시나리오 통과. `:feed-service:integrationTest` 140개 중 실패 12(두 번 같다, 위 "2.6 뒤" 목록). `ktlintCheck`, `compileKotlin compileTestKotlin`, `:feed-service:test`, `openspec validate` 통과.
 - 바꾼 파일: `FeedAssembler.kt`, `FeedAssemblerBudgetTest.kt`(새 파일), `feed-service/CLAUDE.md`, `design.md`, `tasks.md`, `progress.md`.
 - 다음(2.7): 토글 격리. `like` 서킷 + Semaphore `like-toggle`. 서킷이 막은 토글도 실패 로그 한 줄(`circuit_open`).
+---
+
+## 2026-11-06 21:44 - 2.7 좋아요 토글 격리 (Ralph)
+- `IsolatedCalls.callBlocking(dependency, bulkhead, block)`을 더했다: 조회와 같은 서킷(`like`) → Semaphore 벌크헤드(`like-toggle`) → 호출을 요청 스레드에서 바로 부르고, 실패하면 실패 로그 한 줄 뒤 다시 던진다. TimeLimiter는 쓰지 않는다(design 결정 6). `LikeGateway.toggle`이 이것을 쓴다(자체 `try`/`catch` 삭제).
+- `application.yml`에 구조만 넣었다: `resilience4j.bulkhead.configs.default.max-wait-duration: 0`, `instances.like-toggle: { base-config: default }`. 최대 동시 10은 4.5에서 넣는다(지금은 Resilience4j 기본 25).
+- 확인: `FeedLikeToggleIsolationScenarioTest` 둘과 기존 토글 시나리오(`FeedAggregationScenarioTest`의 F-006 토글, 503이면 500·한 번만 요청) 통과. `:feed-service:integrationTest` 실패 11개 = 2.8 전이 로그 1(`FeedCircuitBreakerScenarioTest` "서킷이 열린다"), 2.9 `FeedTracePropagationOffTest` 1, 4장 `IsolationSettingsTest` 9. `ktlintCheck`, `compileKotlin compileTestKotlin`, `:feed-service:test`, `openspec validate` 통과.
+- 바꾼 파일: `IsolatedCalls.kt`, `Gateways.kt`, `feed-service/src/main/resources/application.yml`, `feed-service/CLAUDE.md`, `tasks.md`, `progress.md`.
+- 다음(2.8): 서킷 상태 전이 로그. `CircuitBreakerRegistry`의 `onEntryAdded`로 서킷마다 전이 소비자를 건다. 인스턴스는 시작할 때 이미 만들어져 있으므로(`instances.*`) 이미 있는 서킷에도 소비자를 거는지 확인한다.
 ---

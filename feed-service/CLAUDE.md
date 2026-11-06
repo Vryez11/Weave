@@ -1,6 +1,6 @@
 # feed-service
 
-- 하위 서비스 호출은 `com.weave.feed.gateway`의 Gateway Bean을 거친다. 조회 메서드는 `IsolatedCalls.call("<의존성>") { ... }`로만 부른다(서킷 → TimeLimiter → ThreadPool 벌크헤드, 실패 로그도 여기서 한 번). 동기 호출은 `try`/`catch`에서 `DownstreamFailure.log(...)` 뒤 다시 던진다. 새 호출 경로도 같은 실패 로그를 남겨야 한다.
+- 하위 서비스 호출은 `com.weave.feed.gateway`의 Gateway Bean을 거친다. 조회 메서드는 `IsolatedCalls.call("<의존성>") { ... }`로만 부른다(서킷 → TimeLimiter → ThreadPool 벌크헤드, 실패 로그도 여기서 한 번). 요청 스레드에서 부르는 동기 호출(토글)은 `IsolatedCalls.callBlocking("<의존성>", "<Semaphore 벌크헤드>") { ... }`(서킷 → Semaphore 벌크헤드, TimeLimiter 없음, 실패 로그 한 줄)다. Semaphore 벌크헤드 이름은 `IsolatedCalls.BLOCKING_BULKHEADS`에 더해야 시작할 때 꺼내 둔다. 새 호출 경로도 같은 실패 로그를 남겨야 한다.
 - 격리 인스턴스 이름은 `IsolatedCalls.DEPENDENCIES`(HTTP 서비스 그룹 이름과 같다)이고 시작할 때 레지스트리에서 꺼내 둔다. 다른 이름으로 부르면 `NoSuchElementException`이다. 시간 상한 초과는 `isolation-timeout` 스레드에서 끝나 MDC가 없으므로, 실패 로그는 `call`을 부른 스레드의 MDC를 받아 두었다가 남긴다.
 - 벌크헤드 스레드의 traceId는 `TraceContextPropagator`(`thread-pool-bulkhead.configs.default.context-propagators`)가 넘긴다. 벌크헤드 스레드는 결과 future를 끝내기 전에 문맥을 닫으므로, `IsolatedCalls.call`이 부른 스레드의 스냅샷(`traceContexts.captureAll()`)을 펼친 채로 결과를 끝낸다. 그래야 `thenCompose`로 이어 붙인 호출(post 뒤 user·like)이 같은 trace를 잇는다. future를 다른 스레드에서 끝내는 경로를 더하면 같은 방법을 쓴다.
 - 요청 시간 예산은 `FeedAssembler`의 `RequestBudget`(요청마다 하나)이 맡는다. 피드 조회의 의존성 호출은 `budget.call("<의존성>") { gateway... }`로 시작하고 `budget.await(future)`로 기다린다. 마감이 지나면 끝나지 않은 호출을 `TimeBudgetExhaustedException`으로 먼저 끝내므로 `IsolatedCalls`의 실패 로그와 겹치지 않는다. 예산이 없으면(`weave.feed.time-budget` 없음) 상한 없이 기다린다.

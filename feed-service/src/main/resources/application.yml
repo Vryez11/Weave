@@ -59,6 +59,14 @@ resilience4j:
       like: { base-config: default }
       recommendation: { base-config: default }
       ad: { base-config: default }
+  bulkhead:
+    configs:
+      default:
+        # 자리가 없으면 기다리지 않고 바로 거절한다 (design 결정 6)
+        max-wait-duration: 0
+    instances:
+      # 좋아요 토글. 요청 스레드에서 동기로 부르고 like 서킷을 같이 쓴다 (design 결정 6)
+      like-toggle: { base-config: default }
 
 weave:
   http-client:
