@@ -14,6 +14,7 @@
 - `run.sh`의 `report.json` 형식은 `ExperimentRunComposeScenarioTest` KDoc, `run-all.sh` 판정 표 형식은 `ExperimentRunAllComposeScenarioTest` KDoc, 결과 폴더 파일 이름과 ad `GET /actuator/quota`의 `enabled`는 `ExperimentRuns` KDoc이 기준이다.
 - 라이브러리 클래스의 내부를 볼 때는 `javap -c -p`를 Gradle init 스크립트 안에서 `ProcessBuilder`로 돌려 파일로 남기고 Read로 읽는다(예: `feed-service/build/tmp/inspect4.init.gradle`). Gradle 9에는 `project.exec`가 없다. 파이프·`for`·`;` 뒤의 `grep`이 섞인 명령은 승인을 기다린다.
 - 이 세션에서 `docker compose`는 승인 없이 돈다(`docker ps`·`inspect`·`info`는 막힌다). 루트에 `.env`가 없으니 `docker compose -p weave-compose-test --env-file e2e/build/compose-test.env ...`로 부른다(env 파일은 `:e2e:composeTestEnv`가 만든다. 읽지 않는다). `docker inspect`가 필요하면 Gradle init 스크립트에서 `ProcessBuilder`로 돌린다(`build/tmp/inspect-limits.init.gradle`, 커밋하지 않음). `echo "$?"`처럼 셸 변수가 든 명령은 승인을 기다린다.
+- `experiments/config.json` 형식은 테스트가 정하지 않아 6.1에서 정했다: `{"rps": 200, "warmup": "1m", "duration": "5m", "requestTimeout": "5s", "userIds": {"min": 1, "max": 1000}}`. 키 이름은 `run.sh` 옵션(`--rps`, `--warmup`, `--duration`)과 같다. 시간은 k6 형식 문자열이다.
 - feed 통합 테스트에서 `HttpClientPools`(리플렉션 객체 그래프 순회)가 드물게 `ConcurrentModificationException`으로 실패한다(4.2에서 5번 중 1번, `HttpClientPoolSizePropertyTest`). 다시 돌리면 통과한다. 반복되면 사람에게 알린다(커밋된 테스트 도구라 Ralph가 고칠 수 없다).
 
 ---
@@ -225,4 +226,13 @@
   - `./gradlew bootJar :e2e:composeTestEnv` 뒤 `docker compose -p weave-compose-test --env-file e2e/build/compose-test.env up -d --build --wait`, `... exec grafana wget -qO- http://prometheus:9090/api/v1/status/config` → `global.scrape_interval: 5s`, `scrape_timeout: 5s`, 잡 `services`도 5s. 확인 뒤 `down -v`.
   - `./gradlew :e2e:composeTest --continue`: 프록시 2개, Loki·Tempo 2개 통과. 실패 12개는 5.1·5.2와 같이 `run.sh`·`run-all.sh`가 없어서다(결과 XML의 `Cannot run program`). `openspec validate` 통과.
 - 다음 반복(6.1)이 알아 둘 것: 시나리오 JSON 형식은 `ExperimentScenarioDefinitionTest` KDoc, `slo.json` 형식은 `ExperimentWindowsScenarioTest` KDoc이 기준이다(알아 둘 패턴).
+---
+
+## 2026-11-06 - 6.1 실험 설정과 시나리오 정의
+- `experiments/config.json`(RPS 200, 준비 `1m`, 측정 `5m`, 요청 시간 초과 `5s`, 사용자 ID 1~1,000), `slo.json`(`{"availability": 0.999, "p99Ms": 300}`), `expectations.json`(고도화 2, S-01만 `meet`. 1.6 픽스처와 같은 내용), `scenarios/S-01.json`~`S-09.json`(`id`, `title`, `prd`(PRD 4장 "넣는 장애" 문장), `faults`).
+- 바꾼 파일: `experiments/{config,slo,expectations}.json`, `experiments/scenarios/S-0{1..9}.json`, `tasks.md`
+- 확인: `:e2e:integrationTest -Pkotest.filter.specs='*ExperimentScenarioDefinitionTest'`에서 "시나리오마다의 장애" 통과. 같은 스펙의 "기본 목록"은 `run-all.sh`가 없어 실패(6.5 몫). 필터를 줘도 e2e `integrationTest` 전체가 돌았고 실패 8개는 모두 아직 없는 `lib/*.sh`·`run-all.sh` 때문이다. `ktlintCheck compileKotlin compileTestKotlin :e2e:test`, `openspec validate` 통과.
+- 다음 반복(6.2)이 알아 둘 것:
+  - `feed.js`는 `config.json`의 `requestTimeout`을 요청 `timeout`으로, `userIds.min`~`max`에서 `X-User-Id`를 고르게 뽑는다. 가상 사용자 수는 RPS × 시간 초과(초) × 1.1(design 결정 5)로 계산한다. 옵션 값은 run.sh가 k6 환경 변수로 넘기는 식이면 config 기본값을 덮을 수 있다.
+  - `quota` 한도 = `floor(rps × windowSeconds × limitRatio)`. S-07의 기본 RPS 200이면 1,000, 스모크 5 RPS면 25.
 ---
