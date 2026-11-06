@@ -216,3 +216,13 @@
   - `docker compose run k6`가 처음 돌 때 빈 `experiments/` 폴더가 생겼다(마운트 대상). 6.1이 채운다.
   - 5.3: Prometheus 설정은 `docker/prometheus/prometheus.yml`. 설정값 커밋이라 수집 간격만 따로 커밋한다.
 ---
+
+## 2026-11-06 - 5.3 Prometheus 수집 간격을 5초로 바꾼다
+- `docker/prometheus/prometheus.yml`의 `global.scrape_interval`을 15s → 5s로 바꾸고 근거를 주석으로 달았다. 설정값 커밋이라 다른 변경과 섞지 않았다(`d07782b`, 본문에 표본 20 → 60과 S-09 10초 장애 계산).
+- `scrape_timeout`은 따로 두지 않았다. Prometheus 기본 규칙(간격과 10초 중 작은 값)으로 10s → 5s가 된다.
+- 바꾼 파일: `docker/prometheus/prometheus.yml`, `tasks.md`
+- 확인:
+  - `./gradlew bootJar :e2e:composeTestEnv` 뒤 `docker compose -p weave-compose-test --env-file e2e/build/compose-test.env up -d --build --wait`, `... exec grafana wget -qO- http://prometheus:9090/api/v1/status/config` → `global.scrape_interval: 5s`, `scrape_timeout: 5s`, 잡 `services`도 5s. 확인 뒤 `down -v`.
+  - `./gradlew :e2e:composeTest --continue`: 프록시 2개, Loki·Tempo 2개 통과. 실패 12개는 5.1·5.2와 같이 `run.sh`·`run-all.sh`가 없어서다(결과 XML의 `Cannot run program`). `openspec validate` 통과.
+- 다음 반복(6.1)이 알아 둘 것: 시나리오 JSON 형식은 `ExperimentScenarioDefinitionTest` KDoc, `slo.json` 형식은 `ExperimentWindowsScenarioTest` KDoc이 기준이다(알아 둘 패턴).
+---
