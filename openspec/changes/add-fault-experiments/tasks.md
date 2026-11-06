@@ -46,7 +46,7 @@
   - 로그 정규분포(μ = ln 중앙값, σ = ln(p99/중앙값)/2.326). 중앙값 = p99면 고정 지연이다. `Random`을 받는다.
   - 설정 검증: 에러율 0~1, 지연 0 이상, p99 ≥ 중앙값.
   - 확인: 시드를 준 단위 테스트에서 10,000번 뽑은 중앙값·p99가 설정값의 ±5% 안이고, 검증 실패 경우마다 단위 테스트가 있다. `./gradlew :libs:fault-injection:test -Pkotest.filter.tests='*F-007*'`가 통과한다.
-- [ ] 2.2 필터, `faults` 엔드포인트, 자동 설정을 만든다(design 결정 2).
+- [x] 2.2 필터, `faults` 엔드포인트, 자동 설정을 만든다(design 결정 2).
   - `weave.fault-injection.enabled`가 true일 때만 등록한다. 기본값(중앙값 20ms, p99 50ms, 에러율 0)은 속성 클래스에 둔다.
   - 필터는 `/actuator`, `/actuator/`로 시작하는 경로를 건너뛰고, `libs/observability`의 추적·요청 로그 필터 뒤에 둔다.
   - 확인: 1.2의 시나리오가 모두 `./gradlew :libs:fault-injection:integrationTest`로 통과한다. 넣은 500 응답의 요청 완료 로그에 `traceId`가 있는지 테스트 하나를 더한다.

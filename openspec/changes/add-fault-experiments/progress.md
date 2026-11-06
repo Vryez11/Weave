@@ -109,3 +109,17 @@
   - 필터는 `ThreadLocalRandom.current()`를 `sampleMs`와 에러율 뽑기에 넘기면 된다. 잠들 때 밀리초 아래를 버리면 고정 지연이 짧아지니 나노초로 바꿔 잔다(`Thread.sleep(Duration)` 등).
   - `POST`는 `current.copy(준 필드만)`를 `runCatching`으로 감싸 `IllegalArgumentException`을 400으로 바꾸면 "값을 바꾸지 않는다"가 따라온다.
 ---
+
+## 2026-11-06 - 2.2 필터, `faults` 엔드포인트, 자동 설정
+- `FaultInjectionAutoConfiguration`(`@ConditionalOnBooleanProperty("weave.fault-injection.enabled")`, `AutoConfiguration.imports`에 등록): `FaultState`(`AtomicReference`, 기본값으로 되돌리기), `FaultsEndpoint`, 서블릿 컨텍스트에서만 `FaultInjectionFilter`.
+- `FaultInjectionProperties`에 기본값(20ms, 50ms, 0). `FaultsEndpoint`: `GET` 지금 값, `POST` 준 필드만 `copy`(검증 실패는 `InvalidEndpointRequestException` → 400, 값 그대로), `DELETE` 기본값. 셋 다 바뀐 뒤 값을 돌려준다(200).
+- `FaultInjectionFilter`: `/actuator`, `/actuator/...`는 `shouldNotFilter`. `ThreadLocalRandom`으로 지연을 뽑아 나노초로 올려 자고, 에러율이면 500 `{"error":"injected fault"}`. 순서 `HIGHEST_PRECEDENCE + 10`(`TraceLoggingFilter`는 `+2`).
+- 테스트: 1.2 시나리오 9개 모두 통과. 새 `FaultInjectionRequestLogTest`(넣은 500에 `X-Trace-Id`가 있고 그 traceId의 `http_request` 줄이 status 500, durationMs ≥ 100). 이를 위해 테스트 의존성에 `project(":libs:observability")`와 그 testFixtures를 더했다.
+- 바꾼 파일: `libs/fault-injection/build.gradle.kts`, `libs/fault-injection/src/main/kotlin/com/weave/faultinjection/{FaultInjectionProperties,FaultState,FaultsEndpoint,FaultInjectionFilter,FaultInjectionAutoConfiguration}.kt`, `libs/fault-injection/src/main/resources/META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`, `libs/fault-injection/src/test/kotlin/com/weave/faultinjection/FaultInjectionRequestLogTest.kt`, `libs/fault-injection/CLAUDE.md`, `tasks.md`
+- 확인: `:libs:fault-injection:integrationTest` 통과(활성 시나리오 9, 꺼짐 1, 스모크 1, 로그 1), 전체 `ktlintCheck compileKotlin compileTestKotlin test`, `openspec validate` 통과.
+- 다음 반복이 알아 둘 것:
+  - 2.3: 서비스는 `implementation(project(":libs:fault-injection"))`만 더하면 자동 설정이 실린다. `application-experiment.yml`의 노출 목록을 빠뜨리면 1.3 테스트가 404로 남는다.
+  - 3.1: ad 한도 필터의 order는 `FaultInjectionFilter.ORDER - 1`처럼 `TraceLoggingFilter`(`+2`)와 `+10` 사이에 둔다(429도 요청 완료 로그에 남게).
+  - Boot 4 actuator에는 `@OptionalParameter`가 없다. 선택 인자는 Kotlin `Double?`로 충분하다.
+  - main의 `.gitkeep`은 이번에도 `git rm`이 승인 없이 돌지 않아 남겼다.
+---
