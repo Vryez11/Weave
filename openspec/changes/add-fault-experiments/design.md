@@ -188,7 +188,7 @@ experiments/run.sh <S-xx> [--rps N] [--warmup 1m] [--duration 5m]
 - **k6:** `grafana/k6` 이미지(버전 고정, 아키텍처 1장의 2.3대)를 `profiles: [experiment]` 서비스로 둔다. `up`으로는 뜨지 않고 `run.sh`가 `docker compose run`으로만 부른다. `experiments/`를 마운트하고, 결과 파일이 호스트 사용자 소유가 되도록 `--user`를 넘긴다.
 - **자원 상한(아키텍처 9-1):** feed-service CPU 2·메모리 1GB, 하위 서비스 각 CPU 1·512MB, MySQL·Toxiproxy 각 CPU 1, 관찰 인프라는 상한만, k6는 CPU 2·2GB. k6 상한은 1,100 가상 사용자(결정 5)가 부하 도구 쪽 병목이 되지 않을 크기로 잡고, S-01에서 보내지 못한 요청이 0인지로 확인한다(결정 12).
 - **Tomcat 최대 스레드:** feed-service `server.tomcat.threads.max: 200`을 명시한다. Boot 기본값 그대로이고(아키텍처 4-2에서 확인), 기준선이 이 값에서 재졌다는 것을 설정에서 보이게 하려는 것이다. 설정값 커밋으로 따로 한다.
-- **feed-service 관리 포트 8090:** `MANAGEMENT_SERVER_PORT=8090`으로 Actuator를 업무 포트 8080과 다른 Tomcat 커넥터에 연다. Prometheus 대상과 헬스 체크도 8090이다. 기준선(400 RPS)의 S-02·S-03은 측정 구간 거의 내내, S-08은 처음 150초 동안 Prometheus가 feed-service를 긁지 못했다(`up=0`). 업무 요청이 Tomcat 스레드 200개를 모두 묶으면 같은 커넥터의 `/actuator/prometheus`도 기다리기 때문이다. 그러면 자원이 찬 순간의 값이 빠지고, 피드 전체로 번진 모습을 보여 줄 수 없다. 관리 포트는 `application.yml`이 아니라 Compose에서 준다. 서비스 테스트는 업무 포트 하나로 Actuator를 부르고, 분리는 실행 환경(Compose)이 정할 일이다. Tomcat 지표는 커넥터마다 `name` 태그(`http-nio-8080`, `http-nio-8090`)로 나뉘어, 리포트와 대시보드는 `name="http-nio-8080"`만 본다. 하위 서비스는 실험에서 Tomcat이 차지 않아 그대로 둔다.
+- **feed-service 관리 포트 8090:** `MANAGEMENT_SERVER_PORT=8090`으로 Actuator를 업무 포트 8080과 다른 Tomcat 커넥터에 연다. Prometheus 대상과 헬스 체크도 8090이다. 기준선(400 RPS)의 S-02·S-03은 측정 구간 거의 내내, S-08은 처음 150초 동안 Prometheus가 feed-service를 긁지 못했다(`up=0`). 업무 요청이 Tomcat 스레드 200개를 모두 묶으면 같은 커넥터의 `/actuator/prometheus`도 기다리기 때문이다. 그러면 자원이 찬 순간의 값이 빠지고, 피드 전체로 번진 모습을 보여 줄 수 없다. 관리 포트는 `application.yml`이 아니라 Compose에서 준다. 서비스 테스트는 업무 포트 하나로 Actuator를 부르고, 분리는 실행 환경(Compose)이 정할 일이다. 관리 포트로 바꿔도 Tomcat 지표는 업무 커넥터(`name="http-nio-8080"`)의 것만 나와(Compose에서 확인) 질의는 대상만 바꾼다. 하위 서비스는 실험에서 Tomcat이 차지 않아 그대로 둔다.
 - **Prometheus 수집 간격 15초 → 5초:** 측정 5분에 표본이 20개에서 60개가 된다. S-09의 10초 장애가 15초 간격에서는 한 번도 긁히지 않을 수 있다. 설정값 커밋으로 따로 한다.
 
 ### 11. 대시보드
@@ -196,7 +196,7 @@ experiments/run.sh <S-xx> [--rps N] [--warmup 1m] [--duration 5m]
 - `docker/grafana/provisioning/dashboards/`에 공급자 설정을, `docker/grafana/dashboards/feed-experiments.json`에 대시보드(uid `weave-feed`)를 둔다. 지금은 데이터 소스 폴더만 마운트하므로 두 폴더를 더 마운트한다.
 - 패널: 피드 RPS·가용성·p50/p95/p99(`http_server_requests`), 의존성별 호출 p99·실패율·RPS, Tomcat 사용 중 스레드, 공유 풀 활성·대기열, 의존성별 커넥션 풀 사용 중·대기, feed-service CPU. 서킷·벌크헤드·degrade 패널은 F-001, F-002에서 그 지표와 함께 더한다(아키텍처 7-4를 그렇게 고친다).
 - 실험 리포트는 이 대시보드 링크에 측정 구간을 붙여 그래프를 대신한다.
-- feed-service 질의는 관리 포트의 대상(`instance="feed-service:8090"`)으로 거르고, Tomcat 패널은 업무 커넥터(`name="http-nio-8080"`)만 본다(결정 10).
+- feed-service 질의는 관리 포트의 대상(`instance="feed-service:8090"`)으로 거른다(결정 10).
 
 ### 12. 실험 RPS와 기준선 기록
 

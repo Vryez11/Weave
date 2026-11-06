@@ -127,7 +127,7 @@
   - `ExperimentRunComposeScenarioTest`: "시간 초과된 요청", "Tomcat 스레드가 모두 묶여도 긁힌다"(같은 S-03 60 RPS 실행 하나로), "리포트 항목"의 수집 비율. KDoc의 `report.json` 형식에 `feedScrapeRatio`와 `feed_latency`를 적는다.
   - k6 원본·요약 픽스처와 `ExperimentRuns.hasMeasureRequest`, `ExperimentWindowsScenarioTest`, `ExperimentVerdictScenarioTest`를 `feed_latency`로 바꾼다.
   - 확인: 새 테스트와 바꾼 테스트가 지금 코드에서 실패한다.
-- [ ] 6.10 feed-service의 Actuator를 관리 포트 8090으로 연다(design 결정 10, 11). Compose 환경 변수, 헬스 체크, Prometheus 대상, `run.sh`의 feed-service 대상, 대시보드 질의, Tomcat 지표의 커넥터 거르기. 확인: "Tomcat 스레드가 모두 묶여도 긁힌다"와 대시보드 시나리오가 통과한다.
+- [x] 6.10 feed-service의 Actuator를 관리 포트 8090으로 연다(design 결정 10, 11). Compose 환경 변수, 헬스 체크, Prometheus 대상, `run.sh`의 feed-service 대상, 대시보드 질의. 확인: "Tomcat 스레드가 모두 묶여도 긁힌다"와 대시보드 시나리오가 통과한다.
 - [ ] 6.11 피드 지연을 `feed_latency`로 잰다(design 결정 5, 7). `k6/feed.js`의 `Trend`와 threshold, `run.sh`의 지연, `lib/windows.sh`의 구간 p99. 확인: "시간 초과된 요청"과 `:e2e:integrationTest`가 통과한다.
 - [ ] 6.12 리포트에 feed-service 지표 수집 비율을 적는다(design 결정 7). 확인: "리포트 항목"이 통과한다.
 - [ ] 6.13 문서(아키텍처 7장·9장)를 고치고 전체 검사를 다시 돌린다. 확인: `./gradlew ktlintCheck build`, `./gradlew :e2e:composeTest`, `openspec validate --all --strict --no-interactive`가 통과한다.

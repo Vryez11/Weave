@@ -30,8 +30,8 @@ FEED_HEALTH_TIMEOUT_SECONDS=180
 GRAFANA_URL="http://localhost:3000"
 # Prometheus 수집 간격 5초(docker/prometheus/prometheus.yml)의 두 배. 측정 구간 끝까지 긁힌 뒤에 질의한다
 SCRAPE_MARGIN_SECONDS=10
-# Prometheus의 feed-service 대상(prometheus.yml의 static_configs)
-FEED='instance="feed-service:8080"'
+# Prometheus의 feed-service 대상(prometheus.yml의 static_configs). 관리 포트다(compose.yaml MANAGEMENT_SERVER_PORT)
+FEED='instance="feed-service:8090"'
 
 log() { echo "run.sh: $*" >&2; }
 fail() {
