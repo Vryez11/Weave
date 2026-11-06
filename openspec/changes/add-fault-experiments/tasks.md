@@ -108,7 +108,7 @@
   - 확인: 1.8 중 `run-all.sh` 말고 모든 시나리오가 `./gradlew :e2e:composeTest`로 통과한다.
 - [x] 6.5 `experiments/run-all.sh`를 만든다(design 결정 8).
   - 확인: 1.6의 "기본 목록"과 1.8의 "판정 표"가 통과한다.
-- [ ] 6.6 Grafana 대시보드를 더한다(design 결정 11).
+- [x] 6.6 Grafana 대시보드를 더한다(design 결정 11).
   - 공급자 설정, `docker/grafana/dashboards/feed-experiments.json`(uid `weave-feed`), `compose.yaml`의 마운트
   - `docs/architecture.md` 7-4에 지금 있는 패널과, 서킷·벌크헤드·degrade 패널은 F-001·F-002에서 더한다는 것을 적는다.
   - 확인: 1.7의 "대시보드를 불러온다"가 `./gradlew :e2e:composeTest`로 통과한다.

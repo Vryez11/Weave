@@ -311,7 +311,7 @@ Retry-After 동안 호출을 막는 방법(서킷을 그 시간만큼 열어 두
 - **저장:** Loki·Tempo는 단일 프로세스이고 컨테이너 안에만 저장한다. 내리면 지워진다.
 - **포트:** 호스트에는 feed-service 8080과 관찰 인프라만 연다. 모두 `127.0.0.1`에만 묶는다(feed-service 8080, Grafana 3000, Loki 3100, Tempo 3200, Prometheus 9090, Alloy UI 12345). Grafana는 로그인 없이 연다.
 
-Grafana에서 로그의 traceId를 누르면 Tempo의 트레이스로(Loki derived field), 트레이스에서 같은 traceId의 로그로(Tempo trace-to-logs) 이동하도록 데이터 소스를 연결한다. 데이터 소스는 `docker/grafana/provisioning/datasources/`에 파일로 두고 자동으로 불러온다. 대시보드(7-4)는 `add-fault-experiments`에서 같은 방식으로 더한다.
+Grafana에서 로그의 traceId를 누르면 Tempo의 트레이스로(Loki derived field), 트레이스에서 같은 traceId의 로그로(Tempo trace-to-logs) 이동하도록 데이터 소스를 연결한다. 데이터 소스는 `docker/grafana/provisioning/datasources/`에 파일로 두고 자동으로 불러온다. 대시보드(7-4)도 `add-fault-experiments`에서 같은 방식으로 더했다.
 
 Loki·Tempo 조회는 `./gradlew :e2e:composeTest`가 Compose 환경을 띄워 확인한다(하네스 규칙 5장).
 
@@ -341,7 +341,19 @@ traceId는 스레드에 붙은 컨텍스트(MDC, 관찰 컨텍스트)에 있어�
 
 피드 SLO(가용성, p50·p95·p99), 의존성별 degrade 비율, 서킷 상태, 벌크헤드 사용량·거절, 커넥션 풀 사용량, Tomcat 스레드 사용량을 한 화면에 둔다. 실험 리포트의 그래프도 이 대시보드에서 뜬다.
 
-보여 줄 지표 대부분이 고도화 3·4에서 생기므로, 대시보드는 실험 리포트와 함께 `add-fault-experiments`(F-007)에서 만든다. 고도화 1(`add-trace-logging`)은 Prometheus가 긁어 가는 것까지만 했다.
+대시보드는 `add-fault-experiments`(F-007)에서 만들었다. 데이터 소스와 같이 파일로 두고 Grafana가 띄울 때 불러온다. 공급자 설정은 `docker/grafana/provisioning/dashboards/`, 대시보드는 `docker/grafana/dashboards/feed-experiments.json`(uid `weave-feed`, `http://localhost:3000/d/weave-feed`)이다. 화면에서 고친 내용은 저장되지 않으니 JSON을 고친다. 실험 리포트의 Grafana 링크는 이 대시보드에 측정 구간(`from`, `to`)을 붙인 것이다.
+
+지표마다 그 지표를 만드는 단계에서 패널을 더한다. 지금 있는 패널은 모두 feed-service(`instance="feed-service:8080"`)의 지표다.
+
+| 행 | 패널 | 지표 | 더한 단계 |
+|---|---|---|---|
+| 피드 SLO | 피드 RPS(응답 코드별), 가용성(200 비율, 99.9% 선), p50·p95·p99(300ms 선) | `http_server_requests_seconds`(`uri="/feed"`) | 고도화 2 |
+| 의존성 호출 | 의존성별 호출 p99, 실패율(`outcome!="SUCCESS"`), RPS | `http_client_requests_seconds`(`client_name`) | 고도화 2 |
+| 자원 사용량 | Tomcat 사용 중·최대 스레드, 공유 풀 활성 스레드, 공유 풀 대기열, 의존성별 커넥션 풀 사용 중·대기, CPU(0.7 선) | `tomcat_threads_*`, `executor_*`(`name="applicationTaskExecutor"`), `httpcomponents_httpclient_pool_total_connections`(`state="leased"`)·`..._total_pending`(`httpclient`), `process_cpu_usage` | 고도화 2 |
+| 서킷·벌크헤드 | 서킷 상태, 벌크헤드 사용량·거절 | Resilience4j 지표 | 고도화 3 (`add-call-isolation`, F-001) |
+| degrade | 의존성별 degrade 비율 | F-002가 정한다 | 고도화 4 (`add-graceful-degradation`, F-002) |
+
+패널 질의에는 Grafana 시간 변수(`$__rate_interval` 등) 말고 변수를 두지 않는다. 장애가 없을 때도 모든 질의가 시계열을 돌려줘야 해서, 실패율처럼 분자가 빌 수 있는 질의는 0으로 채운다. `./gradlew :e2e:composeTest`의 `ExperimentDashboardComposeScenarioTest`가 S-01 짧은 실행 뒤 모든 패널 질의를 Prometheus에 보내 확인한다.
 
 ## 8. 좋아요 저장
 

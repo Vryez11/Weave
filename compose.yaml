@@ -277,8 +277,11 @@ services:
       GF_AUTH_DISABLE_LOGIN_FORM: "true"
       GF_ANALYTICS_REPORTING_ENABLED: "false"
     volumes:
-      # 데이터 소스 폴더만 덮는다. 폴더 전체를 덮으면 이미지의 빈 provisioning 폴더(dashboards 등)가 없어져 오류 로그가 난다
+      # provisioning은 폴더마다 덮는다. 폴더 전체를 덮으면 이미지의 빈 provisioning 폴더(plugins 등)가 없어져 오류 로그가 난다
       - ./docker/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      # 피드 실험 대시보드 (add-fault-experiments design 결정 11). 공급자 설정이 /etc/grafana/dashboards를 읽는다
+      - ./docker/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./docker/grafana/dashboards:/etc/grafana/dashboards:ro
     ports:
       - "127.0.0.1:3000:3000"
     deploy: *observability-deploy
