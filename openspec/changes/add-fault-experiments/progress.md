@@ -286,3 +286,12 @@
 - 확인: `:e2e:integrationTest`에서 "기본 목록" 포함 모두 통과. `:e2e:composeTest --continue`(5분 58초)에서 `ExperimentRunAllComposeScenarioTest` 통과(80초), `ExperimentRunComposeScenarioTest` 10개·프록시 2개·Loki·Tempo 2개 통과. 실패는 `ExperimentDashboardComposeScenarioTest` 하나(Grafana 검색 응답 `[]`, 6.6 몫). 일회용 `e2e/build/tmp/runall-check.init.gradle`로 bash 3.2.57에서 `-n`, `--list`, `--list S-03 S-01`, `S-99`(2), `--bogus`(2), 값 없는 `--rps`(2), 없는 Compose 프로젝트(두 줄 모두 `실행하지 못함`, 2)를 봤다. `ktlintCheck :e2e:test`, `openspec validate` 통과.
 - 다음 반복(6.6)이 알아 둘 것: 대시보드 테스트는 run.sh S-01을 먼저 돌린다(지금 통과). 남은 것은 Grafana 공급자 설정·대시보드 JSON·마운트뿐이다. 질의 규칙은 1.7 메모(시간 변수만, 장애 없는 S-01에서도 시계열이 나오게)와 4.2 결정(커넥션 풀은 `httpcomponents_httpclient_pool_total_connections{state=...}`)을 따른다.
 ---
+
+## 2026-11-06 - 6.6 Grafana 대시보드
+- `docker/grafana/provisioning/dashboards/dashboards.yaml`(파일 공급자 `weave`, 폴더 `weave`, 경로 `/etc/grafana/dashboards`, 화면 수정 저장 안 함)과 `docker/grafana/dashboards/feed-experiments.json`(uid `weave-feed`, 행 3개·패널 12개)을 더하고 `compose.yaml`의 grafana에 두 폴더를 마운트했다.
+- 패널 질의는 모두 `instance="feed-service:8080"`(run.sh의 `FEED`와 같음)로 거른다. 가용성은 `(200 rate or vector(0)) / 전체`, 실패율은 `(실패 or 전체 * 0) / 전체`로 장애가 없을 때도 시계열이 나오게 했다. 가용성 99.9%·p99 300ms·CPU 0.7에 선(threshold line)을 그었다. Tomcat 패널에 `tomcat_threads_config_max_threads`(최대)도 넣었고 Compose에서 시계열이 나왔다.
+- `docs/architecture.md` 7-4에 파일 위치, 행·패널·지표 표, 서킷·벌크헤드(F-001)·degrade(F-002) 행을 더할 단계, 질의 규칙을 적었다. 7-2의 "더한다"를 "더했다"로. `docker/CLAUDE.md`에 대시보드 규칙 한 줄.
+- 바꾼 파일: `compose.yaml`, `docker/grafana/{provisioning/dashboards/dashboards.yaml,dashboards/feed-experiments.json}`, `docker/CLAUDE.md`, `docs/architecture.md`, `tasks.md`
+- 확인: `./gradlew :e2e:composeTest --continue`(5분 57초)에서 `ExperimentDashboardComposeScenarioTest` 통과, `ExperimentRunComposeScenarioTest` 10개·`ExperimentRunAllComposeScenarioTest`·프록시 2개·Loki·Tempo 2개도 모두 통과(실패 없음). `ktlintCheck :e2e:test`, `openspec validate --all --strict` 통과.
+- 다음 반복(6.7)이 알아 둘 것: 대시보드 주소는 `http://localhost:3000/d/weave-feed`(아키텍처 7-4). 6.7 확인의 `experiments/run.sh S-01 --rps 5 --warmup 5s --duration 20s`는 루트 `.env`가 없어 이 세션에서는 `COMPOSE_PROJECT_NAME=weave-compose-test COMPOSE_ENV_FILE=e2e/build/compose-test.env`로 Gradle init 스크립트에서 돌려야 한다(알아 둘 패턴 16·19).
+---
