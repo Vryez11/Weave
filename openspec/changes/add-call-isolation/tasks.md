@@ -16,7 +16,7 @@
   - `FeedExperimentMetricsScenarioTest`의 공유 풀 단언을 의존성별 벌크헤드 사용 중 스레드·대기열로 바꾼다(`fault-experiments` "feed-service의 실험 지표"). 지표 이름은 2.1에서 확인한 것을 쓴다고 KDoc에 적고, 여기서는 `resilience4j_bulkhead` 접두어와 `name="<의존성>"`으로 찾는다.
   - `docs/architecture.md` 4-2의 "확인 방법"에 MVP 값 테스트가 F-001에서 `IsolationSettingsTest`로 바뀌었고 MVP 값은 이 표가 기록이라고 적는다.
   - 확인: `./gradlew :feed-service:integrationTest`에서 이 두 파일의 바뀐 단언이 실패하고, `./gradlew :feed-service:test`는 통과한다.
-- [ ] 1.3 (대화형) 실험 세트의 판정·리포트 테스트를 델타대로 고친다.
+- [x] 1.3 (대화형) 실험 세트의 판정·리포트 테스트를 델타대로 고친다.
   - `ExperimentVerdictScenarioTest`가 기본 `expectations.json` 대신 픽스처 기대 파일(`e2e/src/test/resources/experiments/`)을 쓰게 바꾼다. 단계가 바뀌어도 판정 로직 테스트가 흔들리지 않게 한다.
   - "기준별 기대와 같다", "기준별 기대와 다르다"를 픽스처로 더하고, "고도화 3의 기대"는 실제 `experiments/expectations.json`을 읽어 본다. 출력 JSON의 `criteria` 형식(design 결정 10)을 KDoc에 적는다.
   - 리포트의 서킷 상태 이어 적기("서킷이 열린 시나리오")를 미리 만든 Prometheus `query_range` 결과 픽스처로 새 테스트에 둔다. 스크립트 이름과 인자는 이 작업에서 정해 KDoc에 적는다.
