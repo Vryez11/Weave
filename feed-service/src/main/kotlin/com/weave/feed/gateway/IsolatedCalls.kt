@@ -7,6 +7,7 @@ import io.github.resilience4j.circuitbreaker.CircuitBreaker
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry
 import io.github.resilience4j.timelimiter.TimeLimiter
 import io.github.resilience4j.timelimiter.TimeLimiterRegistry
+import io.micrometer.context.ContextSnapshot
 import io.micrometer.core.instrument.Counter
 import io.micrometer.core.instrument.MeterRegistry
 import org.slf4j.MDC
@@ -86,20 +87,24 @@ class IsolatedCalls(
         val callerMdc: Map<String, String>? = MDC.getCopyOfContextMap()
         val callerContext = traceContexts.captureAll()
         val inBulkhead = Supplier<CompletionStage<T>> { isolation.bulkhead.executeSupplier(block) }
+        // 서킷이 결과를 기록하고(상태 전이 로그), 결과에 이어 붙인 일(post 뒤의 user·like 호출)이 돌 때 부른 스레드의 trace를
+        // 잇게 한다. 시간 상한의 결과는 전파기의 문맥을 이미 닫은 벌크헤드 스레드나 시간 상한 스레드에서 끝난다 (design 결정 8, 9)
+        val limited =
+            Supplier<CompletionStage<T>> {
+                isolation.timeLimiter
+                    .executeCompletionStage(timeoutScheduler, inBulkhead)
+                    .completingIn(callerContext, callerMdc)
+            }
         val result = CompletableFuture<T>()
         isolation.circuitBreaker
-            .executeCompletionStage { isolation.timeLimiter.executeCompletionStage(timeoutScheduler, inBulkhead) }
+            .executeCompletionStage(limited)
             .whenComplete { value, error ->
-                // 결과에 이어 붙인 일(post 뒤의 user·like 호출)이 부른 스레드의 trace를 잇게 한다. 여기는 벌크헤드 스레드가
-                // 전파기의 문맥을 이미 닫은 뒤이거나 시간 상한 스레드다 (design 결정 8)
-                callerContext.setThreadLocals().use {
-                    when {
-                        error == null -> result.complete(value)
-                        // 로그를 먼저 남겨 지금처럼 피드 응답보다 실패 로그가 앞선다
-                        !result.isDone -> {
-                            withMdc(callerMdc) { DownstreamFailure.log(dependency, error) }
-                            result.completeExceptionally(error)
-                        }
+                when {
+                    error == null -> result.complete(value)
+                    // 로그를 먼저 남겨 지금처럼 피드 응답보다 실패 로그가 앞선다
+                    !result.isDone -> {
+                        withMdc(callerMdc) { DownstreamFailure.log(dependency, error) }
+                        result.completeExceptionally(error)
                     }
                 }
             }
@@ -153,6 +158,25 @@ class IsolatedCalls(
  */
 class CircuitFailurePredicate : Predicate<Throwable> {
     override fun test(error: Throwable): Boolean = DownstreamFailure.countsAsCircuitFailure(error)
+}
+
+/**
+ * 이 stage가 끝나면 [context]와 [mdc]를 펼친 채로 끝나는 future를 돌려준다. 돌려준 future에 걸어 둔 일(서킷의 결과 기록, 그 뒤의
+ * 결과 전달)은 끝내는 스레드에서 바로 돌므로 같은 문맥을 본다.
+ */
+private fun <T> CompletionStage<T>.completingIn(
+    context: ContextSnapshot,
+    mdc: Map<String, String>?,
+): CompletionStage<T> {
+    val completed = CompletableFuture<T>()
+    whenComplete { value, error ->
+        context.setThreadLocals().use {
+            withMdc(mdc) {
+                if (error == null) completed.complete(value) else completed.completeExceptionally(error)
+            }
+        }
+    }
+    return completed
 }
 
 private inline fun withMdc(

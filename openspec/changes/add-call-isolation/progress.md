@@ -25,6 +25,7 @@
 - 요청 시간 예산은 `FeedAssembler.kt`의 `RequestBudget`(2.6)이다. 2.9의 Semaphore 모드도 Gateway의 future만 바꾸면 예산은 그대로 적용된다. 예산을 넘겨 먼저 끝낸 future는 `IsolatedCalls`가 실패 로그를 다시 남기지 않는다(`!result.isDone`).
 
 ## 지금 실패하는 것이 정상인 테스트 (구현 전)
+- **2.8 뒤:** feed-service `integrationTest` 실패 10개: 2.9 `FeedTracePropagationOffTest` 1, 4장 `IsolationSettingsTest` 9.
 - **2.6 뒤:** feed-service `integrationTest` 실패 12개: 2.7 토글 1, 2.8 전이 로그 1, 2.9 `FeedTracePropagationOffTest` 1, 4장 `IsolationSettingsTest` 9.
 - **2.4 뒤 갱신(이 목록이 위 옛 항목보다 우선한다).** feed-service `integrationTest` 실패 18개: 끊김 재현 6(아래), 2.6 예산 1(`FeedCallIsolationBudgetScenarioTest` "합치면 예산을 넘는다"), 2.7 토글 1(`FeedLikeToggleIsolationScenarioTest` "like의 서킷이 열려 있다"), 2.8 전이 로그 1(`FeedCircuitBreakerScenarioTest` "서킷이 열린다"), 4장 `IsolationSettingsTest` 9. `FeedExperimentMetricsScenarioTest`, `FeedIsolationMetricsScenarioTest`, `FeedBulkheadTracePropagationOffTest`, 1.6 서킷 시나리오(전이 로그 말고)는 이제 통과한다.
 - **끊김 재현(2.4, PRD F-001 수용 기준):** 벌크헤드 스레드에 트레이스 문맥이 넘어가지 않아 실패한다. 2.5에서 통과해야 한다.
@@ -150,4 +151,12 @@
 - 확인: `FeedLikeToggleIsolationScenarioTest` 둘과 기존 토글 시나리오(`FeedAggregationScenarioTest`의 F-006 토글, 503이면 500·한 번만 요청) 통과. `:feed-service:integrationTest` 실패 11개 = 2.8 전이 로그 1(`FeedCircuitBreakerScenarioTest` "서킷이 열린다"), 2.9 `FeedTracePropagationOffTest` 1, 4장 `IsolationSettingsTest` 9. `ktlintCheck`, `compileKotlin compileTestKotlin`, `:feed-service:test`, `openspec validate` 통과.
 - 바꾼 파일: `IsolatedCalls.kt`, `Gateways.kt`, `feed-service/src/main/resources/application.yml`, `feed-service/CLAUDE.md`, `tasks.md`, `progress.md`.
 - 다음(2.8): 서킷 상태 전이 로그. `CircuitBreakerRegistry`의 `onEntryAdded`로 서킷마다 전이 소비자를 건다. 인스턴스는 시작할 때 이미 만들어져 있으므로(`instances.*`) 이미 있는 서킷에도 소비자를 거는지 확인한다.
+---
+
+## 2026-11-06 21:48 - 2.8 서킷 상태 전이 로그 (Ralph)
+- `CircuitStateLog`(`com.weave.feed.gateway`)를 새로 뒀다. 시작할 때 레지스트리의 서킷 모두와 `onEntryAdded`로 나중에 생기는 서킷에 `onStateTransition`을 걸어 `circuit_state_changed`(`dependency`, `from`, `to`) WARN 한 줄을 남긴다. 겹쳐 걸지 않게 이름 집합으로 막는다. 스타터의 `RegistryEventConsumer` Bean 연동은 jar를 볼 수 없어(작업 디렉터리 밖) 쓰지 않았다.
+- traceId: 서킷은 TimeLimiter stage를 끝내는 스레드(전파기 문맥을 닫은 벌크헤드 스레드나 `isolation-timeout`)에서 결과를 기록해서, 그대로 두면 전이 줄에 traceId가 없다. `IsolatedCalls.call`이 TimeLimiter stage를 부른 스레드의 문맥·MDC를 펼친 채로 끝내는 future로 바꿔(`completingIn`) 서킷 기록부터 결과 전달까지 같은 문맥에서 돌게 했다. 결과를 끝낼 때 따로 문맥을 펼치던 코드는 이것으로 대신한다.
+- 확인: `FeedCircuitBreakerScenarioTest` "서킷이 열린다", `FeedIsolationMetricsScenarioTest`, `FeedIsolationOverrideScenarioTest` 통과. `:feed-service:integrationTest` 140개 중 실패 10(두 번 같다) = 2.9 `FeedTracePropagationOffTest` 1, 4장 `IsolationSettingsTest` 9. trace 테스트는 그대로 통과한다. `ktlintCheck`, `compileKotlin compileTestKotlin`, `:feed-service:test` 통과.
+- 바꾼 파일: `CircuitStateLog.kt`(새 파일), `IsolatedCalls.kt`, `feed-service/CLAUDE.md`, `tasks.md`, `progress.md`.
+- 다음(2.9): Semaphore 모드. Semaphore 경로에서도 서킷이 결과를 기록하는 스레드에 요청 문맥이 있어야 전이 줄에 traceId가 남는다. 단 호출 자체에는 `IsolatedCalls`가 문맥을 펼치지 않는다(`FeedTracePropagationOffTest`). 결과를 끝내는 쪽(`completingIn`)만 같은 방식을 쓰면 끊김 기록과 충돌하지 않는다.
 ---
