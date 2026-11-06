@@ -102,9 +102,10 @@ experiments/
 
 - **k6 스크립트 하나:** 시나리오 JSON을 `open()`으로 읽어 k6 시나리오 세 개를 만든다.
   - `warmup`: `constant-arrival-rate`로 준비 시간 동안 같은 RPS
-  - `measure`: `startTime` = 준비 시간, 측정 시간 동안 같은 RPS. threshold는 이 시나리오의 태그로만 건다(`http_req_duration{scenario:measure}` p99, 가용성 `Rate`)
+  - `measure`: `startTime` = 준비 시간, 측정 시간 동안 같은 RPS. threshold는 이 시나리오의 태그로만 건다(피드 지연 `Trend` `feed_latency{scenario:measure}` p99, 가용성 `Rate`)
   - `faults`: 가상 사용자 1명, `startTime` = 준비 시간. 시간표대로 잠들었다가 Toxiproxy API와 하위 서비스 Actuator를 부른다. 이 요청에는 `kind: fault` 태그와 동작 이름을 붙여, 원본 결과에서 넣은 시각과 거둔 시각을 읽는다
   - `setup()`과 `teardown()`이 장애를 모두 되돌린다(결정 6의 되돌리기와 같은 내용)
+- **피드 지연 `feed_latency`:** 부하 요청을 보내기 직전과 끝난 직후의 시각 차이(밀리초)를 `Trend`로 남기고 `status` 태그를 붙인다. k6의 `http_req_duration`은 쓰지 않는다. 기준선(400 RPS, S-02·S-03)에서 요청 시간 초과로 끝난 요청 12만 개 중 약 11만 개의 `http_req_duration`이 0으로 남았다(`iteration_duration`은 모두 5초). k6가 응답 대기 시작을 기록하기 전에 시간 초과되면 각 단계 시간이 0으로 남는 것으로 보인다. 그대로 쓰면 p50이 0ms가 되고, 시간 초과가 1% 미만이면 p99도 실제보다 낮게 나온다. 경과 시간은 연결 대기를 포함하므로 시간 초과된 요청은 요청 시간 초과보다 짧게 남지 않는다.
 - 부하 요청: `GET /feed`, `X-User-Id`는 1~1,000에서 고르게 뽑는다. `size`는 기본값(20)이다. like-service에는 사용자 ID 제한이 없다.
 - **요청 시간 초과 5초와 가상 사용자 수:** 시간 초과는 S-02의 3초 지연을 끝까지 잴 수 있도록 3초보다 길게, 가상 사용자 수가 감당할 만하도록 짧게 정했다. 필요한 가상 사용자 수는 리틀의 법칙으로 RPS × 5초이고(200 RPS면 1,000), 여기에 10%를 더해 미리 만든다. 실행 중에 가상 사용자를 새로 만들면 그 비용이 결과에 섞이므로 처음부터 다 만든다. 모자라 건너뛴 요청(`dropped_iterations`)은 가용성의 실패로 센다(결정 7).
 - **다른 안:** 장애 시간표를 셸에서 `sleep`으로 돌리면 부하와 시계가 따로라 장애 시각이 몇 초씩 흔들린다. 시나리오마다 k6 스크립트를 따로 쓰면 판정·리포트 코드가 아홉 벌이 된다.
@@ -135,7 +136,7 @@ experiments/run.sh <S-xx> [--rps N] [--warmup 1m] [--duration 5m]
 |---|---|---|
 | 시나리오, 커밋, 실행 시각, RPS, 준비·측정 시간, 기대 결과 | 실행 인자와 `git rev-parse --short HEAD`(작업 트리가 더러우면 `-dirty`) | run.sh |
 | 측정 요청 수, 보내지 못한 요청 수 | `measure`의 `http_reqs`, `dropped_iterations` | k6 요약 |
-| p50, p95, p99 | `measure`의 `http_req_duration`. 실패한 요청을 포함한다(PRD 2장: 503도 300ms 안) | k6 요약 |
+| p50, p95, p99 | `measure`의 `feed_latency`(결정 5). 실패한 요청을 포함한다(PRD 2장: 503도 300ms 안) | k6 요약 |
 | 가용성 | 200 수 ÷ (측정 요청 수 + 보내지 못한 요청 수) | k6 요약 |
 | SLO 충족 | `measure` threshold가 모두 통과 | k6 요약 |
 | degrade 비율(의존성별) | `contract.js`가 응답에서 빠진 영역을 센다. MVP 계약에는 빠진 영역 표시가 없어 "없음" | k6 요약 |
@@ -143,8 +144,9 @@ experiments/run.sh <S-xx> [--rps N] [--warmup 1m] [--duration 5m]
 | 의존성별 요청 배율 | 하위 서비스의 `http_server_requests_seconds_count`(`/actuator` 제외) 증가량 ÷ 피드 요청 수 | Prometheus |
 | 서킷 상태 | `resilience4j_circuitbreaker_state` 시계열이 없으면 "없음". 있으면 측정 구간에 거친 상태 | Prometheus |
 | 자원 사용량 | 결정 4의 Tomcat, 공유 풀(활성·대기열), 커넥션 풀(사용 중·대기, 의존성별)과 feed-service `process_cpu_usage`의 측정 구간 최댓값·평균 | Prometheus |
+| feed-service 지표 수집 비율 | 측정 구간 `up{instance=feed-service}` 표본 중 1인 비율. 1보다 작으면 `report.md`에 자원 사용량이 긁힌 구간만의 값이라고 적는다 | Prometheus |
 | 장애 시각 | `kind: fault` 요청의 시각과 동작 | k6 원본 |
-| 10초 구간 표 | 측정 구간을 10초씩 나눠 구간마다 요청 수, p99, 가용성 | k6 원본 |
+| 10초 구간 표 | 측정 구간을 10초씩 나눠 구간마다 요청 수, p99(`feed_latency`), 가용성 | k6 원본 |
 | 복구 시간 (S-08) | 장애를 거둔 시각 뒤의 10초 구간 중 SLO를 지키기 시작해 끝까지 이어진 첫 구간의 시작 - 거둔 시각. 없으면 "측정 구간 안에 복구하지 못함" | k6 원본 |
 | Grafana 링크 | 대시보드 URL에 `from`, `to`를 측정 구간으로 | run.sh |
 
@@ -186,6 +188,7 @@ experiments/run.sh <S-xx> [--rps N] [--warmup 1m] [--duration 5m]
 - **k6:** `grafana/k6` 이미지(버전 고정, 아키텍처 1장의 2.3대)를 `profiles: [experiment]` 서비스로 둔다. `up`으로는 뜨지 않고 `run.sh`가 `docker compose run`으로만 부른다. `experiments/`를 마운트하고, 결과 파일이 호스트 사용자 소유가 되도록 `--user`를 넘긴다.
 - **자원 상한(아키텍처 9-1):** feed-service CPU 2·메모리 1GB, 하위 서비스 각 CPU 1·512MB, MySQL·Toxiproxy 각 CPU 1, 관찰 인프라는 상한만, k6는 CPU 2·2GB. k6 상한은 1,100 가상 사용자(결정 5)가 부하 도구 쪽 병목이 되지 않을 크기로 잡고, S-01에서 보내지 못한 요청이 0인지로 확인한다(결정 12).
 - **Tomcat 최대 스레드:** feed-service `server.tomcat.threads.max: 200`을 명시한다. Boot 기본값 그대로이고(아키텍처 4-2에서 확인), 기준선이 이 값에서 재졌다는 것을 설정에서 보이게 하려는 것이다. 설정값 커밋으로 따로 한다.
+- **feed-service 관리 포트 8090:** `MANAGEMENT_SERVER_PORT=8090`으로 Actuator를 업무 포트 8080과 다른 Tomcat 커넥터에 연다. Prometheus 대상과 헬스 체크도 8090이다. 기준선(400 RPS)의 S-02·S-03은 측정 구간 거의 내내, S-08은 처음 150초 동안 Prometheus가 feed-service를 긁지 못했다(`up=0`). 업무 요청이 Tomcat 스레드 200개를 모두 묶으면 같은 커넥터의 `/actuator/prometheus`도 기다리기 때문이다. 그러면 자원이 찬 순간의 값이 빠지고, 피드 전체로 번진 모습을 보여 줄 수 없다. 관리 포트는 `application.yml`이 아니라 Compose에서 준다. 서비스 테스트는 업무 포트 하나로 Actuator를 부르고, 분리는 실행 환경(Compose)이 정할 일이다. Tomcat 지표는 커넥터마다 `name` 태그(`http-nio-8080`, `http-nio-8090`)로 나뉘어, 리포트와 대시보드는 `name="http-nio-8080"`만 본다. 하위 서비스는 실험에서 Tomcat이 차지 않아 그대로 둔다.
 - **Prometheus 수집 간격 15초 → 5초:** 측정 5분에 표본이 20개에서 60개가 된다. S-09의 10초 장애가 15초 간격에서는 한 번도 긁히지 않을 수 있다. 설정값 커밋으로 따로 한다.
 
 ### 11. 대시보드
@@ -193,6 +196,7 @@ experiments/run.sh <S-xx> [--rps N] [--warmup 1m] [--duration 5m]
 - `docker/grafana/provisioning/dashboards/`에 공급자 설정을, `docker/grafana/dashboards/feed-experiments.json`에 대시보드(uid `weave-feed`)를 둔다. 지금은 데이터 소스 폴더만 마운트하므로 두 폴더를 더 마운트한다.
 - 패널: 피드 RPS·가용성·p50/p95/p99(`http_server_requests`), 의존성별 호출 p99·실패율·RPS, Tomcat 사용 중 스레드, 공유 풀 활성·대기열, 의존성별 커넥션 풀 사용 중·대기, feed-service CPU. 서킷·벌크헤드·degrade 패널은 F-001, F-002에서 그 지표와 함께 더한다(아키텍처 7-4를 그렇게 고친다).
 - 실험 리포트는 이 대시보드 링크에 측정 구간을 붙여 그래프를 대신한다.
+- feed-service 질의는 관리 포트의 대상(`instance="feed-service:8090"`)으로 거르고, Tomcat 패널은 업무 커넥터(`name="http-nio-8080"`)만 본다(결정 10).
 
 ### 12. 실험 RPS와 기준선 기록
 

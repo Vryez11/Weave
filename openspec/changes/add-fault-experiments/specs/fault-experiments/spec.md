@@ -103,15 +103,24 @@ Compose 환경의 feed-service는 하위 서비스 5개를 의존성마다 하�
 
 가용성은 측정 구간에 보내야 했던 요청 중 200을 받은 비율이어야 한다(SHALL). 200이 아닌 응답, 연결 실패, 부하 도구의 요청 시간 초과는 실패이고, 부하 도구가 보내지 못한 요청(가상 사용자가 모자라 건너뛴 요청)도 분모에 넣어 실패로 센다. 지연 백분위는 실패한 요청을 포함해 계산한다.
 
+지연은 부하 도구가 요청을 보낸 때부터 응답을 받거나 요청 시간 초과로 끝날 때까지 잰 경과 시간이어야 한다(SHALL). 시간 초과된 요청의 지연은 요청 시간 초과보다 짧게 적지 않는다.
+
 #### Scenario: 모든 요청이 실패한다
 
 - **WHEN** `experiments/run.sh S-06 --rps 5 --warmup 5s --duration 20s`를 돌린다(MVP에서 post가 꺼지면 피드가 500이다)
 - **THEN** 리포트의 가용성이 0이다
 - **AND** 리포트에 지연 p50·p95·p99가 있다
 
+#### Scenario: 시간 초과된 요청
+
+- **WHEN** `experiments/run.sh S-03 --rps 60 --warmup 5s --duration 20s`를 돌린다(MVP에서 recommendation이 응답하지 않으면 피드 요청이 요청 시간 초과 5초까지 끝나지 않는다)
+- **THEN** 리포트의 지연 p50은 4,500ms 이상이다
+
 ### Requirement: 리포트 (F-007)
 
 실행마다 `experiments/results/` 아래 새 폴더에 사람이 읽는 리포트와 원본 결과를 남겨야 한다(SHALL). 리포트 항목은 design 결정 7의 표를 따르고, 지금 단계에 없는 값(degrade 비율, 서킷 상태)은 빈칸이 아니라 "없음"으로 적는다. S-08은 장애를 거둔 뒤 SLO를 다시 지키기까지 걸린 시간을 적는다.
+
+리포트는 측정 구간에 Prometheus가 feed-service 지표를 긁은 비율을 적고, 1보다 작으면 자원 사용량이 긁힌 구간만의 값이라고 함께 적는다.
 
 #### Scenario: 리포트 항목
 
@@ -121,6 +130,7 @@ Compose 환경의 feed-service는 하위 서비스 5개를 의존성마다 하�
 - **AND** Tomcat 사용 중 스레드, 공유 호출 스레드 풀의 활성 스레드와 대기열, 의존성별 커넥션 풀의 사용 중·대기 수, feed-service CPU 사용률의 최댓값과 평균이 있다
 - **AND** degrade 비율과 서킷 상태는 "없음"이고, 측정 구간으로 시간 범위를 맞춘 Grafana 대시보드 링크가 있다
 - **AND** 넣은 장애마다 실제로 넣은 시각과 거둔 시각이 있다
+- **AND** feed-service 지표 수집 비율(0 이상 1 이하)이 있다
 
 #### Scenario: 복구 시간
 
@@ -173,6 +183,8 @@ Compose 환경의 feed-service는 하위 서비스 5개를 의존성마다 하�
 
 feed-service는 `/actuator/prometheus`에 Tomcat 사용 중 스레드 수, 공유 호출 스레드 풀의 활성 스레드 수와 대기열 길이, 의존성 5개마다 커넥션 풀의 사용 중·대기 연결 수, 의존성마다 호출 지연 히스토그램, 피드 요청 지연 히스토그램을 내보내야 한다(SHALL). 의존성은 이름(`post`, `user`, `like`, `recommendation`, `ad`)으로 구분된다.
 
+Compose 환경에서는 Actuator(지표, 헬스 체크)를 업무 요청과 다른 관리 포트로 열어, 업무 요청이 Tomcat 스레드를 모두 묶어도 Prometheus가 지표를 긁을 수 있어야 한다(SHALL).
+
 #### Scenario: 지표가 있다
 
 - **GIVEN** 하위 서비스 5개가 정상 응답한다
@@ -180,6 +192,13 @@ feed-service는 `/actuator/prometheus`에 Tomcat 사용 중 스레드 수, 공�
 - **THEN** Tomcat 사용 중 스레드, 공유 호출 스레드 풀의 활성 스레드와 대기열 값이 있다
 - **AND** 의존성 이름 5개마다 커넥션 풀의 사용 중·대기 값과 호출 지연 히스토그램 버킷이 있다
 - **AND** `/feed` 요청 지연 히스토그램 버킷이 있다
+
+#### Scenario: Tomcat 스레드가 모두 묶여도 긁힌다
+
+- **GIVEN** Compose 환경의 feed-service는 지표와 헬스 체크를 업무 요청과 다른 관리 포트로 내보낸다
+- **WHEN** `experiments/run.sh S-03 --rps 60 --warmup 5s --duration 20s`를 돌린다(동시 요청이 60 × 5초 = 300개로 Tomcat 최대 스레드 200을 넘는다)
+- **THEN** 리포트의 feed-service 지표 수집 비율은 1이다
+- **AND** 리포트의 Tomcat 사용 중 스레드 최댓값은 200이다
 
 ### Requirement: 실험 대시보드 (F-007)
 
