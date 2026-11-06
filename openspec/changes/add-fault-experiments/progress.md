@@ -323,3 +323,16 @@
 - 7.3 기준선: `run-all.sh` 0 종료, 9개 모두 기대와 같음, 모든 실행의 수집 비율 1. S-02·S-03·S-08에서 Tomcat 200·공유 풀 100·recommendation 커넥션 풀 20(대기 80)이 모두 찼고, S-08 복구 시간 40초. `docs/experiments/baseline-mvp.md`, 아키텍처 4-3 "기준선 평시 p99" 열, 13장을 고쳤다.
 - 남은 것: 8번 묶음(리뷰, 완료 조건).
 ---
+
+## 2026-11-06 - 8.1 검토 (구현에 참여하지 않은 리뷰어)
+- 체크리스트(하네스 규칙 3-3): 1 통과(스펙 시나리오 41개 모두 테스트), 2 제안(허용 목록 커밋이 proposal 밖), 3·4 해당 없음(feed 호출 동작 그대로), 5 통과(k6 상한 근거만 낡음), 6 해당 없음(새 필터는 요청 스레드, 비동기 없음), 7·8 통과.
+- 막음 1건: 판정의 가용성이 보내지 못한 요청을 세지 않았다 → 6.14로 고쳤다(테스트 먼저).
+- 받은 제안: 하위 서비스 5개 "프로필 없이 띄운다" 테스트(6.15), k6 상한 근거와 `TZ=UTC`(6.16).
+- 받지 않은 제안:
+  - 끊김(`reset_peer`) 동작: PRD의 "끊김"은 스펙 "한 의존성의 프록시를 끊는다"(Toxiproxy 프록시 끄기, `down`)로 넣는다. `reset_peer` 변형은 바로 실패해 S-04와 비슷해 design 결정 9에서 미뤘다.
+  - `S-97.json`을 실제 `scenarios/`에 잠시 쓰는 테스트: JVM이 중간에 죽을 때만 남는다. 고치려면 run.sh에 테스트용 시나리오 폴더 옵션이 필요해 미뤘다.
+  - `.claude/settings.json` 허용 목록 좁히기: 권한 설정이라 사람이 따로 정한다.
+- 고친 뒤 `./gradlew ktlintCheck build --rerun-tasks`, `:e2e:composeTest`, `openspec validate --all --strict` 통과. 첫 `build`는 `recommendation-service:test`의 결과 파일 해시 오류(Gradle 상태 문제)로 실패했고 다시 돌려 통과했다.
+- 8.1의 사람 확인 두 가지(`libs/fault-injection`과 코드 공유 규칙, Grafana에서 기준선 S-03 그래프)가 남았다.
+- PRD F-007 수용 기준 6개를 체크했다. "S-01~S-09마다 k6 스크립트"는 스크립트 하나(`k6/feed.js`)와 시나리오마다의 JSON(`scenarios/S-xx.json`)으로 만들었다(design 결정 5).
+---
