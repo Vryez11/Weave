@@ -125,11 +125,11 @@
 
 **Ralph 루프는 이 묶음을 하지 않는다.** 여기에 오면 구현하지 말고 progress.md에 "6번 묶음까지 끝남, 7번 묶음은 사람과 함께 `/opsx:apply`로 진행"이라고 적은 뒤 `<promise>BLOCKED</promise>`로 멈춘다. 측정 하나가 반복 세션의 명령 시간 제한(10분)을 넘고(`run-all.sh`는 약 1시간), 노트북 상태를 사람이 맞춰야 하기 때문이다.
 
-- [ ] 7.1 실험 RPS를 정한다(design 결정 12).
+- [x] 7.1 실험 RPS를 정한다(design 결정 12).
   - S-01을 100, 200, 300, 400 RPS로 돌려 기준(SLO 충족, 보내지 못한 요청 0, feed CPU 최댓값 0.7 미만)을 모두 채우는 가장 높은 값을 고른다.
   - `docs/experiments/baseline-mvp.md`에 표와 실행 환경을 적고, `experiments/config.json`의 RPS를 바꾼다. 설정값 커밋이라 `config.json`만 따로 커밋하고, 본문에 고른 근거(표의 값)를 적는다.
   - 확인: 고른 RPS로 `experiments/run.sh S-01`이 0으로 끝난다.
-- [ ] 7.2 잡음을 잰다. 고른 RPS로 S-01을 세 번 더 돌려 p99·가용성의 최솟값·최댓값을 `docs/experiments/baseline-mvp.md`에 적는다. 확인: 문서에 세 번의 결과 폴더 이름과 값이 있다.
+- [x] 7.2 잡음을 잰다. 고른 RPS로 S-01을 세 번 더 돌려 p99·가용성의 최솟값·최댓값을 `docs/experiments/baseline-mvp.md`에 적는다. 확인: 문서에 세 번의 결과 폴더 이름과 값이 있다.
 - [ ] 7.3 기준선을 기록한다(design 결정 12).
   - `experiments/run-all.sh`를 기본값으로 돌려 시나리오마다의 판정, p50·p95·p99, 가용성, 자원 최댓값, S-08 복구 시간을 `docs/experiments/baseline-mvp.md`에 표로 적는다. 장애가 자원을 묶어 피드 전체로 번진 모습(어느 시나리오에서 Tomcat·공유 풀·커넥션 풀이 찼는지)을 몇 줄로 적는다.
   - `docs/architecture.md` 4-3에 "기준선 평시 p99" 열(S-01의 의존성별 호출 p99)을 더하고, 13장의 "실험 RPS와 실행 시간"을 지운다.
