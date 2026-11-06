@@ -106,7 +106,7 @@
 - [x] 6.4 `experiments/run.sh`를 만든다(design 결정 6, 7).
   - 옵션 확인, 환경 확인, `trap` 되돌리기(`k6/reset.js`), feed-service 다시 띄우기, k6 실행, Prometheus 질의, `report.md`·`report.json`, 종료 코드 0/1/2
   - 확인: 1.8 중 `run-all.sh` 말고 모든 시나리오가 `./gradlew :e2e:composeTest`로 통과한다.
-- [ ] 6.5 `experiments/run-all.sh`를 만든다(design 결정 8).
+- [x] 6.5 `experiments/run-all.sh`를 만든다(design 결정 8).
   - 확인: 1.6의 "기본 목록"과 1.8의 "판정 표"가 통과한다.
 - [ ] 6.6 Grafana 대시보드를 더한다(design 결정 11).
   - 공급자 설정, `docker/grafana/dashboards/feed-experiments.json`(uid `weave-feed`), `compose.yaml`의 마운트
