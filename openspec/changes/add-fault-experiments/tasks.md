@@ -4,7 +4,7 @@
 
 시나리오 테스트는 HTTP와 프로세스 수준의 블랙박스 테스트로 쓴다(design 결정 13). 구현이 없으니 `integrationTest`에서는 실패하고, `test`(Stop 훅)는 통과해야 한다. Compose 태그 테스트는 이 묶음에서 컴파일만 확인한다. 테스트 이름에 `F-007`을 넣는다.
 
-- [ ] 1.1 `libs/fault-injection` 모듈의 뼈대를 만든다.
+- [x] 1.1 `libs/fault-injection` 모듈의 뼈대를 만든다.
   - `settings.gradle.kts`에 모듈을 넣고, `weave.spring-library`를 쓰는 `build.gradle.kts`와 빈 패키지(`com.weave.faultinjection`)를 둔다. 하위 서비스에는 아직 붙이지 않는다.
   - 테스트 소스에 업무 엔드포인트 하나(`GET /work`)가 있는 작은 웹 애플리케이션을 둔다(`libs/observability`의 testapp과 같은 방식).
   - 확인: `./gradlew ktlintCheck build`가 통과한다.

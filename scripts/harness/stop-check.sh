@@ -24,7 +24,7 @@ modules=()
 if needs '^(buildSrc/|gradle/|settings\.gradle\.kts$|build\.gradle\.kts$)'; then
   modules=("")
 else
-  for dir in feed-service post-service user-service like-service recommendation-service ad-service libs/observability e2e; do
+  for dir in feed-service post-service user-service like-service recommendation-service ad-service libs/observability libs/fault-injection e2e; do
     if needs "^$dir/"; then
       modules+=(":${dir//\//:}:")
     fi
