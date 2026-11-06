@@ -18,7 +18,12 @@ import tools.jackson.module.kotlin.readValue
  * **명령:** `experiments/lib/verdict.sh <k6 요약 파일> <시나리오 ID> [기대 결과 파일]`
  * - k6 요약 파일: `k6 run --summary-export`의 결과. `metrics`의 키 중 `{scenario:measure}`가 붙은 지표의 threshold만 본다.
  *   이 형식에서 threshold 값 `true`는 기준을 넘었다(실패), `false`는 통과라는 뜻이다.
- * - SLO 충족: 측정 구간 threshold가 하나 이상 있고 모두 통과했다.
+ * - SLO 충족: 측정 구간 threshold가 하나 이상 있고 모두 통과했으며, 보내지 못한 요청을 실패로 넣은 가용성이
+ *   `experiments/slo.json`의 `availability` 이상이다. 가용성 = `availability{scenario:measure}`의 `passes`
+ *   ÷ (`http_reqs{scenario:measure}`의 `count` + `dropped_iterations{scenario:measure}`의 `count`).
+ *   k6의 `availability` Rate는 보낸 요청만 세므로 보내지 못한 요청은 이 계산으로만 들어간다.
+ *   이 계산으로 넘었고 k6 `availability` threshold는 통과했으면 `failedThresholds`에
+ *   `"availability{scenario:measure}: 보내지 못한 요청 포함 rate>=<SLO>"`를 넣는다.
  * - 기대 결과 파일: 기본은 `experiments/expectations.json`. 형식은 `{"stage": "고도화 2", "scenarios": {"S-01": "meet", "S-02": "miss", ...}}`
  *
  * **출력:** 표준 출력에 JSON 하나. 안내와 오류는 표준 오류에 쓴다.
@@ -94,6 +99,17 @@ class ExperimentVerdictScenarioTest :
             withClue(result) {
                 output["sloMet"] shouldBe true
                 output["verdict"] shouldBe "SLO 충족, 기대와 다름"
+                result.exitCode shouldBe 1
+            }
+        }
+
+        test("F-007 보내지 못한 요청도 실패다: 보낸 요청이 모두 200이어도 보내지 못한 요청이 0.2%인 S-01은 'SLO 미충족, 기대와 다름'이다") {
+            val (result, output) = verdict("summary-S-01-dropped.json", "S-01")
+            withClue(result) {
+                output["sloMet"] shouldBe false
+                output["verdict"] shouldBe "SLO 미충족, 기대와 다름"
+                (output["failedThresholds"] as List<*>) shouldContainExactly
+                    listOf("availability{scenario:measure}: 보내지 못한 요청 포함 rate>=0.999")
                 result.exitCode shouldBe 1
             }
         }
