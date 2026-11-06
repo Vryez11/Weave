@@ -79,7 +79,7 @@
 
 ## 5. Compose 실험 환경
 
-- [ ] 5.1 Toxiproxy를 더하고 feed-service가 프록시를 거치게 한다(design 결정 1, 10).
+- [x] 5.1 Toxiproxy를 더하고 feed-service가 프록시를 거치게 한다(design 결정 1, 10).
   - `docker/toxiproxy/toxiproxy.json`에 프록시 5개, `compose.yaml`에 Toxiproxy 서비스(버전 고정 이미지, 별칭 5개, 헬스 체크, 관리 API `127.0.0.1:8474`)를 둔다. feed-service는 Toxiproxy가 healthy가 된 뒤 뜬다.
   - feed-service의 `*_BASE_URL`을 별칭 주소로 바꾸고, 하위 서비스 5개에 `SPRING_PROFILES_ACTIVE=experiment`를 준다.
   - 확인: `./gradlew :e2e:composeTest`에서 1.7의 프록시 시나리오 두 개와 기존 Loki·Tempo 시나리오가 통과한다.

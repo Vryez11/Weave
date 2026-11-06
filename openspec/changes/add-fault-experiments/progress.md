@@ -189,3 +189,13 @@
 - 확인: `:feed-service:integrationTest`에서 `MvpTimeoutDefaultsTest`의 Tomcat 단언 포함 feed 통합 테스트 전체 통과(실패 없음), `ktlintCheck`, `:feed-service:test`, `openspec validate` 통과.
 - 다음 반복(5.1)이 알아 둘 것: Toxiproxy 프록시 이름은 의존성 이름(`post` 등), 관리 API `127.0.0.1:8474`(1.7 메모). `docker`는 이 세션에서 승인 없이 돌지 않을 수 있다(알아 둘 패턴).
 ---
+
+## 2026-11-06 - 5.1 Toxiproxy를 더하고 feed-service가 프록시를 거치게 한다
+- `docker/toxiproxy/toxiproxy.json`에 프록시 5개(이름 = 의존성 이름, `0.0.0.0:1808x` → `<의존성>-service:808x`).
+- `compose.yaml`: `toxiproxy` 서비스(`ghcr.io/shopify/toxiproxy:2.13.0`, `-config=/config/toxiproxy.json`, 기본 네트워크 별칭 `post-proxy` 등 5개, `127.0.0.1:8474`, 헬스 체크 `/toxiproxy-cli list`). feed-service의 `*_BASE_URL`을 `http://<의존성>-proxy:1808x`로 바꾸고 `depends_on`에 toxiproxy `service_healthy`. 하위 서비스 5개는 새 앵커 `x-downstream-environment`(공통 환경 + `SPRING_PROFILES_ACTIVE: experiment`)를 쓴다.
+- 이미지 버전: `gh api repos/Shopify/toxiproxy/releases`로 확인한 최신 안정판 v2.13.0(2026-10-14, 23일 전). 이미지는 scratch(셸 없음, `/toxiproxy`, `/toxiproxy-cli`). 서버는 `-config`를 읽은 뒤 관리 API를 연다(`cmd/server/server.go`)라 헬스 체크가 통과하면 프록시도 있다. 2.13은 비루프백 주소의 인증 없는 API에 경고 로그를 낸다(컨테이너 안에서 `0.0.0.0`이라 나온다. 호스트에는 `127.0.0.1`로만 연다).
+- `docker/CLAUDE.md`에 Toxiproxy 헬스 체크와 별칭 규칙을 적었다.
+- 바꾼 파일: `compose.yaml`, `docker/toxiproxy/toxiproxy.json`, `docker/CLAUDE.md`, `tasks.md`
+- 확인: `./gradlew :e2e:composeTest --continue`에서 `ProxyPathComposeScenarioTest` 2개, `TraceLookupComposeScenarioTest` 2개 통과. 실패 12개는 모두 `experiments/run.sh`·`run-all.sh`가 없어서다(`Cannot run program`, 6.4·6.5 몫). `ktlintCheck compileKotlin compileTestKotlin test`, `openspec validate` 통과.
+- 다음 반복(5.2)이 알아 둘 것: 자원 상한은 서비스마다 `deploy.resources.limits`. Toxiproxy도 CPU 1. `docker compose ps`·`docker inspect`는 이 세션에서 승인 없이 돌지 않는다(`docker version`조차 막혔다). 확인이 필요하면 `:e2e:composeTest`처럼 Gradle을 거치는 길을 찾거나, 명령을 progress.md에 적어 사람이 돌리게 한다. 결과는 `e2e/build/test-results/composeTest/TEST-*.xml`을 Read로 본다(`grep`을 여러 파일에 쓰면 승인을 기다렸다).
+---
