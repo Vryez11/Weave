@@ -25,9 +25,9 @@ import kotlin.time.Duration.Companion.minutes
  * | 시나리오 | SLO | 기대 | 판정 | 리포트 |
  * |---|---|---|---|---|
  * | S-01 | 충족 | meet | 기대와 같음 | experiments/results/20261106-010000-S-01 |
- * | S-02 | 미충족 | miss | 기대와 같음 | experiments/results/20261106-010130-S-02 |
+ * | S-02 | 미충족 | 가용성 miss · p99 meet | 기대와 같음 | experiments/results/20261106-010130-S-02 |
  * ```
- * - SLO: `충족`, `미충족`, 실행하지 못했으면 `-`. 기대: `expectations.json`의 값. 판정: `기대와 같음`, `기대와 다름`, `실행하지 못함`
+ * - SLO: `충족`, `미충족`, 실행하지 못했으면 `-`. 기대: `expectations.json`의 값. 기준별 기대(객체)면 `가용성 <값> · p99 <값>`. 판정: `기대와 같음`, `기대와 다름`, `실행하지 못함`
  * - 리포트: 그 실행의 결과 폴더. 레포 루트 기준 상대 경로이거나 절대 경로다. 실행하지 못했으면 `-`
  * - 표의 줄은 `| S-`로 시작한다. 표준 출력의 다른 줄(`run.sh`의 진행 안내 등)은 `| S-`로 시작하지 않는다.
  */
@@ -61,7 +61,8 @@ class ExperimentRunAllComposeScenarioTest :
                 rows shouldHaveSize 2
                 rows.forEach { it shouldHaveSize 5 }
                 rows.map { it[0] } shouldContainExactly listOf("S-01", "S-02")
-                rows.map { it[2] } shouldContainExactly listOf("meet", "miss")
+                // 기대 열은 expectations.json의 값. 기준별 기대(객체)는 "가용성 miss · p99 meet"처럼 적는다(add-call-isolation design 결정 10)
+                rows.map { it[2] } shouldContainExactly listOf("meet", "가용성 miss · p99 meet")
                 rows.forEach { row ->
                     withClue("판정 표 줄 $row") {
                         row[1] shouldBeIn listOf("충족", "미충족")

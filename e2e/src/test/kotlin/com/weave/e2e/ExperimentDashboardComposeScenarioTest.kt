@@ -15,7 +15,7 @@ import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
 /**
- * `fault-experiments` 스펙의 "대시보드를 불러온다" 시나리오 (F-007).
+ * `fault-experiments` 스펙의 "대시보드를 불러온다" 시나리오 (F-007, F-001).
  *
  * 주소와 Compose 프로젝트는 [ComposeEnvironment]의 시스템 속성으로 받는다.
  * GIVEN의 `experiments/run.sh S-01 --rps 5 --warmup 5s --duration 20s`는 테스트가 직접 돌린다.
@@ -34,18 +34,26 @@ class ExperimentDashboardComposeScenarioTest :
         val dashboardUid = "weave-feed"
         val timeVariable = Regex("""\$\{?__(rate_interval|interval|range)}?""")
 
-        // 피드 가용성·p50/p95/p99, 의존성별 호출 지연·실패율, Tomcat, 공유 풀(활성·대기열), 커넥션 풀(사용 중·대기), CPU
+        // 피드 가용성·p50/p95/p99, 의존성별 호출 지연·실패율, Tomcat, 커넥션 풀(사용 중·대기), CPU,
+        // 의존성별 서킷 상태, 벌크헤드 사용 중·최대 스레드, 벌크헤드 거절, 시간 상한 초과(add-call-isolation design 결정 10).
+        // 벌크헤드 거절은 Resilience4j ThreadPool 벌크헤드에 지표가 없어 feed-service가 직접 센다(`weave_bulkhead_rejected_calls_total{name}`,
+        // 의존성마다 0부터 등록해 장애가 없어도 시계열이 있다)
         val expectedMetrics =
             listOf(
                 "http_server_requests_seconds",
                 "http_client_requests_seconds",
                 "tomcat_threads_busy_threads",
-                "executor_active_threads",
-                "executor_queued_tasks",
                 "httpcomponents_httpclient_pool_total_connections",
                 "httpcomponents_httpclient_pool_total_pending",
                 "process_cpu_usage",
+                "resilience4j_circuitbreaker_state",
+                "resilience4j_bulkhead_active_thread_count",
+                "resilience4j_bulkhead_max_thread_pool_size",
+                "weave_bulkhead_rejected_calls_total",
+                "resilience4j_timelimiter_calls",
             )
+        // MVP의 공유 풀 패널은 고도화 3에서 지웠다
+        val removedMetrics = listOf("executor_active_threads", "executor_queued_tasks")
 
         @Suppress("UNCHECKED_CAST")
         fun Any?.asMap(): Map<String, Any?> = this as? Map<String, Any?> ?: emptyMap()
@@ -65,7 +73,7 @@ class ExperimentDashboardComposeScenarioTest :
                 own + queries(panel["panels"].asList())
             }
 
-        test("F-007 대시보드를 불러온다: S-01을 짧게 돌린 뒤 Grafana에 피드 실험 대시보드가 있고 패널 질의가 모두 오류 없이 시계열을 돌려준다") {
+        test("F-001 대시보드를 불러온다: S-01을 짧게 돌린 뒤 Grafana에 피드 실험 대시보드가 있고, 서킷 상태·벌크헤드 패널이 있으며, 패널 질의가 모두 오류 없이 시계열을 돌려준다") {
             val run =
                 ComposeEnvironment.experiment(
                     "run.sh",
@@ -96,6 +104,9 @@ class ExperimentDashboardComposeScenarioTest :
             val allQueries = panelQueries.joinToString("\n") { it.second }
             expectedMetrics.forEach { metric ->
                 withClue("대시보드 질의에 $metric 이 있어야 한다") { allQueries shouldContain metric }
+            }
+            removedMetrics.forEach { metric ->
+                withClue("대시보드 질의에 $metric 이 없어야 한다") { allQueries shouldNotContain metric }
             }
 
             val prometheus = ComposeEnvironment.prometheusUrl

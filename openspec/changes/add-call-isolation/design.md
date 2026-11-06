@@ -146,16 +146,16 @@ Gateway마다 어노테이션을 붙이는 대신, 의존성 이름과 호출 �
   S-02~S-09가 모두 같은 이유: F-001만으로는 실패한 의존성이 피드를 500으로 만든다(가용성은 기준선과 비슷하다). 대신 모든 실패가 시간 상한과 예산 안에서 끝나 p99는 300ms 안이어야 한다. 기준선에서 이미 p99를 지키던 S-04~S-07, S-09도 `meet`으로 적어, 다음 단계에서 p99가 나빠지면 실험 세트가 잡게 한다.
 - **판정(`lib/verdict.sh`):** k6 threshold 이름으로 기준을 가른다(`availability{scenario:measure}`와 보내지 못한 요청을 넣은 가용성은 가용성, `feed_latency{scenario:measure}: p(99)<…`는 p99). 출력 JSON에 `criteria: {availability: {met, expectation}, p99: {met, expectation}}`와 기대와 다른 기준 목록 `mismatchedCriteria`(그 밖의 측정 구간 threshold가 넘으면 `other`)를 더하고 `sloMet`, `expectation`(문자열이면 그대로, 객체면 그대로 객체), `matchesExpectation`, `verdict`, `failedThresholds`는 지금 뜻 그대로 둔다. `run-all.sh` 판정 표의 "기대" 열은 객체면 `가용성 miss · p99 meet`처럼 적는다.
 - **리포트:** "공유 풀 활성·대기열"을 의존성별 벌크헤드 사용 중 스레드·대기열(`resilience4j_bulkhead_thread_pool_size`와 활성 스레드, `..._queue_depth`. 정확한 이름은 결정 2에서 확인한다)로 바꾼다. 서킷 상태는 `resilience4j_circuitbreaker_state`의 `query_range`(5초 간격)에서 값이 1인 상태를 시간순으로 읽어 바뀔 때만 이어 적는다(`CLOSED → OPEN → HALF_OPEN → CLOSED`). 5초보다 짧게 머문 상태는 놓칠 수 있다고 리포트 설명에 적는다. 리포트 로직의 이 부분은 `lib/circuits.sh`로 떼어 미리 만든 질의 결과로 테스트한다(인자와 출력은 `ExperimentCircuitStateScenarioTest` KDoc)(add-fault-experiments 결정 13과 같은 방식).
-- **대시보드:** "서킷·벌크헤드" 행(아키텍처 7-4)에 의존성별 서킷 상태, 벌크헤드 사용 중·최대 스레드, 벌크헤드 거절 수(`resilience4j_bulkhead_*` 또는 실패 로그가 아닌 지표로 셀 수 있는 것, 결정 2에서 확인), 시간 상한 초과 수를 더한다. 자원 사용량 행의 공유 풀 패널 두 개는 지운다.
+- **대시보드:** "서킷·벌크헤드" 행(아키텍처 7-4)에 의존성별 서킷 상태, 벌크헤드 사용 중·최대 스레드, 벌크헤드 거절 수(`weave_bulkhead_rejected_calls_total{name}`, 아래 Open Questions에서 정한 것), 시간 상한 초과 수를 더한다. 자원 사용량 행의 공유 풀 패널 두 개는 지운다.
 - **S-08 복구 시간 목표 20초:** 기준선 40초의 절반. 결정 7의 열림 유지 5초 + 시험 호출로 거둔 뒤 첫 10초 구간 안에 닫힐 것으로 보고, 10초 구간 하나만큼 여유를 둔다. PRD 10장 "남은 것"에서 정한 것으로 옮긴다. 실험 세트가 복구 시간을 기준으로 판정하지는 않는다(SLO만 본다). 결과 문서에 목표와 실제 값을 함께 적는다.
-- **MVP를 전제로 한 Compose 시나리오:** 스펙 델타대로 바꾼다. "Tomcat 스레드가 모두 묶여도 긁힌다"는 격리를 넓힌 설정이 있어야 만들 수 있어, feed-service에 `SPRING_APPLICATION_JSON: ${FEED_SPRING_APPLICATION_JSON:-{}}`를 넘겨 둔다(compose.yaml). 테스트는 이 변수를 준 채 `run.sh`를 돌리고(`run.sh`가 feed-service를 다시 띄울 때 적용된다), 끝나면 변수 없이 feed-service를 다시 띄운다. 이 변수는 결정 11의 비교 실험에도 쓴다. "시간 초과된 요청"은 `docker compose pause feed-service`로 만든다.
+- **MVP를 전제로 한 Compose 시나리오:** 스펙 델타대로 바꾼다. "Tomcat 스레드가 모두 묶여도 긁힌다"는 격리를 넓힌 설정이 있어야 만들 수 있어, feed-service에 `SPRING_APPLICATION_JSON: ${FEED_SPRING_APPLICATION_JSON:-{}}`를 넘겨 둔다(compose.yaml). `run.sh`는 feed-service를 `docker compose restart`로 다시 띄워 컨테이너의 환경을 그대로 두므로, 변수는 컨테이너를 새로 만들 때(`up -d --force-recreate --no-deps feed-service`) 들어간다. 테스트는 변수를 주고 feed-service를 새로 만든 뒤 `run.sh`를 돌리고, 끝나면 변수 없이 다시 만든다(`ComposeEnvironment.recreateFeedService`). 이 변수는 결정 11의 비교 실험에도 쓴다. "시간 초과된 요청"은 `docker compose pause feed-service`로 만든다.
 - **Compose 테스트의 첫 요청:** 막 뜬 feed-service는 첫 호출이 100ms 상한에 걸릴 수 있다(연결 수립, 클래스 로딩). 시나리오를 확인하기 전에 준비 요청을 몇 번 보내는 도우미를 Compose 테스트 지원 코드에 둔다. `run.sh`는 준비 구간이 같은 역할을 한다.
 
 ### 11. 가상 스레드 비교 (S-02 한 번)
 
 - `weave.isolation.bulkhead-type: thread-pool`(기본) | `semaphore`. `semaphore`면 `IsolatedCalls`가 호출을 `applicationTaskExecutor`에서 돌리고 Semaphore 벌크헤드(`resilience4j.bulkhead.instances.<의존성>`, 최대 동시 40, 기다리지 않음)로 감싼다. 같이 `spring.threads.virtual.enabled: true`를 주면 Boot가 Tomcat과 `applicationTaskExecutor`를 가상 스레드로 바꾼다.
 - 상한을 같은 40으로 두는 이유: 비교하려는 것은 격리 방식(전용 플랫폼 스레드 풀 vs 가상 스레드 + 허가 수)이지 크기가 아니다.
-- 두 구성으로 `experiments/run.sh S-02`를 기본 부하(400 RPS, 준비 1분, 측정 5분)로 돌린다. 가상 스레드 구성은 `FEED_SPRING_APPLICATION_JSON='{"weave":{"isolation":{"bulkhead-type":"semaphore"}},"spring":{"threads":{"virtual":{"enabled":true}}}}'`로 띄운다.
+- 두 구성으로 `experiments/run.sh S-02`를 기본 부하(400 RPS, 준비 1분, 측정 5분)로 돌린다. 가상 스레드 구성은 `FEED_SPRING_APPLICATION_JSON='{"weave.isolation.bulkhead-type":"semaphore","spring.threads.virtual.enabled":true}' docker compose up -d --force-recreate --no-deps --wait feed-service`로 만든 뒤 돌리고(결정 10), 끝나면 변수 없이 다시 만든다.
 - 비교 항목: 피드 p50·p99, post·user·like 호출 p99(격리 효과), Tomcat 사용 중 스레드(가상 스레드면 의미가 달라 적는 방식을 결과 문서에 밝힌다), feed-service CPU·메모리(`jvm_memory_used_bytes`), 벌크헤드 거절 수. 결과는 `docs/experiments/call-isolation.md`의 한 절에 적는다. 기본 구성은 바꾸지 않는다(proposal).
 - 가상 스레드에서 블로킹 I/O가 캐리어 스레드를 고정(pinning)하는지는 JDK 25에서 `synchronized` 고정이 풀렸으므로 따로 다루지 않는다. 결과가 이상하면 `jdk.VirtualThreadPinned` 이벤트를 본다.
 
@@ -210,4 +210,4 @@ Gateway마다 어노테이션을 붙이는 대신, 의존성 이름과 호출 �
 
 ## Open Questions
 
-- 벌크헤드 거절 수를 Resilience4j 지표로 바로 셀 수 있는지(ThreadPool 벌크헤드는 거절 카운터가 없을 수 있다). 없으면 실패 로그의 `bulkhead_full`과 같은 시점에 카운터 하나를 직접 둔다. 결정 2의 확인에서 정하며, 스펙(지표에 벌크헤드 사용량이 있다)은 바뀌지 않는다.
+- (정함, tasks 1.2) 벌크헤드 거절 수는 Resilience4j 지표에 없다(`ThreadPoolBulkheadMetricNames`, `BulkheadMetricNames`에 거절 카운터가 없다). feed-service가 벌크헤드의 `onCallRejected` 이벤트로 Micrometer 카운터 `weave.bulkhead.rejected.calls`(태그 `name`, Prometheus `weave_bulkhead_rejected_calls_total`)를 센다. 대시보드 질의가 장애 없이도 시계열을 돌려주게 의존성마다 0부터 등록한다. 구현은 tasks 2.4다.

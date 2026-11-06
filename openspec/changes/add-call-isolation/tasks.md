@@ -21,7 +21,7 @@
   - "기준별 기대와 같다", "기준별 기대와 다르다"를 픽스처로 더하고, "고도화 3의 기대"는 실제 `experiments/expectations.json`을 읽어 본다. 출력 JSON의 `criteria` 형식(design 결정 10)을 KDoc에 적는다.
   - 리포트의 서킷 상태 이어 적기("서킷이 열린 시나리오")를 미리 만든 Prometheus `query_range` 결과 픽스처로 새 테스트에 둔다. 스크립트 이름과 인자는 이 작업에서 정해 KDoc에 적는다.
   - 확인: `./gradlew :e2e:integrationTest`에서 새·바뀐 판정 테스트만 실패하고, `./gradlew :e2e:test`는 통과한다.
-- [ ] 1.4 (대화형) Compose 테스트와 종단 간 테스트를 델타대로 고친다.
+- [x] 1.4 (대화형) Compose 테스트와 종단 간 테스트를 델타대로 고친다.
   - "프록시에 지연을 넣는다", "짧게 돌린다", "시간 초과된 요청"(`docker compose pause`), "리포트 항목"(기준별 충족, 벌크헤드, 서킷 상태), "Tomcat 스레드가 모두 묶여도 긁힌다"(`FEED_SPRING_APPLICATION_JSON`으로 recommendation 격리를 넓히고, 끝나면 변수 없이 feed-service를 다시 띄운다), "대시보드를 불러온다"(서킷·벌크헤드 패널)를 고친다(design 결정 10).
   - Compose 테스트 지원 코드에 시나리오 전 준비 요청을 보내는 도우미를 두고, 첫 `GET /feed`를 단언하는 Compose 테스트가 쓰게 한다.
   - `ServiceProcesses`가 feed-service 프로세스에 1.1과 같은 넉넉한 값을 명령행 인자로 준다(design 결정 13).
@@ -56,6 +56,7 @@
   - 확인: 속성을 준 `HttpClientGroupTest`류의 새 단위·통합 테스트(그룹별 연결·응답·커넥션 대기 타임아웃과 풀 크기를 `HttpClientPools`로 읽는다)가 통과하고 기존 `HttpClientGroupTest`, `HttpClientRetryDefaultsTest`가 통과한다.
 - [ ] 2.4 `IsolatedCalls`로 Gateway 다섯의 조회를 감싼다(design 결정 1, 5, 7).
   - 서킷 → TimeLimiter → ThreadPool 벌크헤드 → 호출. 실패 로그는 감싼 future의 결과에서 한 번만 남긴다. Gateway는 `applicationTaskExecutor`를 더는 받지 않는다.
+  - 벌크헤드 거절 카운터 `weave.bulkhead.rejected.calls`(태그 `name`)를 의존성마다 0부터 등록하고 `onCallRejected`에서 센다(design Open Questions).
   - `application.yml`에는 구조만 둔다: 인스턴스 이름 다섯, 서킷의 실패 판정 함수, 벌크헤드 대기열 0. 값은 4장에서 넣는다.
   - 이 작업 뒤 trace 테스트(`FeedTraceLogScenarioTest`의 다섯 호출·post 뒤 호출, `FeedCallFailureLogScenarioTest`의 traceId 단언, 1.7의 traceId 시나리오)는 벌크헤드 스레드에 문맥이 넘어가지 않아 실패한다. 그대로 두고 실패한 테스트 이름을 progress.md에 "끊김 재현"으로 적는다(PRD F-001 수용 기준).
   - 확인: 1.5의 상한·벌크헤드 시나리오, 1.6의 서킷 시나리오 중 토글·전이 로그를 뺀 것, 1.1의 바뀐 시나리오가 통과한다. 위 trace 테스트 말고 기존 feed-service 테스트가 통과한다.
