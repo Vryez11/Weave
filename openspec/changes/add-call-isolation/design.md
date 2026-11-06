@@ -46,6 +46,22 @@ Gateway마다 어노테이션을 붙이는 대신, 의존성 이름과 호출 �
 - `/actuator/prometheus`에 `resilience4j_circuitbreaker_state`, `resilience4j_bulkhead_*`(ThreadPool 포함), `resilience4j_timelimiter_calls_total`이 의존성 이름(`name` 라벨)으로 나온다.
 - `SpringBoot4VerifierAutoConfiguration`이 4.1.2에서 시작을 막지 않는다.
 
+**확인 결과 (tasks 2.1, `ResilienceAutoConfigurationTest`):** 모두 된다.
+
+- 레지스트리 네 개가 `instances.<이름>` 설정으로 인스턴스를 시작할 때 미리 만든다(호출 전에 `registry.find(이름)`으로 찾힌다). ThreadPool 벌크헤드는 `queue-capacity: 0`을 받는다.
+- Boot 버전 검사 자동 설정이 컨텍스트에 들어 있고 4.1.2에서 시작을 막지 않는다.
+- Prometheus 지표 이름(모두 `name` 라벨이 인스턴스 이름이다):
+
+  | 무엇 | 지표 |
+  |---|---|
+  | 서킷 | `resilience4j_circuitbreaker_state{state}`, `resilience4j_circuitbreaker_not_permitted_calls_total` |
+  | ThreadPool 벌크헤드 | `resilience4j_bulkhead_active_thread_count`, `resilience4j_bulkhead_thread_pool_size`, `resilience4j_bulkhead_max_thread_pool_size`, `resilience4j_bulkhead_queue_depth`, `resilience4j_bulkhead_queue_capacity` |
+  | Semaphore 벌크헤드 | `resilience4j_bulkhead_available_concurrent_calls`, `resilience4j_bulkhead_max_allowed_concurrent_calls` |
+  | TimeLimiter | `resilience4j_timelimiter_calls_total{kind}`. `kind="timeout"`이 호출 전에도 0으로 있다 |
+
+  ThreadPool과 Semaphore 벌크헤드는 같은 `resilience4j_bulkhead_` 접두어를 쓰고 지표 이름으로 갈린다. 같은 의존성 이름의 두 벌크헤드가 함께 있어도 시계열이 겹치지 않는다.
+- 벌크헤드 거절 지표는 없다(`resilience4j_bulkhead_*`에 `reject`가 든 이름이 없다). 대기열 0인 ThreadPool 벌크헤드가 차면 `BulkheadFullException`과 함께 `onCallRejected` 이벤트가 온다. 그래서 거절 수는 그 이벤트로 센다(Open Questions).
+
 ### 3. 호출 시간 상한과 HTTP 타임아웃
 
 | 값 | post, user, like | recommendation, ad | 근거 |
@@ -145,7 +161,7 @@ Gateway마다 어노테이션을 붙이는 대신, 의존성 이름과 호출 �
 
   S-02~S-09가 모두 같은 이유: F-001만으로는 실패한 의존성이 피드를 500으로 만든다(가용성은 기준선과 비슷하다). 대신 모든 실패가 시간 상한과 예산 안에서 끝나 p99는 300ms 안이어야 한다. 기준선에서 이미 p99를 지키던 S-04~S-07, S-09도 `meet`으로 적어, 다음 단계에서 p99가 나빠지면 실험 세트가 잡게 한다.
 - **판정(`lib/verdict.sh`):** k6 threshold 이름으로 기준을 가른다(`availability{scenario:measure}`와 보내지 못한 요청을 넣은 가용성은 가용성, `feed_latency{scenario:measure}: p(99)<…`는 p99). 출력 JSON에 `criteria: {availability: {met, expectation}, p99: {met, expectation}}`와 기대와 다른 기준 목록 `mismatchedCriteria`(그 밖의 측정 구간 threshold가 넘으면 `other`)를 더하고 `sloMet`, `expectation`(문자열이면 그대로, 객체면 그대로 객체), `matchesExpectation`, `verdict`, `failedThresholds`는 지금 뜻 그대로 둔다. `run-all.sh` 판정 표의 "기대" 열은 객체면 `가용성 miss · p99 meet`처럼 적는다.
-- **리포트:** "공유 풀 활성·대기열"을 의존성별 벌크헤드 사용 중 스레드·대기열(`resilience4j_bulkhead_thread_pool_size`와 활성 스레드, `..._queue_depth`. 정확한 이름은 결정 2에서 확인한다)로 바꾼다. 서킷 상태는 `resilience4j_circuitbreaker_state`의 `query_range`(5초 간격)에서 값이 1인 상태를 시간순으로 읽어 바뀔 때만 이어 적는다(`CLOSED → OPEN → HALF_OPEN → CLOSED`). 5초보다 짧게 머문 상태는 놓칠 수 있다고 리포트 설명에 적는다. 리포트 로직의 이 부분은 `lib/circuits.sh`로 떼어 미리 만든 질의 결과로 테스트한다(인자와 출력은 `ExperimentCircuitStateScenarioTest` KDoc)(add-fault-experiments 결정 13과 같은 방식).
+- **리포트:** "공유 풀 활성·대기열"을 의존성별 벌크헤드 사용 중 스레드·대기열(`resilience4j_bulkhead_thread_pool_size`와 활성 스레드, `..._queue_depth`. 이름은 결정 2의 확인 결과)로 바꾼다. 서킷 상태는 `resilience4j_circuitbreaker_state`의 `query_range`(5초 간격)에서 값이 1인 상태를 시간순으로 읽어 바뀔 때만 이어 적는다(`CLOSED → OPEN → HALF_OPEN → CLOSED`). 5초보다 짧게 머문 상태는 놓칠 수 있다고 리포트 설명에 적는다. 리포트 로직의 이 부분은 `lib/circuits.sh`로 떼어 미리 만든 질의 결과로 테스트한다(인자와 출력은 `ExperimentCircuitStateScenarioTest` KDoc)(add-fault-experiments 결정 13과 같은 방식).
 - **대시보드:** "서킷·벌크헤드" 행(아키텍처 7-4)에 의존성별 서킷 상태, 벌크헤드 사용 중·최대 스레드, 벌크헤드 거절 수(`weave_bulkhead_rejected_calls_total{name}`, 아래 Open Questions에서 정한 것), 시간 상한 초과 수를 더한다. 자원 사용량 행의 공유 풀 패널 두 개는 지운다.
 - **S-08 복구 시간 목표 20초:** 기준선 40초의 절반. 결정 7의 열림 유지 5초 + 시험 호출로 거둔 뒤 첫 10초 구간 안에 닫힐 것으로 보고, 10초 구간 하나만큼 여유를 둔다. PRD 10장 "남은 것"에서 정한 것으로 옮긴다. 실험 세트가 복구 시간을 기준으로 판정하지는 않는다(SLO만 본다). 결과 문서에 목표와 실제 값을 함께 적는다.
 - **MVP를 전제로 한 Compose 시나리오:** 스펙 델타대로 바꾼다. "Tomcat 스레드가 모두 묶여도 긁힌다"는 격리를 넓힌 설정이 있어야 만들 수 있어, feed-service에 `SPRING_APPLICATION_JSON: ${FEED_SPRING_APPLICATION_JSON:-{}}`를 넘겨 둔다(compose.yaml). `run.sh`는 feed-service를 `docker compose restart`로 다시 띄워 컨테이너의 환경을 그대로 두므로, 변수는 컨테이너를 새로 만들 때(`up -d --force-recreate --no-deps feed-service`) 들어간다. 테스트는 변수를 주고 feed-service를 새로 만든 뒤 `run.sh`를 돌리고, 끝나면 변수 없이 다시 만든다(`ComposeEnvironment.recreateFeedService`). 이 변수는 결정 11의 비교 실험에도 쓴다. "시간 초과된 요청"은 `docker compose pause feed-service`로 만든다.
@@ -210,4 +226,4 @@ Gateway마다 어노테이션을 붙이는 대신, 의존성 이름과 호출 �
 
 ## Open Questions
 
-- (정함, tasks 1.2) 벌크헤드 거절 수는 Resilience4j 지표에 없다(`ThreadPoolBulkheadMetricNames`, `BulkheadMetricNames`에 거절 카운터가 없다). feed-service가 벌크헤드의 `onCallRejected` 이벤트로 Micrometer 카운터 `weave.bulkhead.rejected.calls`(태그 `name`, Prometheus `weave_bulkhead_rejected_calls_total`)를 센다. 대시보드 질의가 장애 없이도 시계열을 돌려주게 의존성마다 0부터 등록한다. 구현은 tasks 2.4다.
+- (정함, tasks 1.2) 벌크헤드 거절 수는 Resilience4j 지표에 없다(`ThreadPoolBulkheadMetricNames`, `BulkheadMetricNames`에 거절 카운터가 없다). feed-service가 벌크헤드의 `onCallRejected` 이벤트로 Micrometer 카운터 `weave.bulkhead.rejected.calls`(태그 `name`, Prometheus `weave_bulkhead_rejected_calls_total`)를 센다. 대시보드 질의가 장애 없이도 시계열을 돌려주게 의존성마다 0부터 등록한다. 구현은 tasks 2.4다. tasks 2.1에서 Prometheus에 거절 지표가 없는 것과 대기열 0인 ThreadPool 벌크헤드가 차면 `onCallRejected`가 오는 것을 확인했다(결정 2의 확인 결과).

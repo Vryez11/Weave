@@ -42,7 +42,7 @@
 
 ## 2. 격리 구현
 
-- [ ] 2.1 Resilience4j를 더하고 Boot 4.1.2 호환을 확인한다(design 결정 2).
+- [x] 2.1 Resilience4j를 더하고 Boot 4.1.2 호환을 확인한다(design 결정 2).
   - 의존성(`io.github.resilience4j:resilience4j-spring-boot4:2.4.0`)은 1.2의 `IsolationSettingsTest`가 레지스트리 타입을 써야 해서 1.2에서 따로 커밋해 더했다(72e85fc). 그때 기존 통합 테스트의 컨텍스트가 뜨는 것까지 봤다. ThreadPool 벌크헤드에는 거절 카운터 지표가 없다(`ThreadPoolBulkheadMetricNames`).
   - `ResilienceAutoConfigurationTest`(`Integration`)에서 레지스트리 네 개가 `resilience4j.*` 설정의 인스턴스를 만들고, `/actuator/prometheus`에 서킷·벌크헤드(ThreadPool, Semaphore)·TimeLimiter 지표가 `name` 라벨로 나오는지 본다. 실제 지표 이름과 벌크헤드 거절을 지표로 셀 수 있는지를 design 결정 2와 Open Questions에 적는다.
   - 하나라도 안 되면 우회하지 말고 멈춘다(progress.md에 적고 BLOCKED).

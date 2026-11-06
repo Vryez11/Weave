@@ -12,7 +12,8 @@
 - 시나리오마다 값이 다르면 한 파일에 `@SpringBootTest(properties)` 클래스를 여럿 둔다(`FeedCallIsolationScenarioTest.kt`처럼). 실패 로그 찾기(`failureLines`), 동시 요청(`concurrently`), 포트(`localPort`)는 그 파일의 `private` 함수라 다른 파일에서 쓰려면 새 파일에 다시 둔다.
 - 100ms 같은 짧은 상한을 주는 시나리오는 지연 없이 한 번 먼저 부른다(첫 호출의 연결 수립·클래스 로딩). 응답 타임아웃은 테스트 기본값 2초로 두면 TimeLimiter가 끊는지를 따로 볼 수 있다.
 - 서킷 시나리오는 `beforeEach`에서 `CircuitBreakerRegistry`의 서킷을 모두 `reset()`해 앞 시나리오의 상태를 지운다. main의 느린 호출 경계(상한의 80%)가 섞이지 않게 테스트 속성의 `slow-call-duration-threshold`를 상한과 같게 준다. 서킷을 여는 것은 503 피드를 창 크기만큼 부른다(`FeedCircuitBreakerScenarioTest.kt`).
-- `./gradlew ... -Pkotest.filter.specs=...`는 걸러지지 않고 전체가 돈다. 결과는 `feed-service/build/test-results/integrationTest/TEST-*.xml`에서 본다.
+- `./gradlew ... -Pkotest.filter.specs=...`는 걸러지지 않고 전체가 돈다. `-Pkotest.filter.tests='*이름*'`는 다른 테스트를 skipped로 거르지만 Spring 컨텍스트는 클래스마다 다 뜬다(몇 분 걸린다). 결과는 `feed-service/build/test-results/integrationTest/TEST-*.xml`에서 본다(`grep -o 'testsuite name=... failures="[0-9]*"'`).
+- Resilience4j 지표 이름은 design 결정 2의 "확인 결과" 표가 기준이다(`ResilienceAutoConfigurationTest`가 본다). 1.7 지표 테스트가 기대하는 이름과 같다.
 - 테스트에서 환경 변수 형식의 이름을 주려면 `ApplicationContextInitializer`로 `SystemEnvironmentPropertySource`를 맨 앞에 붙이고, 이름을 `...-systemEnvironment`로 끝나게 둔다(Boot가 그래야 환경 변수 규칙으로 읽는다). `FeedIsolationOverrideScenarioTest.EnvironmentOverride`.
 - 지표 이름(1.7 `FeedIsolationMetricsScenarioTest`가 기대한다): `resilience4j_circuitbreaker_state{name,state}`(지금 상태 값 1), `resilience4j_circuitbreaker_not_permitted_calls_total`, `resilience4j_bulkhead_active_thread_count`·`max_thread_pool_size`·`queue_depth`, `resilience4j_timelimiter_calls_total{kind="timeout"}`. 2.1에서 실제 이름이 다르면 멈춘다(테스트를 고쳐야 한다).
 
@@ -57,4 +58,13 @@
 - 확인: `:feed-service:integrationTest` 113개 중 28개 실패 = 위 "정상인 실패" 25 + 1.7의 셋(단언 실패). `ktlintCheck`, `compileKotlin compileTestKotlin`, `:feed-service:test` 통과.
 - 바꾼 파일: 위 테스트 파일 다섯(새 파일), `tasks.md`, `progress.md`.
 - 다음(2.1): `ResilienceAutoConfigurationTest`. 1.7 지표 테스트가 기대하는 이름(위 패턴)이 실제와 같은지 함께 본다.
+---
+
+## 2026-11-06 - 2.1 Resilience4j의 Boot 4.1.2 호환 확인 (Ralph)
+- `ResilienceAutoConfigurationTest`(`Integration`, 10개)를 새로 두고 모두 통과했다. 레지스트리 넷이 `instances.<이름>` 설정으로 인스턴스를 미리 만들고(`registry.find`), Prometheus에 서킷·ThreadPool·Semaphore 벌크헤드·TimeLimiter 지표가 `name` 라벨로 나오며, Boot 버전 검사 자동 설정이 시작을 막지 않는다. 값은 main과 겹치지 않는 숫자(창 7, 스레드 3, 동시 4·2, 1.5초)를 속성으로 줬다.
+- 거절 지표는 Resilience4j에 없고, 대기열 0인 ThreadPool 벌크헤드가 차면 `BulkheadFullException`과 `onCallRejected` 이벤트가 오는 것을 확인했다(2.4의 `weave.bulkhead.rejected.calls` 근거).
+- design 결정 2에 "확인 결과"(지표 이름 표)를, Open Questions에 확인했다는 줄을 더했다. `build.gradle.kts`의 "2.1에서 확인한다" 주석을 테스트 이름으로 바꿨다.
+- 확인: 새 테스트 10개 통과, `ktlintCheck`, `:feed-service:compileTestKotlin`, `:feed-service:test`, `openspec validate --all --strict` 통과.
+- 바꾼 파일: `feed-service/src/test/kotlin/com/weave/feed/ResilienceAutoConfigurationTest.kt`(새 파일), `feed-service/build.gradle.kts`, `design.md`, `tasks.md`, `progress.md`.
+- 다음(2.2): `DownstreamFailure.of`에 `timeout`·`circuit_open`·`bulkhead_full`·`budget_exhausted`와 "서킷이 센다" 함수. `DownstreamFailureTest`는 이미 커밋된 테스트라 Ralph 중에는 고칠 수 없다. 새 단언은 새 파일(예: `DownstreamFailureIsolationCauseTest`)에 둔다.
 ---
