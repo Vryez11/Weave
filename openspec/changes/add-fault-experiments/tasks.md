@@ -68,7 +68,7 @@
   - `server.tomcat.mbeanregistry.enabled`, `management.metrics.distribution.percentiles-histogram`의 `http.server.requests`·`http.client.requests`를 feed-service `application.yml`에 둔다.
   - `RestClientHttpServiceGroupConfigurer`에서 그룹마다 관찰 규약을 넣어 `client.name`이 그룹 이름이 되게 한다.
   - 확인: 1.5 중 Tomcat, 호출 지연 히스토그램, `/feed` 히스토그램 단언이 통과한다(커넥션 풀과 공유 풀 단언은 4.2까지 실패해도 된다).
-- [ ] 4.2 공유 풀과 의존성별 커넥션 풀 지표를 넣는다(design 결정 4).
+- [x] 4.2 공유 풀과 의존성별 커넥션 풀 지표를 넣는다(design 결정 4).
   - `applicationTaskExecutor`에 실행기 메트릭이 이미 붙는지 먼저 확인한다. 안 붙으면 직접 묶는다. 어느 쪽이었는지 design 결정 4에 적는다.
   - 그룹마다 커넥션 매니저에 Micrometer HttpClient 5 풀 바인더를 그룹 이름으로 등록한다. 매니저를 얻은 방법을 design 결정 4에 적는다.
   - MVP의 HTTP 클라이언트 구성(재시도 끔, 풀 크기, 타임아웃 기본값)이 바뀌면 멈추고 design을 고친다.

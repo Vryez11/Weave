@@ -6,8 +6,13 @@ import com.weave.feed.client.post.PostClient
 import com.weave.feed.client.recommendation.RecommendationClient
 import com.weave.feed.client.user.UserClient
 import io.micrometer.common.KeyValue
+import io.micrometer.core.instrument.MeterRegistry
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder
+import org.springframework.boot.http.client.HttpClientSettings
+import org.springframework.boot.http.client.autoconfigure.service.HttpServiceClientProperties
+import org.springframework.boot.ssl.SslBundles
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.core.ResolvableType
@@ -89,6 +94,17 @@ class HttpClientConfig {
                 builder.observationConvention(GroupNameObservationConvention(group.name()))
             }
         }
+
+    /** 그룹마다의 커넥션 풀 사용 중·대기 지표 (add-fault-experiments design 결정 4). 요청 팩토리를 다시 만드는 이유는 [ConnectionPoolMetrics]. */
+    @Bean
+    fun connectionPoolMetrics(
+        properties: HttpServiceClientProperties,
+        sslBundles: ObjectProvider<SslBundles>,
+        httpClientSettings: ObjectProvider<HttpClientSettings>,
+        requestFactoryBuilder: ClientHttpRequestFactoryBuilder<*>,
+        meterRegistry: ObjectProvider<MeterRegistry>,
+    ): RestClientHttpServiceGroupConfigurer =
+        ConnectionPoolMetrics(properties, sslBundles, httpClientSettings, requestFactoryBuilder, meterRegistry)
 
     private class GroupNameObservationConvention(
         private val groupName: String,

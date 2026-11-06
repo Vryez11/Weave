@@ -81,7 +81,8 @@ Toxiproxy 컨테이너 하나에 프록시 5개를 둔다. 프록시마다 Compo
   - 필드를 못 찾거나 `PoolingHttpClientConnectionManager`가 아니면 시작할 때 이유를 담은 예외로 멈춘다. 지표 없이 조용히 뜨지 않게 하고, httpclient5를 올릴 때 1.5 테스트와 함께 바로 드러나게 한다.
   - Boot의 configurer가 먼저 만든 그룹 팩토리는 쓰이지 않는다. 연결을 연 적이 없고 유휴 정리 스레드도 없어 남는 자원은 없다.
   - 재시도 끔, 풀 크기, 타임아웃 기본값이 지금과 같아야 하고, 이미 있는 `HttpClientPoolCapacityTest`, `MvpTimeoutDefaultsTest`, `HttpClientGroupTest`, `HttpClientRetryDefaultsTest`가 이를 지킨다.
-- 실행기 메트릭이 Boot 4.1에서 `applicationTaskExecutor`에 자동으로 붙는지는 첫 작업의 테스트로 확인한다. 안 붙으면 `ExecutorServiceMetrics`로 직접 묶는다.
+  - 구현(`feed-service`의 `ConnectionPoolMetrics`): configurer 순서는 `HIGHEST_PRECEDENCE + 20`이다. Boot와 같이 `SslBundles`와 `HttpClientSettings` Bean(없으면 null)으로 `HttpClientSettingsPropertyMapper`를 만들고, `HttpServiceClientProperties` Bean의 `get(그룹 이름)`을 넘긴다. `InternalHttpClient`는 package-private이라 클래스 이름으로 확인한 뒤 `connManager` 필드를 읽는다. `MeterRegistry`는 `ObjectProvider`로 받아 그룹을 구성할 때 바인더를 묶는다.
+- 공유 호출 스레드 풀: Boot 4.1이 `applicationTaskExecutor`에 실행기 메트릭(`executor_*{name="applicationTaskExecutor"}`)을 자동으로 붙인다. 1.5 테스트가 구현 없이 통과해 직접 묶지 않았다.
 
 ### 5. 실험 세트 구조: 데이터로 적은 시나리오와 k6 스크립트 하나
 
