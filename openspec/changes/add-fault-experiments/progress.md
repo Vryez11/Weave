@@ -131,3 +131,13 @@
 - 확인: `./gradlew integrationTest --continue`에서 1.3의 하위 서비스 5개·feed 테스트 통과. 실패는 1.4(`AdQuotaScenarioTest` 6), 1.5(`FeedExperimentMetricsScenarioTest` 12), 1.6(e2e 9)뿐. 기존 e2e 종단 간 테스트는 통과(프로필 없이 뜬다). `ktlintCheck compileKotlin compileTestKotlin test`, `openspec validate` 통과.
 - 다음 반복(3.1)이 알아 둘 것: ad의 `application-experiment.yml` 노출 목록 끝에 `quota`를 더하고, 한도 엔드포인트를 켜는 속성도 같은 파일에 둔다. 노출 목록은 `libs/observability`의 `observability-defaults.properties`(`health,info,prometheus`)를 프로필 파일이 덮는 방식이다.
 ---
+
+## 2026-11-06 - 3.1 ad-service 요청 한도와 `quota` 엔드포인트
+- `AdQuota`(고정 창, `@Synchronized`, 거절은 세지 않음, `tryAcquire()`가 null이면 허용·아니면 `Retry-After` 초 = `ceilDiv(창 끝 - 지금, 1s)` 최소 1), `AdQuotaEndpoint`(`GET`/`POST {limit, windowSeconds}`/`DELETE`, 검증 실패는 `InvalidEndpointRequestException` → 400), `AdQuotaFilter`(`/actuator` 건너뜀, 429 `{"error":"quota exceeded"}`, order `FaultInjectionFilter.ORDER - 1`), `AdQuotaConfiguration`(`@ConditionalOnBooleanProperty("weave.ad.quota.enabled")`, 시계는 `ObjectProvider<Clock>.getIfAvailable { Clock.systemUTC() }`).
+- `GET /actuator/quota` 본문: 꺼지면 `{"enabled":false,"limit":null,"windowSeconds":null}`, 켜면 `{"enabled":true,"limit":n,"windowSeconds":w}`.
+- ad `application-experiment.yml`에 `weave.ad.quota.enabled: true`와 노출 목록 `quota`. 아키텍처 11장에 스위치 이름을 적었다.
+- 단위 테스트 `AdQuotaTest`(창 경계 9.999초/10초, 올림, 다시 켜기, 끄기, 검증 실패 뒤 그대로) 6개.
+- 바꾼 파일: `ad-service/src/main/kotlin/com/weave/ad/{AdQuota,AdQuotaEndpoint,AdQuotaFilter,AdQuotaConfiguration}.kt`, `ad-service/src/main/resources/application-experiment.yml`, `ad-service/src/test/kotlin/com/weave/ad/AdQuotaTest.kt`, `docs/architecture.md`, `tasks.md`
+- 확인: `:ad-service:integrationTest`에서 `AdQuotaScenarioTest` 6개·`AdQuotaDisabledScenarioTest`·기존 ad 테스트 모두 통과. 전체 `ktlintCheck compileKotlin compileTestKotlin test`, `openspec validate` 통과.
+- 다음 반복(4.1)이 알아 둘 것: 1.5 메모대로 공유 풀 단언은 이미 통과한다. 4.1은 Tomcat·호출 지연 히스토그램·`/feed` 히스토그램 단언만 통과시키면 된다.
+---

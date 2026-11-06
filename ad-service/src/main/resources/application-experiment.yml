@@ -1,10 +1,14 @@
-# 장애 실험 환경에서만 앱 수준 장애 주입과 faults 엔드포인트를 켠다(add-fault-experiments design 결정 2)
+# 장애 실험 환경에서만 앱 수준 장애 주입과 faults 엔드포인트(add-fault-experiments design 결정 2),
+# 요청 한도와 quota 엔드포인트(design 결정 3)를 켠다
 weave:
   fault-injection:
     enabled: true
+  ad:
+    quota:
+      enabled: true
 
 management:
   endpoints:
     web:
       exposure:
-        include: health,info,prometheus,faults
+        include: health,info,prometheus,faults,quota

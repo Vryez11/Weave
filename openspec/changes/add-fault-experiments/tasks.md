@@ -57,7 +57,7 @@
 
 ## 3. ad 요청 한도
 
-- [ ] 3.1 ad-service에 요청 한도와 `quota` 엔드포인트를 만든다(design 결정 3).
+- [x] 3.1 ad-service에 요청 한도와 `quota` 엔드포인트를 만든다(design 결정 3).
   - 고정 창, 거절한 요청은 세지 않음, `Retry-After = ceil(창 끝 - 지금)`(최소 1). 한도 검사 필터는 장애 주입 필터보다 앞에 둔다.
   - `application-experiment.yml`에서만 엔드포인트를 켜고 노출 목록에 `quota`를 더한다.
   - 확인: 1.4의 여섯 시나리오가 `./gradlew :ad-service:integrationTest`로 통과하고, 기존 ad 테스트도 통과한다.
