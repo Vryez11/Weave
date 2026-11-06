@@ -26,3 +26,15 @@ weave:
 
 server:
   port: 8080
+  tomcat:
+    # Tomcat 스레드 지표(tomcat_threads_busy_threads)를 내보낸다 (add-fault-experiments design 결정 4)
+    mbeanregistry:
+      enabled: true
+
+management:
+  metrics:
+    distribution:
+      # 피드 요청과 의존성별 호출 지연의 p99를 Prometheus에서 계산한다 (add-fault-experiments design 결정 4)
+      percentiles-histogram:
+        http.server.requests: true
+        http.client.requests: true

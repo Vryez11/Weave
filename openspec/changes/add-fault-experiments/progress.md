@@ -141,3 +141,11 @@
 - 확인: `:ad-service:integrationTest`에서 `AdQuotaScenarioTest` 6개·`AdQuotaDisabledScenarioTest`·기존 ad 테스트 모두 통과. 전체 `ktlintCheck compileKotlin compileTestKotlin test`, `openspec validate` 통과.
 - 다음 반복(4.1)이 알아 둘 것: 1.5 메모대로 공유 풀 단언은 이미 통과한다. 4.1은 Tomcat·호출 지연 히스토그램·`/feed` 히스토그램 단언만 통과시키면 된다.
 ---
+
+## 2026-11-06 - 4.1 Tomcat 지표, 요청 지연 히스토그램, 그룹 이름 `client.name`
+- feed `application.yml`에 `server.tomcat.mbeanregistry.enabled: true`와 `management.metrics.distribution.percentiles-histogram`의 `http.server.requests`·`http.client.requests`를 뒀다.
+- `HttpClientConfig.groupNameClientMetrics`: `RestClientHttpServiceGroupConfigurer`에서 그룹마다 `builder.observationConvention(...)`으로 `DefaultClientRequestObservationConvention`을 상속해 `clientName`만 그룹 이름으로 바꾼 규약을 넣었다. Boot의 관찰 커스터마이저가 이 규약을 덮지 않았다(순서 지정 없이 통과).
+- 바꾼 파일: `feed-service/src/main/resources/application.yml`, `feed-service/src/main/kotlin/com/weave/feed/client/HttpClientConfig.kt`, `feed-service/CLAUDE.md`, `tasks.md`
+- 확인: `:feed-service:integrationTest`에서 `FeedExperimentMetricsScenarioTest` 13개 중 Tomcat·공유 풀·호출 지연 5개·`/feed` 히스토그램 8개 통과, 실패는 커넥션 풀 5개(4.2 몫)뿐. 그 밖의 feed 통합 테스트는 모두 통과. 전체 `ktlintCheck compileKotlin compileTestKotlin test`, `openspec validate` 통과.
+- 다음 반복(4.2)이 알아 둘 것: `-Pkotest.filter.specs`를 줘도 feed `integrationTest`는 전체(82개)를 돌렸다(30초 남짓이라 문제는 없다). 실패 내용은 `feed-service/build/test-results/integrationTest/TEST-*.xml`을 `grep -E 'testcase name|failure message'`로 본다. 이 세션에서는 `~/.gradle` 아래 jar를 찾거나 열 수 없어 Boot 소스를 직접 못 본다.
+---

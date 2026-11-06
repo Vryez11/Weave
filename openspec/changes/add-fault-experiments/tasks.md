@@ -64,7 +64,7 @@
 
 ## 4. feed-service 실험 지표
 
-- [ ] 4.1 Tomcat 지표, 요청 지연 히스토그램, 그룹 이름 `client.name`을 넣는다(design 결정 4).
+- [x] 4.1 Tomcat 지표, 요청 지연 히스토그램, 그룹 이름 `client.name`을 넣는다(design 결정 4).
   - `server.tomcat.mbeanregistry.enabled`, `management.metrics.distribution.percentiles-histogram`의 `http.server.requests`·`http.client.requests`를 feed-service `application.yml`에 둔다.
   - `RestClientHttpServiceGroupConfigurer`에서 그룹마다 관찰 규약을 넣어 `client.name`이 그룹 이름이 되게 한다.
   - 확인: 1.5 중 Tomcat, 호출 지연 히스토그램, `/feed` 히스토그램 단언이 통과한다(커넥션 풀과 공유 풀 단언은 4.2까지 실패해도 된다).

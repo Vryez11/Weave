@@ -5,6 +5,7 @@ import com.weave.feed.client.like.LikeClient
 import com.weave.feed.client.post.PostClient
 import com.weave.feed.client.recommendation.RecommendationClient
 import com.weave.feed.client.user.UserClient
+import io.micrometer.common.KeyValue
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder
 import org.springframework.context.annotation.Bean
@@ -12,6 +13,9 @@ import org.springframework.context.annotation.Configuration
 import org.springframework.core.ResolvableType
 import org.springframework.http.HttpStatusCode
 import org.springframework.http.client.ClientHttpResponse
+import org.springframework.http.client.observation.ClientHttpObservationDocumentation
+import org.springframework.http.client.observation.ClientRequestObservationContext
+import org.springframework.http.client.observation.DefaultClientRequestObservationConvention
 import org.springframework.http.converter.HttpMessageConverter
 import org.springframework.web.client.HttpClientErrorException
 import org.springframework.web.client.HttpMessageConverterExtractor
@@ -73,6 +77,25 @@ class HttpClientConfig {
                 }
             }
         }
+
+    /**
+     * 호출 지표(`http.client.requests`)의 `client.name`을 그룹 이름(`post` 등)으로 둔다(add-fault-experiments design 결정 4).
+     * 기본 관찰 규약은 URL의 호스트를 써서, 프록시 별칭이나 테스트의 `localhost`에 따라 의존성 이름이 바뀐다.
+     */
+    @Bean
+    fun groupNameClientMetrics(): RestClientHttpServiceGroupConfigurer =
+        RestClientHttpServiceGroupConfigurer { groups ->
+            groups.forEachClient { group, builder ->
+                builder.observationConvention(GroupNameObservationConvention(group.name()))
+            }
+        }
+
+    private class GroupNameObservationConvention(
+        private val groupName: String,
+    ) : DefaultClientRequestObservationConvention() {
+        override fun clientName(context: ClientRequestObservationContext): KeyValue =
+            KeyValue.of(ClientHttpObservationDocumentation.LowCardinalityKeyNames.CLIENT_NAME, groupName)
+    }
 
     /** 처리기의 조건이 [HttpStatusCode.isError]라 4xx·5xx만 온다. */
     private fun errorWithoutBodyInMessage(
