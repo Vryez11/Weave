@@ -13,12 +13,15 @@
 - 100ms 같은 짧은 상한을 주는 시나리오는 지연 없이 한 번 먼저 부른다(첫 호출의 연결 수립·클래스 로딩). 응답 타임아웃은 테스트 기본값 2초로 두면 TimeLimiter가 끊는지를 따로 볼 수 있다.
 - 서킷 시나리오는 `beforeEach`에서 `CircuitBreakerRegistry`의 서킷을 모두 `reset()`해 앞 시나리오의 상태를 지운다. main의 느린 호출 경계(상한의 80%)가 섞이지 않게 테스트 속성의 `slow-call-duration-threshold`를 상한과 같게 준다. 서킷을 여는 것은 503 피드를 창 크기만큼 부른다(`FeedCircuitBreakerScenarioTest.kt`).
 - `./gradlew ... -Pkotest.filter.specs=...`는 걸러지지 않고 전체가 돈다. 결과는 `feed-service/build/test-results/integrationTest/TEST-*.xml`에서 본다.
+- 테스트에서 환경 변수 형식의 이름을 주려면 `ApplicationContextInitializer`로 `SystemEnvironmentPropertySource`를 맨 앞에 붙이고, 이름을 `...-systemEnvironment`로 끝나게 둔다(Boot가 그래야 환경 변수 규칙으로 읽는다). `FeedIsolationOverrideScenarioTest.EnvironmentOverride`.
+- 지표 이름(1.7 `FeedIsolationMetricsScenarioTest`가 기대한다): `resilience4j_circuitbreaker_state{name,state}`(지금 상태 값 1), `resilience4j_circuitbreaker_not_permitted_calls_total`, `resilience4j_bulkhead_active_thread_count`·`max_thread_pool_size`·`queue_depth`, `resilience4j_timelimiter_calls_total{kind="timeout"}`. 2.1에서 실제 이름이 다르면 멈춘다(테스트를 고쳐야 한다).
 
 ## 지금 실패하는 것이 정상인 테스트 (구현 전)
 - feed-service `integrationTest`: `FeedCallFailureLogScenarioTest`의 "F-001 호출 시간 상한을 넘긴다", `FeedExperimentMetricsScenarioTest`의 벌크헤드 지표 다섯, `IsolationSettingsTest`(Tomcat 단언 말고 모두).
 - e2e `integrationTest`: `ExperimentCircuitStateScenarioTest` 셋(`lib/circuits.sh` 없음), `ExperimentVerdictScenarioTest`의 기준별 판정 넷(3.1·4.7).
 - `FeedSlowDependencyScenarioTest`는 구현 전에도 통과한다. Boot 그룹 설정의 `read-timeout` 200ms만으로 HttpClient가 200ms에 끊어서다.
 - `FeedCallIsolationScenarioTest.kt`(1.5): "느린 의존성", "응답하지 않는 의존성"(`FeedCallIsolationScenarioTest`), "합치면 예산을 넘는다"(`FeedCallIsolationBudgetScenarioTest`), "한 의존성이 상한을 다 쓴다"(`FeedCallIsolationBulkheadScenarioTest`)가 실패한다. "상한 안의 지연", "예산 안에 끝난다", "다른 의존성의 몫은 그대로다"는 구현 전에도 통과한다(회귀를 막는 시나리오).
+- 1.7: `FeedLikeToggleIsolationScenarioTest`의 "like의 서킷이 열려 있다", `FeedBulkheadTracePropagationOffTest`, `FeedIsolationMetricsScenarioTest`가 실패한다. "like-service가 응답하지 않는다"(그룹 `read-timeout`이 이미 끊는다), `FeedBulkheadTraceScenarioTest` 둘(지금은 공유 풀의 `propagate-context`가 잇는다. 2.4 뒤 실패, 2.5에서 통과), `FeedIsolationOverrideScenarioTest`(레지스트리 바인딩은 이미 된다)는 구현 전에도 통과한다.
 - `FeedCircuitBreakerScenarioTest.kt`(1.6): "4xx는 세지 않는다" 말고 모두 실패한다. "5xx가 이어진다", "열린 뒤에는 부르지 않는다", "서킷이 열린다"(전이 로그, 2.8에서 통과), "복구된 의존성"·"아직 아프다"(`FeedCircuitBreakerRecoveryScenarioTest`, 반열림을 기다리다 CLOSED로 실패), "벌크헤드 거절은 세지 않는다"(`FeedCircuitBreakerBulkheadScenarioTest`).
 
 ---
@@ -46,4 +49,12 @@
 - 확인: `:feed-service:integrationTest`에서 새 시나리오 여섯이 단언으로 실패하고 "4xx는 세지 않는다"는 통과한다. 나머지 실패는 위 "정상인 실패"뿐이다. `ktlintCheck`, `compileKotlin compileTestKotlin`, `:feed-service:test`, `openspec validate` 통과.
 - 바꾼 파일: `feed-service/src/test/kotlin/com/weave/feed/FeedCircuitBreakerScenarioTest.kt`(새 파일), `tasks.md`, `progress.md`.
 - 다음(1.7): 토글·traceId·지표·설정 시나리오. like 서킷을 여는 데도 같은 방법(창을 작게, 503 반복)을 쓸 수 있다. 토글 시나리오의 서킷 열기는 조회(`GET /feed`의 like 503)로 연다(같은 `like` 서킷).
+---
+
+## 2026-11-06 - 1.7 토글·traceId·지표·설정 시나리오 테스트 (Ralph)
+- `call-isolation`의 남은 시나리오 일곱을 새 파일 다섯에 옮겼다: `FeedLikeToggleIsolationScenarioTest`(like 서킷 창 10·문턱 50%·열림 10초, like `read-timeout` 100ms. 서킷은 like 조회 503 피드 10번으로 연다), `FeedBulkheadTraceScenarioTest`(다섯 호출 traceId, like 500 실패 로그 traceId), `FeedBulkheadTracePropagationOffTest`(`resilience4j.thread-pool-bulkhead.configs.default.context-propagators=`로 비운다), `FeedIsolationMetricsScenarioTest`(서킷 상태·막은 호출·벌크헤드 사용 중/최대/대기열·타임아웃 지표, closed 값 1), `FeedIsolationOverrideScenarioTest`(파일 값 200ms를 환경 변수 형식 1000ms가 덮는다).
+- 토글 무응답은 `DownstreamWireMock`에 지연 있는 토글 스텁이 없어 테스트 파일에서 `wireMock.server.stubFor(post(...).withFixedDelay(2_000))`로 둔다.
+- 확인: `:feed-service:integrationTest` 113개 중 28개 실패 = 위 "정상인 실패" 25 + 1.7의 셋(단언 실패). `ktlintCheck`, `compileKotlin compileTestKotlin`, `:feed-service:test` 통과.
+- 바꾼 파일: 위 테스트 파일 다섯(새 파일), `tasks.md`, `progress.md`.
+- 다음(2.1): `ResilienceAutoConfigurationTest`. 1.7 지표 테스트가 기대하는 이름(위 패턴)이 실제와 같은지 함께 본다.
 ---

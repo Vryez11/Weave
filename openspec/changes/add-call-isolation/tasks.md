@@ -34,7 +34,7 @@
   - 대상: "5xx가 이어진다", "4xx는 세지 않는다", "벌크헤드 거절은 세지 않는다", "열린 뒤에는 부르지 않는다", "복구된 의존성", "아직 아프다", "서킷이 열린다"(상태 전이 로그).
   - 서킷이 열렸는지는 스펙의 THEN대로 하위 서비스가 받은 요청 수와 로그로 판단한다. 저절로 바뀌는 상태는 `eventually`로 기다린다. 서킷은 컨텍스트에 남으므로 시나리오마다 컨텍스트를 나누거나 테스트 끝에 상태를 되돌리는 방법을 KDoc에 적는다.
   - 확인: 1.5와 같다.
-- [ ] 1.7 `call-isolation`의 토글·traceId·지표·설정 시나리오를 옮긴다.
+- [x] 1.7 `call-isolation`의 토글·traceId·지표·설정 시나리오를 옮긴다.
   - `FeedLikeToggleIsolationScenarioTest`: "like의 서킷이 열려 있다", "like-service가 응답하지 않는다".
   - `FeedBulkheadTraceScenarioTest`: "다섯 호출의 traceId", "벌크헤드 스레드의 실패 로그". `FeedBulkheadTracePropagationOffTest`: "전파가 없으면 끊긴다"(design 결정 8의 끄는 설정을 속성으로 준다).
   - `FeedIsolationMetricsScenarioTest`: "지표가 있다". `FeedIsolationOverrideScenarioTest`: "환경 변수로 상한을 바꾼다". 환경 변수 형식의 이름(예: `RESILIENCE4J_TIMELIMITER_INSTANCES_RECOMMENDATION_TIMEOUTDURATION`)이 바인딩되는지 본다. 테스트에서 환경 변수를 주는 방법(예: 시스템 환경 속성 소스를 앞에 붙인다)을 KDoc에 적는다.
