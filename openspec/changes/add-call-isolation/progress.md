@@ -9,11 +9,15 @@
 - 실험 스크립트 형식의 기준: 기준별 판정은 `ExperimentVerdictScenarioTest` KDoc(`criteria`, `mismatchedCriteria`), 서킷 상태 이어 적기 `lib/circuits.sh`는 `ExperimentCircuitStateScenarioTest` KDoc, `report.json`(`criteria`, `resources.bulkheads`, `circuitState`)은 `ExperimentRunComposeScenarioTest` KDoc, 판정 표의 기대 열은 `ExperimentRunAllComposeScenarioTest` KDoc.
 - `run.sh`는 feed-service를 `docker compose restart`로 다시 띄운다. 컨테이너 환경은 그대로라 `FEED_SPRING_APPLICATION_JSON`은 `up -d --force-recreate --no-deps feed-service`로 만들 때만 들어간다(`ComposeEnvironment.recreateFeedService`).
 - Ralph 중에는 이미 커밋된 `src/test/` 파일을 훅이 막는다. 테스트 도구가 더 필요하면 새 파일에 둔다.
+- 시나리오마다 값이 다르면 한 파일에 `@SpringBootTest(properties)` 클래스를 여럿 둔다(`FeedCallIsolationScenarioTest.kt`처럼). 실패 로그 찾기(`failureLines`), 동시 요청(`concurrently`), 포트(`localPort`)는 그 파일의 `private` 함수라 다른 파일에서 쓰려면 새 파일에 다시 둔다.
+- 100ms 같은 짧은 상한을 주는 시나리오는 지연 없이 한 번 먼저 부른다(첫 호출의 연결 수립·클래스 로딩). 응답 타임아웃은 테스트 기본값 2초로 두면 TimeLimiter가 끊는지를 따로 볼 수 있다.
+- `./gradlew ... -Pkotest.filter.specs=...`는 걸러지지 않고 전체가 돈다. 결과는 `feed-service/build/test-results/integrationTest/TEST-*.xml`에서 본다.
 
 ## 지금 실패하는 것이 정상인 테스트 (구현 전)
 - feed-service `integrationTest`: `FeedCallFailureLogScenarioTest`의 "F-001 호출 시간 상한을 넘긴다", `FeedExperimentMetricsScenarioTest`의 벌크헤드 지표 다섯, `IsolationSettingsTest`(Tomcat 단언 말고 모두).
 - e2e `integrationTest`: `ExperimentCircuitStateScenarioTest` 셋(`lib/circuits.sh` 없음), `ExperimentVerdictScenarioTest`의 기준별 판정 넷(3.1·4.7).
 - `FeedSlowDependencyScenarioTest`는 구현 전에도 통과한다. Boot 그룹 설정의 `read-timeout` 200ms만으로 HttpClient가 200ms에 끊어서다.
+- `FeedCallIsolationScenarioTest.kt`(1.5): "느린 의존성", "응답하지 않는 의존성"(`FeedCallIsolationScenarioTest`), "합치면 예산을 넘는다"(`FeedCallIsolationBudgetScenarioTest`), "한 의존성이 상한을 다 쓴다"(`FeedCallIsolationBulkheadScenarioTest`)가 실패한다. "상한 안의 지연", "예산 안에 끝난다", "다른 의존성의 몫은 그대로다"는 구현 전에도 통과한다(회귀를 막는 시나리오).
 
 ---
 
@@ -24,4 +28,12 @@
 - 1.4: Compose 시나리오(프록시 지연, 짧게 돌린다, 리포트 항목, 시간 초과된 요청, Tomcat, 대시보드, 판정 표)와 `ComposeEnvironment.recreateFeedService`·`warmUpFeed`, `ServiceProcesses`의 넉넉한 격리 값. Compose 테스트는 5.2에서 돈다.
 - 확인: `./gradlew ktlintCheck`, `:feed-service:test`, `:e2e:test` 통과. 통합 테스트는 위 "정상인 실패"만 실패한다.
 - 다음(1.5): `FeedCallIsolationScenarioTest`. Ralph 루프로 넘긴다.
+---
+
+## 2026-11-06 - 1.5 시간 상한·예산·벌크헤드 시나리오 테스트 (Ralph)
+- `call-isolation`의 시나리오 7개를 `FeedCallIsolationScenarioTest.kt`의 클래스 셋으로 옮겼다. 값이 달라 컨텍스트를 나눴다: 시간 상한(recommendation 200ms, user·post 100ms), 예산(250ms, 상한 모두 200ms), 벌크헤드(recommendation 동시 2, post·user·like 동시 10, 대기열 0, recommendation 상한 2초, 예산 3초).
+- 무응답은 WireMock 지연 3초(테스트 기본 상한·응답 타임아웃 2초보다 길다). 벌크헤드 속성 이름은 `resilience4j.thread-pool-bulkhead.instances.<의존성>.core-thread-pool-size`·`max-thread-pool-size`·`queue-capacity`.
+- 확인: `:feed-service:integrationTest`에서 새 시나리오 넷이 단언으로 실패하고(시간 2초 > 400ms, 200 ≠ 500, recommendation 요청 5 ≠ 2), 셋은 통과한다. 나머지 실패는 위 "정상인 실패"뿐이다. `ktlintCheck`, `compileKotlin compileTestKotlin`, `:feed-service:test` 통과.
+- 바꾼 파일: `feed-service/src/test/kotlin/com/weave/feed/FeedCallIsolationScenarioTest.kt`(새 파일), `tasks.md`, `progress.md`.
+- 다음(1.6): `FeedCircuitBreakerScenarioTest`. 서킷 속성은 `resilience4j.circuitbreaker.instances.<의존성>.*`(sliding-window-size, minimum-number-of-calls, failure-rate-threshold, wait-duration-in-open-state, permitted-number-of-calls-in-half-open-state, automatic-transition-from-open-to-half-open-enabled).
 ---

@@ -26,7 +26,7 @@
   - Compose 테스트 지원 코드에 시나리오 전 준비 요청을 보내는 도우미를 두고, 첫 `GET /feed`를 단언하는 Compose 테스트가 쓰게 한다.
   - `ServiceProcesses`가 feed-service 프로세스에 1.1과 같은 넉넉한 값을 명령행 인자로 준다(design 결정 13).
   - 확인: `./gradlew :e2e:compileTestKotlin`이 통과하고 `./gradlew :e2e:test :e2e:integrationTest`가 1.3에서 실패하게 둔 것 말고는 통과한다. Compose 테스트는 5.2에서 돌린다.
-- [ ] 1.5 `call-isolation`의 시간 상한·예산·벌크헤드 시나리오를 `FeedCallIsolationScenarioTest`로 옮긴다.
+- [x] 1.5 `call-isolation`의 시간 상한·예산·벌크헤드 시나리오를 `FeedCallIsolationScenarioTest`로 옮긴다.
   - 대상: "느린 의존성", "응답하지 않는 의존성", "상한 안의 지연", "의존성마다는 상한 안이지만 합치면 예산을 넘는다", "예산 안에 끝난다", "한 의존성이 상한을 다 쓴다", "다른 의존성의 몫은 그대로다".
   - WireMock 지연은 `withFixedDelay`, 무응답은 지연을 상한보다 충분히 길게 준다. 값은 시나리오마다 `@SpringBootTest(properties)`로 준다(속성 이름은 design 결정 3~5·12).
   - 확인: `./gradlew :feed-service:integrationTest`에서 이 시나리오들이 실패하고(실패 원인이 컴파일 오류가 아니다), `./gradlew :feed-service:test`는 통과한다.
