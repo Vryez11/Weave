@@ -18,6 +18,7 @@
 - k6 스크립트(`experiments/k6/`)의 입력은 환경 변수 `SCENARIO`(필수), `RPS`, `WARMUP`, `DURATION`(없으면 `config.json`)이다. Compose에서 직접 돌리기: `docker compose -p weave-compose-test --env-file e2e/build/compose-test.env run --rm --user 501:20 -e SCENARIO=S-02 -e RPS=5 -e WARMUP=5s -e DURATION=20s k6 run --quiet --summary-export results/<폴더>/summary.json --out json=results/<폴더>/raw.json k6/feed.js`(작업 폴더 `/experiments`, 결과 폴더는 호스트에서 먼저 만든다). k6 종료 코드: 0 통과, 99 threshold 넘음, 107 스크립트 오류(시나리오 JSON 문법 오류 등, 요약 파일 없음), `exec.test.abort`(되돌리기 실패)는 문서상 108인데 직접 확인하지 않았다.
 - 이 세션에서 `chmod`와 `experiments/` 스크립트 직접 실행은 승인 없이 돌지 않는다. 실행 권한은 Gradle init 스크립트에서 `File.setExecutable(true, false)`로 주고(`git add`가 100755로 잡는다), 스크립트를 손으로 돌려 볼 때도 init 스크립트의 `ProcessBuilder`를 쓴다(`e2e/build/tmp/bash32.init.gradle`처럼 `/bin/bash`를 앞에 두면 bash 3.2 확인도 된다). init 스크립트는 buildSrc 빌드에도 걸리니 `experiments/` 폴더가 없으면 건너뛰게 쓴다.
 - 판정·구간 스크립트: `lib/verdict.sh <요약> <ID> [기대 파일]`의 표준 출력은 여러 줄 JSON(jq 기본 출력), `lib/windows.sh <원본.gz> <측정 초>`는 한 줄 JSON이다. 둘 다 오류면 표준 출력이 비고 2로 끝난다.
+- 실험 스크립트 규칙(bash 3.2, 호스트 도구, run.sh 표준 출력, 신호 처리)은 `experiments/CLAUDE.md`에 있다.
 - feed 통합 테스트에서 `HttpClientPools`(리플렉션 객체 그래프 순회)가 드물게 `ConcurrentModificationException`으로 실패한다(4.2에서 5번 중 1번, `HttpClientPoolSizePropertyTest`). 다시 돌리면 통과한다. 반복되면 사람에게 알린다(커밋된 테스트 도구라 Ralph가 고칠 수 없다).
 
 ---
@@ -264,4 +265,16 @@
 - 다음 반복(6.4)이 알아 둘 것:
   - run.sh는 판정을 `lib/verdict.sh "$folder/summary.json" "$id"`로 받아 종료 코드 0/1을 그대로 쓰고, 2면 run.sh도 2. 10초 구간·복구 시간은 gzip한 뒤 `lib/windows.sh "$folder/raw.json.gz" <측정 초>`로 받는다. 측정 시간 옵션(`20s`, `5m`)을 초로 바꾸는 일은 run.sh 몫이다.
   - `windows.sh`의 `faults`는 `reset` 포함 모든 장애 요청을 시각 순서로 준다. `report.json`의 `faults`(`injectedAtSeconds`·`removedAtSeconds`·`skipped`)는 이것과 시나리오 시간표를 짝지어 만든다.
+---
+
+## 2026-11-06 - 6.4 `experiments/run.sh`
+- 순서: 인자(없는 ID는 목록을 표준 오류에 쓰고 2, `--rps` 양의 정수, 시간은 h·m·s만) → 환경(env 파일 있음, `compose ps --format json`에서 feed·toxiproxy·하위 5개 healthy, 아니면 `docker compose ... up -d --build --wait` 안내하고 2) → `trap cleanup EXIT`·`trap on_signal INT TERM` → `k6/reset.js` → `compose restart feed-service`와 healthy 기다림(최대 180초) → 결과 폴더 → k6 백그라운드 + `wait` → 0/99가 아니거나 요약·원본이 없으면 2 → gzip → `lib/verdict.sh`·`lib/windows.sh` → Prometheus가 측정 끝 + 10초까지 긁기를 기다림 → 질의 12개 → `report.json`·`report.md` → 판정 코드로 끝(EXIT trap이 되돌리고, 되돌리기 실패면 2).
+- Prometheus는 `compose exec -T prometheus wget -qO-`로 부른다(호스트에 curl이 있다고 보지 않는다). 대상 구분은 `instance` 라벨(`feed-service:8080`, `<의존성>-service:808x`)뿐이라 그것으로 거른다. 질의가 실패하면 그 값만 null로 두고 `prometheusFailed: true`, report.md에 안내.
+- `report.json`에는 KDoc 필드에 더해 `title`, `prometheusFailed`가 있다. `faults`의 거둔 시각은 같은 의존성의 다음 `clear`, 없으면 프록시 동작은 `reset/all`, 앱 수준은 그 target의 마지막 `reset`.
+- 바꾼 파일: `experiments/run.sh`(100755), `experiments/CLAUDE.md`(새 파일, bash 3.2·출력·신호 규칙), `tasks.md`
+- 확인: `./gradlew :e2e:composeTest --continue`(4분 38초)에서 `ExperimentRunComposeScenarioTest` 10개 모두 통과, 프록시 2개·Loki·Tempo 2개 통과. 실패는 `ExperimentDashboardComposeScenarioTest`(run.sh S-01은 통과, Grafana 검색이 빔. 6.6 몫)와 `ExperimentRunAllComposeScenarioTest`(run-all.sh 없음, 6.5 몫)뿐. `:e2e:integrationTest` 실패는 "기본 목록" 하나(6.5 몫). `ktlintCheck compileKotlin compileTestKotlin test`, `openspec validate` 통과. `/bin/bash -n`과 bash 3.2로 인자·환경 없음 경로 확인. 손으로 돌린 S-02(0 종료, p50 3,030ms, recommendation 풀 사용 중 최대 15)와 S-05 SIGTERM(1.7초 만에 2로 끝, 장애 없음, k6 컨테이너 남지 않음)도 봤다.
+- 다음 반복(6.5)이 알아 둘 것:
+  - run.sh 표준 출력은 `<ID>: <판정>`과 `리포트: experiments/results/<폴더>/report.md` 두 줄뿐이다. run-all은 `리포트:` 줄로 폴더를 찾아 `report.json`의 `sloMet`·`expectation`·`verdict`를 읽으면 된다. 2로 끝나면 `리포트:` 줄이 없을 수 있다.
+  - run.sh 하나가 짧은 옵션에서 약 40초(되돌리기·재시작 약 10초, 부하 25초, Prometheus 기다림 약 6초)다.
+  - 이 반복에서 쓴 일회용 init 스크립트(`e2e/build/tmp/runsh-{check,s02,term}.init.gradle`, 커밋하지 않음)는 run.sh를 Compose 환경(`weave-compose-test`)에 직접 돌린다. 쓰고 나면 `docker compose -p weave-compose-test --env-file e2e/build/compose-test.env down -v`로 내린다(composeTest가 먼저 내리긴 한다).
 ---
