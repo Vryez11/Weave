@@ -12,7 +12,7 @@
   - 테스트 앱을 `weave.fault-injection.enabled=true`와 노출 목록으로 띄우는 스펙과, 속성 없이 띄우는 스펙("프로필 없이 띄운다")을 나눈다.
   - "기본 분포를 따른다"는 `GET /work`를 1,000번 부른다.
   - 확인: `./gradlew :libs:fault-injection:integrationTest`가 새 테스트에서 실패하고, `./gradlew :libs:fault-injection:test`는 통과한다.
-- [ ] 1.3 "실험 프로필로 띄운다"를 하위 서비스 5개의 테스트로, "feed-service에는 없다"를 feed-service 테스트로 옮긴다.
+- [x] 1.3 "실험 프로필로 띄운다"를 하위 서비스 5개의 테스트로, "feed-service에는 없다"를 feed-service 테스트로 옮긴다.
   - 서비스마다 `experiment` 프로필로 띄워 `GET /actuator/faults`를 부른다. like-service는 기존 MySQL Testcontainers 설정을 쓴다.
   - 확인: `./gradlew integrationTest`에서 하위 서비스 5개의 새 테스트가 실패하고, feed-service의 새 테스트는 통과한다(이미 404다). `./gradlew test`는 통과한다.
 - [ ] 1.4 `ad-serving` 델타의 "요청 한도" 시나리오 여섯 개를 ad-service 테스트로 옮긴다.

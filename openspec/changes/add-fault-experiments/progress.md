@@ -25,3 +25,11 @@
 - 확인: `:libs:fault-injection:integrationTest` 11개 중 활성 스펙 9개가 실패(404, 지연 없음), `:libs:fault-injection:test`와 전체 `ktlintCheck compileKotlin compileTestKotlin test`, `openspec validate` 통과.
 - 다음 반복이 알아 둘 것: 테스트가 가정한 JSON 형식은 `GET /actuator/faults` → `{"latencyMedianMs":..,"latencyP99Ms":..,"errorRate":..}`(숫자는 실수로 비교), `POST`는 준 필드만 바꾸고 2xx, `DELETE`는 2xx. 2.2에서 이 형식을 맞춘다.
 ---
+
+## 2026-11-06 - 1.3 "실험 프로필로 띄운다"·"feed-service에는 없다"를 서비스 테스트로 옮긴다
+- 하위 서비스 5개에 `<Svc>FaultsEndpointScenarioTest`(`@ActiveProfiles("experiment")`, `RANDOM_PORT`, 실제 HTTP로 `GET /actuator/faults`, 200과 세 필드가 숫자인지)를 더했다. 서비스의 노출 목록은 테스트가 넣지 않는다(2.3의 `application-experiment.yml`이 맡는다). like-service는 컴포넌트 스캔되는 `MySqlTestConfiguration`을 그대로 쓴다.
+- feed-service에 `FeedFaultsEndpointScenarioTest`: `experiment` 프로필과 노출 목록 `health,info,prometheus,faults`로 띄워 404를 본다. 노출해도 엔드포인트가 없다는 것을 보려고 노출 목록을 넣었다.
+- 바꾼 파일: `{post,user,like,recommendation,ad}-service/src/test/kotlin/com/weave/*/*FaultsEndpointScenarioTest.kt`, `feed-service/src/test/kotlin/com/weave/feed/FeedFaultsEndpointScenarioTest.kt`, `tasks.md`
+- 확인: `./gradlew integrationTest --continue`에서 새 테스트 중 하위 서비스 5개가 404로 실패하고 feed는 통과. 그 밖의 실패는 1.2의 `FaultInjectionScenarioTest`(예정된 것)뿐. `./gradlew ktlintCheck test` 통과.
+- 다음 반복이 알아 둘 것: `libs/fault-injection`의 테스트 도구(`FaultsHttpClient`, `FaultSettings`)는 testFixtures가 아니라 서비스 테스트에서 못 쓴다. 서비스 테스트는 `java.net.http.HttpClient`와 `tools.jackson.databind.json.JsonMapper`로 직접 부른다.
+---
