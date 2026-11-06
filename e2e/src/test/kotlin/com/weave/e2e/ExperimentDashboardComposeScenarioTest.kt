@@ -42,7 +42,7 @@ class ExperimentDashboardComposeScenarioTest :
                 "tomcat_threads_busy_threads",
                 "executor_active_threads",
                 "executor_queued_tasks",
-                "httpcomponents_httpclient_pool_total_leased",
+                "httpcomponents_httpclient_pool_total_connections",
                 "httpcomponents_httpclient_pool_total_pending",
                 "process_cpu_usage",
             )

@@ -83,7 +83,11 @@ class FeedExperimentMetricsScenarioTest :
             dependencies.forEach { dependency ->
                 test("F-007 지표가 있다: $dependency 커넥션 풀의 사용 중·대기 값이 있다") {
                     afterFeed { samples ->
-                        samples.shouldHave("httpcomponents_httpclient_pool_total_leased", "httpclient" to dependency)
+                        samples.shouldHave(
+                            "httpcomponents_httpclient_pool_total_connections",
+                            "httpclient" to dependency,
+                            "state" to "leased",
+                        )
                         samples.shouldHave("httpcomponents_httpclient_pool_total_pending", "httpclient" to dependency)
                     }
                 }

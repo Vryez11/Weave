@@ -149,3 +149,25 @@
 - 확인: `:feed-service:integrationTest`에서 `FeedExperimentMetricsScenarioTest` 13개 중 Tomcat·공유 풀·호출 지연 5개·`/feed` 히스토그램 8개 통과, 실패는 커넥션 풀 5개(4.2 몫)뿐. 그 밖의 feed 통합 테스트는 모두 통과. 전체 `ktlintCheck compileKotlin compileTestKotlin test`, `openspec validate` 통과.
 - 다음 반복(4.2)이 알아 둘 것: `-Pkotest.filter.specs`를 줘도 feed `integrationTest`는 전체(82개)를 돌렸다(30초 남짓이라 문제는 없다). 실패 내용은 `feed-service/build/test-results/integrationTest/TEST-*.xml`을 `grep -E 'testcase name|failure message'`로 본다. 이 세션에서는 `~/.gradle` 아래 jar를 찾거나 열 수 없어 Boot 소스를 직접 못 본다.
 ---
+
+## 2026-11-06 - 4.2 공유 풀과 의존성별 커넥션 풀 지표 (멈춤)
+- 구현하지 않았다. 코드 변경 없음. tasks.md도 체크하지 않았다.
+- **멈춘 이유 1: 이미 커밋된 시나리오 테스트의 지표 이름을 Micrometer 바인더가 내지 않는다.**
+  - `FeedExperimentMetricsScenarioTest`(1.5)와 design 결정 4의 표는 `httpcomponents_httpclient_pool_total_leased`·`..._total_pending`(`httpclient="post"`)을 기대한다.
+  - design이 정한 방법인 Micrometer 1.17.2 `PoolingHttpClientConnectionManagerMetricsBinder(manager, "post")`를 실제로 묶어 보니 지표는 이렇다: `httpcomponents.httpclient.pool.total.connections{state=leased|available}`, `...total.pending`, `...total.max`, `...route.max.default`(모두 `httpclient=post`). Prometheus 이름으로는 `httpcomponents_httpclient_pool_total_connections{state="leased"}`다. **`..._total_leased`라는 이름은 없다.** `..._total_pending`은 맞다.
+  - 통과시키려면 (가) 테스트와 design 표를 `httpcomponents_httpclient_pool_total_connections` + `state="leased"`로 고치거나, (나) 바인더와 별도로 `httpcomponents.httpclient.pool.total.leased` 게이지를 직접 만든다. (가)는 커밋된 시나리오 테스트 수정이고, (나)는 design이 정한 방법과 다르다. 사람의 판단이 필요하다. 권장은 (가)다(바인더 이름 그대로가 대시보드·리포트 질의에도 표준이다). 6.4 리포트와 6.6 대시보드 질의, 1.7 `ExperimentDashboardComposeScenarioTest`의 "지표 이름 8개"에도 같은 이름이 들어 있는지 같이 본다.
+- **멈춘 이유 2(참고, design 결정 4의 빈틈): Boot 4.1.2는 그룹마다 만든 `PoolingHttpClientConnectionManager` 인스턴스를 넘겨주는 지점이 없다.**
+  - `HttpComponentsClientHttpRequestFactoryBuilder`의 공개 메서드는 `withHttpClientCustomizer(HttpClientBuilder)`, `withConnectionManagerCustomizer(PoolingHttpClientConnectionManagerBuilder)`, `withConnectionConfigCustomizer`, `withSocketConfigCustomizer`, `withDefaultRequestConfigCustomizer`, `withTlsSocketStrategyFactory`, `withDnsResolver`뿐이다. 매니저는 private `HttpComponentsHttpClientBuilder.createConnectionManager(settings)`에서 만들어 `HttpClientBuilder.setConnectionManager`로 넣는다. `PoolingHttpClientConnectionManagerBuilder`(httpclient5 5.6.5)에도 만든 인스턴스를 알려 주는 훅이 없고, `HttpClientBuilder.connManager`는 getter 없는 private 필드다.
+  - design의 대안("configurer에서 지금의 `ClientHttpRequestFactoryBuilder` Bean으로 요청 팩토리를 직접 만든다")도 매니저 인스턴스를 주지 않는다(`HttpComponentsClientHttpRequestFactory.getHttpClient()`까지만 공개).
+  - 남은 길: (ㄱ) `ClientHttpRequestFactoryBuilder`를 직접 구현해 Boot의 `createConnectionManager`(SocketConfig, `HttpClientSettings`의 연결·읽기 시간 초과로 만든 ConnectionConfig, TLS)를 따라 매니저를 만들고 바인더를 붙인다. 기존 `HttpClientPoolCapacityTest`·`MvpTimeoutDefaultsTest`·`HttpClientGroupTest`·`HttpClientPoolSizePropertyTest`가 같은 값을 지키는지 본다. (ㄴ) `withHttpClientCustomizer` 안에서 `HttpClientBuilder.connManager`를 리플렉션으로 읽는다(짧지만 httpclient5 내부 필드 이름에 기댄다). 어느 쪽을 쓸지 design 결정 4에 적어야 한다.
+- 공유 풀(`applicationTaskExecutor`)은 1.5 메모대로 Boot가 이미 붙인다. design 결정 4에 "자동으로 붙는다"고 적는 일만 남았다.
+- 확인 방법: 바인더 지표 이름과 Boot·httpclient5 API는 일회용 Gradle init 스크립트(`feed-service/build/tmp/inspect*.init.gradle`, 커밋하지 않음)로 feed `runtimeClasspath`를 읽어 확인했다.
+- 다음 반복이 알아 둘 것: 사람이 위 두 가지를 정하고(테스트·design 수정 포함) 4.2를 다시 연다. 이 반복은 BLOCKED로 끝냈다.
+---
+
+## 2026-11-06 - 4.2 멈춤에 대한 사람의 결정
+- 지표 이름: 바인더 이름을 따른다. 1.5 `FeedExperimentMetricsScenarioTest`는 `httpcomponents_httpclient_pool_total_connections{httpclient=..., state="leased"}`와 `..._total_pending`을, 1.7 `ExperimentDashboardComposeScenarioTest`의 `expectedMetrics`는 `httpcomponents_httpclient_pool_total_connections`를 기대하도록 고쳤다. 6.4 리포트·6.6 대시보드 질의도 이 이름을 쓴다.
+- 매니저 얻기: 리플렉션(`InternalHttpClient.connManager`)으로 정했다. 방법과 실패 처리는 design 결정 4에 적었다(Boot configurer 뒤에 도는 configurer, `HttpClientSettingsPropertyMapper`로 그룹 설정, 못 읽으면 시작할 때 예외).
+- design 결정 4에 공유 풀 메모는 아직 없다. 4.2에서 "Boot가 자동으로 붙인다"를 적는다.
+- 다음 반복은 4.2를 다시 연다.
+---

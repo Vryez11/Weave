@@ -68,13 +68,19 @@ Toxiproxy 컨테이너 하나에 프록시 5개를 둔다. 프록시마다 Compo
 |---|---|---|
 | Tomcat 사용 중 스레드 | `server.tomcat.mbeanregistry.enabled=true` | `tomcat_threads_busy_threads` |
 | 공유 호출 스레드 풀 | Boot의 실행기 메트릭(`applicationTaskExecutor`) | `executor_active_threads`, `executor_queued_tasks` (`name="applicationTaskExecutor"`) |
-| 의존성별 커넥션 풀 | Micrometer의 HttpClient 5 풀 바인더를 그룹마다 이름(`post` 등)으로 등록 | `httpcomponents_httpclient_pool_total_leased`, `..._pending` (`httpclient="post"`) |
+| 의존성별 커넥션 풀 | Micrometer의 HttpClient 5 풀 바인더를 그룹마다 이름(`post` 등)으로 등록 | `httpcomponents_httpclient_pool_total_connections{state="leased"}`, `httpcomponents_httpclient_pool_total_pending` (`httpclient="post"`) |
 | 의존성별 호출 지연 | `http.client.requests` 히스토그램. `client.name`을 호스트 대신 그룹 이름으로 | `http_client_requests_seconds_bucket{client_name="post"}` |
 | 피드 요청 지연 | `http.server.requests` 히스토그램 | `http_server_requests_seconds_bucket{uri="/feed"}` |
 
 - 히스토그램은 `management.metrics.distribution.percentiles-histogram.http.server.requests`와 `...http.client.requests`를 feed-service에서 켠다.
 - `client.name`: 기본 관찰 규약은 URL의 호스트를 쓴다. 프록시 별칭이나 테스트의 `localhost`에 따라 이름이 바뀌지 않도록, 이미 있는 `RestClientHttpServiceGroupConfigurer`에서 그룹마다 관찰 규약을 넣어 그룹 이름을 쓴다.
-- 커넥션 풀: 그룹마다 생기는 `PoolingHttpClientConnectionManager` 인스턴스가 있어야 바인더를 붙일 수 있다. Boot의 요청 팩토리 빌더가 인스턴스를 넘겨주는 지점이 있으면 그것을 쓰고, 없으면 같은 configurer에서 그룹마다 지금의 `ClientHttpRequestFactoryBuilder` Bean으로 요청 팩토리를 직접 만들어 쓴다. 어느 쪽이든 재시도 끔, 풀 크기, 타임아웃 기본값이 지금과 같아야 하고, 이미 있는 `HttpClientPoolCapacityTest`, `MvpTimeoutDefaultsTest`, `HttpClientGroupTest`가 이를 지킨다.
+- 커넥션 풀 지표 이름: Micrometer 1.17 바인더는 사용 중 연결을 `httpcomponents.httpclient.pool.total.connections`의 `state="leased"`로 내고(`state="available"`도 있다), 대기는 `...total.pending`, 한도는 `...total.max`, `...route.max.default`로 낸다. `..._total_leased`라는 이름은 없다. 리포트와 대시보드 질의도 이 이름을 쓴다.
+- 커넥션 풀 매니저 얻기: 그룹마다 생기는 `PoolingHttpClientConnectionManager` 인스턴스가 있어야 바인더를 붙일 수 있는데, Boot 4.1.2는 넘겨주지 않는다. `HttpComponentsHttpClientBuilder.build()`가 매니저를 만들어 `HttpClientBuilder.setConnectionManager`로 넣고, 그 뒤의 커스터마이저나 httpclient5 5.6 빌더에 인스턴스를 꺼낼 공개 방법이 없다. 또 Boot의 `PropertiesRestClientHttpServiceGroupConfigurer`(순서 `HIGHEST_PRECEDENCE + 10`)는 그룹 이름을 모르는 `ClientHttpRequestFactoryBuilder.build(settings)`로 요청 팩토리를 만든다. 그래서 이렇게 한다.
+  - Boot의 configurer 뒤에 도는 `RestClientHttpServiceGroupConfigurer`를 하나 둔다. 그룹마다 Boot와 같은 방법(`HttpServiceClientProperties`의 그룹 설정을 공개 클래스 `HttpClientSettingsPropertyMapper`로 `HttpClientSettings`로 바꾼다)으로 설정을 얻고, 지금의 `ClientHttpRequestFactoryBuilder` Bean으로 요청 팩토리를 다시 만들어 `builder.requestFactory`로 넣는다. 재시도 끔, 풀 크기, 타임아웃은 Bean과 Boot 설정 그대로다.
+  - 만든 팩토리의 `HttpComponentsClientHttpRequestFactory.getHttpClient()`에서 httpclient5 내부 필드 `InternalHttpClient.connManager`를 리플렉션으로 읽어 바인더를 그룹 이름으로 묶는다. 매니저 생성을 따라 하지 않아 HTTP 클라이언트 설정이 한 곳(Boot와 Bean)에만 있게 하려는 선택이다.
+  - 필드를 못 찾거나 `PoolingHttpClientConnectionManager`가 아니면 시작할 때 이유를 담은 예외로 멈춘다. 지표 없이 조용히 뜨지 않게 하고, httpclient5를 올릴 때 1.5 테스트와 함께 바로 드러나게 한다.
+  - Boot의 configurer가 먼저 만든 그룹 팩토리는 쓰이지 않는다. 연결을 연 적이 없고 유휴 정리 스레드도 없어 남는 자원은 없다.
+  - 재시도 끔, 풀 크기, 타임아웃 기본값이 지금과 같아야 하고, 이미 있는 `HttpClientPoolCapacityTest`, `MvpTimeoutDefaultsTest`, `HttpClientGroupTest`, `HttpClientRetryDefaultsTest`가 이를 지킨다.
 - 실행기 메트릭이 Boot 4.1에서 `applicationTaskExecutor`에 자동으로 붙는지는 첫 작업의 테스트로 확인한다. 안 붙으면 `ExecutorServiceMetrics`로 직접 묶는다.
 
 ### 5. 실험 세트 구조: 데이터로 적은 시나리오와 k6 스크립트 하나
