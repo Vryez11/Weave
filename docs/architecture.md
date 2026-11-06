@@ -149,15 +149,17 @@ feed-service에 용량 설정(`weave.http-client.max-connections-per-route`, `sp
 
 ### 4-3. 시간 예산 (초기안)
 
-p99 300ms(PRD 2장) 안에 응답하기 위한 나눔이다. 하위 서비스의 평시 p99는 약 50ms로 둔다(PRD F-007). 아래 값은 출발점이고, 기준선을 잰 뒤 확정해 근거를 적는다.
+p99 300ms(PRD 2장) 안에 응답하기 위한 나눔이다. 하위 서비스의 평시 p99는 약 50ms로 둔다(PRD F-007). 아래 예산은 출발점이고, F-001에서 "기준선 평시 p99" 열을 근거로 확정한다.
 
-| 구간 | 예산 (안) | 이유 |
-|---|---|---|
-| ① post | 100ms | 평시 p99의 2배. 넘으면 stale 캐시로 넘어간다 |
-| ② user, like (병렬) | 100ms | 같은 기준 |
-| recommendation, ad | 200ms | ①+② 안에 끝나면 된다. 선택 등급이라 더 기다리지 않는다 |
-| 집계·직렬화와 여유 | 약 50ms | 남은 예산 |
-| **전체** | **250ms** | p99 300ms에 여유 50ms |
+"기준선 평시 p99"는 MVP 기준선 S-01(400 RPS, `20261106-075650-S-01`)에서 feed-service가 잰 의존성별 호출 p99다(`http_client_requests_seconds`, Toxiproxy를 거친 값). 피드 전체의 p99는 92ms였다([MVP 기준선](experiments/baseline-mvp.md)).
+
+| 구간 | 기준선 평시 p99 | 예산 (안) | 이유 |
+|---|---|---|---|
+| ① post | 51.4ms | 100ms | 평시 p99의 2배. 넘으면 stale 캐시로 넘어간다 |
+| ② user, like (병렬) | user 51.2ms, like 53.7ms | 100ms | 같은 기준 |
+| recommendation, ad | recommendation 51.0ms, ad 51.2ms | 200ms | ①+② 안에 끝나면 된다. 선택 등급이라 더 기다리지 않는다 |
+| 집계·직렬화와 여유 | | 약 50ms | 남은 예산 |
+| **전체** | 피드 92ms | **250ms** | p99 300ms에 여유 50ms |
 
 - ②는 남은 예산 안에서만 기다린다. ①이 80ms 걸렸으면 ②에 줄 수 있는 시간은 전체 예산에서 그만큼 줄어든다.
 - 하위 서비스에 남은 예산을 헤더로 넘기는 것(deadline 전파)은 다루지 않는다. 하위 서비스가 다시 다른 서비스를 부르지 않기 때문이다.
@@ -509,8 +511,7 @@ experiments/run-all.sh --list                                 # 돌릴 목록
 
 ## 13. 남은 것
 
-- 4-3 시간 예산과 5-6 설정값: 기준선 뒤
-- 실험 RPS와 실행 시간: S-01로 정한다
+- 4-3 시간 예산과 5-6 설정값: F-001에서 [MVP 기준선](experiments/baseline-mvp.md)을 근거로 정한다
 - user 로컬 캐시 TTL·크기, post 캐시 키 구조: `add-graceful-degradation`
 - 429와 Retry-After 처리 방식: `add-retry-policy`
 - 좋아요 순서 판단 방법: `add-idempotent-like`

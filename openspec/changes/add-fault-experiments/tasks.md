@@ -143,7 +143,7 @@
   - `docs/experiments/baseline-mvp.md`에 표와 실행 환경을 적고, `experiments/config.json`의 RPS를 바꾼다. 설정값 커밋이라 `config.json`만 따로 커밋하고, 본문에 고른 근거(표의 값)를 적는다.
   - 확인: 고른 RPS로 `experiments/run.sh S-01`이 0으로 끝난다.
 - [x] 7.2 잡음을 잰다. 고른 RPS로 S-01을 세 번 더 돌려 p99·가용성의 최솟값·최댓값을 `docs/experiments/baseline-mvp.md`에 적는다. 확인: 문서에 세 번의 결과 폴더 이름과 값이 있다.
-- [ ] 7.3 기준선을 기록한다(design 결정 12).
+- [x] 7.3 기준선을 기록한다(design 결정 12).
   - `experiments/run-all.sh`를 기본값으로 돌려 시나리오마다의 판정, p50·p95·p99, 가용성, 자원 최댓값, S-08 복구 시간을 `docs/experiments/baseline-mvp.md`에 표로 적는다. 장애가 자원을 묶어 피드 전체로 번진 모습(어느 시나리오에서 Tomcat·공유 풀·커넥션 풀이 찼는지)을 몇 줄로 적는다.
   - `docs/architecture.md` 4-3에 "기준선 평시 p99" 열(S-01의 의존성별 호출 p99)을 더하고, 13장의 "실험 RPS와 실행 시간"을 지운다.
   - 기대와 다른 시나리오가 있으면 기대를 고치지 말고 원인을 찾는다. 시나리오가 장애를 재현하지 못한 것이면 시나리오나 실험 세트를 고친다. 기대 자체가 틀렸다고 판단되면 멈추고 사람에게 묻는다.
