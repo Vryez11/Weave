@@ -16,6 +16,8 @@
 - 이 세션에서 `docker compose`는 승인 없이 돈다(`docker ps`·`inspect`·`info`는 막힌다). 루트에 `.env`가 없으니 `docker compose -p weave-compose-test --env-file e2e/build/compose-test.env ...`로 부른다(env 파일은 `:e2e:composeTestEnv`가 만든다. 읽지 않는다). `docker inspect`가 필요하면 Gradle init 스크립트에서 `ProcessBuilder`로 돌린다(`build/tmp/inspect-limits.init.gradle`, 커밋하지 않음). `echo "$?"`처럼 셸 변수가 든 명령은 승인을 기다린다.
 - `experiments/config.json` 형식은 테스트가 정하지 않아 6.1에서 정했다: `{"rps": 200, "warmup": "1m", "duration": "5m", "requestTimeout": "5s", "userIds": {"min": 1, "max": 1000}}`. 키 이름은 `run.sh` 옵션(`--rps`, `--warmup`, `--duration`)과 같다. 시간은 k6 형식 문자열이다.
 - k6 스크립트(`experiments/k6/`)의 입력은 환경 변수 `SCENARIO`(필수), `RPS`, `WARMUP`, `DURATION`(없으면 `config.json`)이다. Compose에서 직접 돌리기: `docker compose -p weave-compose-test --env-file e2e/build/compose-test.env run --rm --user 501:20 -e SCENARIO=S-02 -e RPS=5 -e WARMUP=5s -e DURATION=20s k6 run --quiet --summary-export results/<폴더>/summary.json --out json=results/<폴더>/raw.json k6/feed.js`(작업 폴더 `/experiments`, 결과 폴더는 호스트에서 먼저 만든다). k6 종료 코드: 0 통과, 99 threshold 넘음, 107 스크립트 오류(시나리오 JSON 문법 오류 등, 요약 파일 없음), `exec.test.abort`(되돌리기 실패)는 문서상 108인데 직접 확인하지 않았다.
+- 이 세션에서 `chmod`와 `experiments/` 스크립트 직접 실행은 승인 없이 돌지 않는다. 실행 권한은 Gradle init 스크립트에서 `File.setExecutable(true, false)`로 주고(`git add`가 100755로 잡는다), 스크립트를 손으로 돌려 볼 때도 init 스크립트의 `ProcessBuilder`를 쓴다(`e2e/build/tmp/bash32.init.gradle`처럼 `/bin/bash`를 앞에 두면 bash 3.2 확인도 된다). init 스크립트는 buildSrc 빌드에도 걸리니 `experiments/` 폴더가 없으면 건너뛰게 쓴다.
+- 판정·구간 스크립트: `lib/verdict.sh <요약> <ID> [기대 파일]`의 표준 출력은 여러 줄 JSON(jq 기본 출력), `lib/windows.sh <원본.gz> <측정 초>`는 한 줄 JSON이다. 둘 다 오류면 표준 출력이 비고 2로 끝난다.
 - feed 통합 테스트에서 `HttpClientPools`(리플렉션 객체 그래프 순회)가 드물게 `ConcurrentModificationException`으로 실패한다(4.2에서 5번 중 1번, `HttpClientPoolSizePropertyTest`). 다시 돌리면 통과한다. 반복되면 사람에게 알린다(커밋된 테스트 도구라 Ralph가 고칠 수 없다).
 
 ---
@@ -252,4 +254,14 @@
   - 6.3: 실제 원본의 시각은 나노초 9자리(`04:18:47.448429258Z`)다. setup·teardown 점에는 `scenario` 태그가 없고 `group`이 `::setup`/`::teardown`이다. 되돌리기 요청은 7개(`all`, 서비스 5개, ad 한도)이고 ad는 `target: ad`가 두 번 나온다(`name` 태그 URL로 구분).
   - 6.4: run.sh는 `-e SCENARIO -e RPS -e WARMUP -e DURATION`과 `--user <id -u>:<id -g>`를 넘긴다. 결과 폴더는 k6 실행 전에 호스트에서 만든다. 리포트의 `faults`는 원본의 장애 요청이 시간표 항목마다 하나씩이라(clear도 넣은 장애마다 하나) 순서대로 짝지으면 된다.
   - 가용성 threshold(`availability` Rate)는 보낸 요청만 센다. 보내지 못한 요청을 분모에 넣는 가용성(스펙 "가용성 계산")은 리포트(6.4)가 요약의 `passes`와 `dropped_iterations{scenario:measure}`로 계산한다. 보내지 못한 요청이 있으면 판정(threshold)과 리포트 가용성이 어긋날 수 있다. 7.1은 보내지 못한 요청 0을 조건으로 하므로 기준선에는 영향이 없지만, 8.1 검토에서 짚을 거리다.
+---
+
+## 2026-11-06 - 6.3 판정과 10초 구간 계산 스크립트
+- `experiments/lib/verdict.sh`: 요약 `metrics`에서 키가 `{scenario:measure}`로 끝나는 지표의 threshold만 모아 `true`(넘음)를 `"<지표>: <기준>"`으로 적는다. threshold가 하나도 없거나, 요약이 없거나 JSON이 아니거나, 기대 결과에 ID가 없거나 `meet`/`miss`가 아니면 2(표준 출력 없음). 기대 파일 기본값은 `lib/../expectations.json`.
+- `experiments/lib/windows.sh`: `gzip -dc | jq -c`(Point 줄 중 `http_req_duration`·`dropped_iterations`만 [보낸 시각 ms, 종류, 값, 필요한 태그 5개]로 줄임) `| jq -s`(계산). 시각은 초 부분을 `fromdateiso8601`로, 소수 부분은 9자리로 채워 따로 더한다. 구간 번호는 측정 시작부터 잰 ms를 마이크로초에서 반올림한 뒤 정한다(경계 요청이 앞 구간에 들어가지 않게). 측정 시간 밖 요청은 첫·마지막 구간에 넣는다. p99는 선형 보간(소수 첫째 자리), `measureStartEpochMs`는 반올림, `atSeconds`는 소수 셋째 자리.
+- 바꾼 파일: `experiments/lib/{verdict,windows}.sh`(100755), `tasks.md`
+- 확인: `:e2e:integrationTest`에서 `ExperimentVerdictScenarioTest` 5개, `ExperimentWindowsScenarioTest` 2개 통과. 남은 실패는 `ExperimentScenarioDefinitionTest`의 "기본 목록" 하나(`run-all.sh` 없음, 6.5 몫). 기존 종단 간 테스트 통과. 일회용 init 스크립트(`e2e/build/tmp/windows-perf.init.gradle`, `bash32.init.gradle`, 커밋하지 않음)로 200 RPS·준비 60초·측정 300초 원본(72,000 요청) 2.2초, 오류 경로 7가지 2 종료·표준 출력 없음, `/bin/bash` 3.2.57에서 같은 결과를 봤다. `ktlintCheck compileKotlin compileTestKotlin test`, `openspec validate` 통과.
+- 다음 반복(6.4)이 알아 둘 것:
+  - run.sh는 판정을 `lib/verdict.sh "$folder/summary.json" "$id"`로 받아 종료 코드 0/1을 그대로 쓰고, 2면 run.sh도 2. 10초 구간·복구 시간은 gzip한 뒤 `lib/windows.sh "$folder/raw.json.gz" <측정 초>`로 받는다. 측정 시간 옵션(`20s`, `5m`)을 초로 바꾸는 일은 run.sh 몫이다.
+  - `windows.sh`의 `faults`는 `reset` 포함 모든 장애 요청을 시각 순서로 준다. `report.json`의 `faults`(`injectedAtSeconds`·`removedAtSeconds`·`skipped`)는 이것과 시나리오 시간표를 짝지어 만든다.
 ---
