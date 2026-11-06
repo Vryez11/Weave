@@ -11,6 +11,7 @@
 - Ralph 중에는 이미 커밋된 `src/test/` 파일을 훅이 막는다. 테스트 도구가 더 필요하면 새 파일에 둔다.
 - 시나리오마다 값이 다르면 한 파일에 `@SpringBootTest(properties)` 클래스를 여럿 둔다(`FeedCallIsolationScenarioTest.kt`처럼). 실패 로그 찾기(`failureLines`), 동시 요청(`concurrently`), 포트(`localPort`)는 그 파일의 `private` 함수라 다른 파일에서 쓰려면 새 파일에 다시 둔다.
 - 100ms 같은 짧은 상한을 주는 시나리오는 지연 없이 한 번 먼저 부른다(첫 호출의 연결 수립·클래스 로딩). 응답 타임아웃은 테스트 기본값 2초로 두면 TimeLimiter가 끊는지를 따로 볼 수 있다.
+- 서킷 시나리오는 `beforeEach`에서 `CircuitBreakerRegistry`의 서킷을 모두 `reset()`해 앞 시나리오의 상태를 지운다. main의 느린 호출 경계(상한의 80%)가 섞이지 않게 테스트 속성의 `slow-call-duration-threshold`를 상한과 같게 준다. 서킷을 여는 것은 503 피드를 창 크기만큼 부른다(`FeedCircuitBreakerScenarioTest.kt`).
 - `./gradlew ... -Pkotest.filter.specs=...`는 걸러지지 않고 전체가 돈다. 결과는 `feed-service/build/test-results/integrationTest/TEST-*.xml`에서 본다.
 
 ## 지금 실패하는 것이 정상인 테스트 (구현 전)
@@ -18,6 +19,7 @@
 - e2e `integrationTest`: `ExperimentCircuitStateScenarioTest` 셋(`lib/circuits.sh` 없음), `ExperimentVerdictScenarioTest`의 기준별 판정 넷(3.1·4.7).
 - `FeedSlowDependencyScenarioTest`는 구현 전에도 통과한다. Boot 그룹 설정의 `read-timeout` 200ms만으로 HttpClient가 200ms에 끊어서다.
 - `FeedCallIsolationScenarioTest.kt`(1.5): "느린 의존성", "응답하지 않는 의존성"(`FeedCallIsolationScenarioTest`), "합치면 예산을 넘는다"(`FeedCallIsolationBudgetScenarioTest`), "한 의존성이 상한을 다 쓴다"(`FeedCallIsolationBulkheadScenarioTest`)가 실패한다. "상한 안의 지연", "예산 안에 끝난다", "다른 의존성의 몫은 그대로다"는 구현 전에도 통과한다(회귀를 막는 시나리오).
+- `FeedCircuitBreakerScenarioTest.kt`(1.6): "4xx는 세지 않는다" 말고 모두 실패한다. "5xx가 이어진다", "열린 뒤에는 부르지 않는다", "서킷이 열린다"(전이 로그, 2.8에서 통과), "복구된 의존성"·"아직 아프다"(`FeedCircuitBreakerRecoveryScenarioTest`, 반열림을 기다리다 CLOSED로 실패), "벌크헤드 거절은 세지 않는다"(`FeedCircuitBreakerBulkheadScenarioTest`).
 
 ---
 
@@ -36,4 +38,12 @@
 - 확인: `:feed-service:integrationTest`에서 새 시나리오 넷이 단언으로 실패하고(시간 2초 > 400ms, 200 ≠ 500, recommendation 요청 5 ≠ 2), 셋은 통과한다. 나머지 실패는 위 "정상인 실패"뿐이다. `ktlintCheck`, `compileKotlin compileTestKotlin`, `:feed-service:test` 통과.
 - 바꾼 파일: `feed-service/src/test/kotlin/com/weave/feed/FeedCallIsolationScenarioTest.kt`(새 파일), `tasks.md`, `progress.md`.
 - 다음(1.6): `FeedCircuitBreakerScenarioTest`. 서킷 속성은 `resilience4j.circuitbreaker.instances.<의존성>.*`(sliding-window-size, minimum-number-of-calls, failure-rate-threshold, wait-duration-in-open-state, permitted-number-of-calls-in-half-open-state, automatic-transition-from-open-to-half-open-enabled).
+---
+
+## 2026-11-06 - 1.6 서킷 시나리오 테스트 (Ralph)
+- `call-isolation`의 서킷 시나리오 7개를 `FeedCircuitBreakerScenarioTest.kt`의 클래스 셋으로 옮겼다: 실패 분류·열림·전이 로그(창 10, 문턱 50%, 열림 유지 10초, recommendation·ad), 복구(열림 유지 1초, 반열림 시험 3개, 자동 반열림), 벌크헤드 거절(recommendation 동시 1, 상한 1초, 예산 2초, 나머지 벌크헤드 동시 10).
+- 서킷이 열렸는지는 다음 피드가 하위 서비스까지 가는지(WireMock 요청 수)와 `circuit_open` 실패 로그로 본다. 저절로 반열림이 되는 것만 레지스트리 상태를 `eventually`로 기다린다(피드로 확인하면 시험 호출을 써 버린다). 서킷은 `beforeEach`에서 레지스트리로 `reset()`한다(KDoc).
+- 확인: `:feed-service:integrationTest`에서 새 시나리오 여섯이 단언으로 실패하고 "4xx는 세지 않는다"는 통과한다. 나머지 실패는 위 "정상인 실패"뿐이다. `ktlintCheck`, `compileKotlin compileTestKotlin`, `:feed-service:test`, `openspec validate` 통과.
+- 바꾼 파일: `feed-service/src/test/kotlin/com/weave/feed/FeedCircuitBreakerScenarioTest.kt`(새 파일), `tasks.md`, `progress.md`.
+- 다음(1.7): 토글·traceId·지표·설정 시나리오. like 서킷을 여는 데도 같은 방법(창을 작게, 503 반복)을 쓸 수 있다. 토글 시나리오의 서킷 열기는 조회(`GET /feed`의 like 503)로 연다(같은 `like` 서킷).
 ---
