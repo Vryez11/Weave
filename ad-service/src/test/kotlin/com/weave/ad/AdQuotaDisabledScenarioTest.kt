@@ -8,15 +8,15 @@ import io.kotest.matchers.shouldBe
 import org.springframework.boot.test.context.SpringBootTest
 
 /**
- * `ad-serving` 스펙의 "실험 프로필이 아니다"를 본다 (F-007).
+ * `ad-serving` 스펙의 "실험 프로필이 아니다"와 `fault-injection` 스펙의 "프로필 없이 띄운다"를 본다 (F-007).
  *
- * 프로필 없이 띄운다. 노출 목록에는 `quota`를 넣어, 404가 노출 목록이 아니라
- * 요청 한도 엔드포인트가 꺼져 있어서인지를 본다(design 결정 3: `application-experiment.yml`에서만 켠다).
+ * 프로필 없이 띄운다. 노출 목록에는 `quota`와 `faults`를 넣어, 404가 노출 목록이 아니라
+ * 요청 한도와 장애 주입이 꺼져 있어서인지를 본다(design 결정 2, 3: `application-experiment.yml`에서만 켠다).
  */
 @Tags("Integration")
 @SpringBootTest(
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-    properties = ["management.endpoints.web.exposure.include=health,info,quota"],
+    properties = ["management.endpoints.web.exposure.include=health,info,quota,faults"],
 )
 class AdQuotaDisabledScenarioTest :
     FunSpec({
@@ -32,5 +32,17 @@ class AdQuotaDisabledScenarioTest :
                 )
 
             http.get("/actuator/quota").statusCode() shouldBe 404
+        }
+
+        test("F-007 프로필 없이 띄운다: 프로필 없이 띄운 ad-service의 GET /actuator/faults가 404다") {
+            val http =
+                AdHttpClient(
+                    testContextManager()
+                        .testContext.applicationContext.environment
+                        .getRequiredProperty("local.server.port")
+                        .toInt(),
+                )
+
+            http.get("/actuator/faults").statusCode() shouldBe 404
         }
     })
