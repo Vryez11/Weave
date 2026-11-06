@@ -11,7 +11,7 @@
   - `FeedAggregationScenarioTest`: "서로 기다리지 않는다"는 상한 1초·예산 2초를 속성으로 주고, "하위 서비스 하나가 느리다"는 상한 200ms에서 400ms 안에 500이 오는지로 바꾼다. 테스트 이름의 기능 ID는 `F-001`로 바꾼다.
   - `FeedCallFailureLogScenarioTest`에 "호출 시간 상한을 넘긴다"(실패 줄 하나)를 더한다.
   - 확인: `./gradlew :feed-service:integrationTest`에서 바꾼 두 시나리오와 새 시나리오만 실패하고 나머지는 통과한다. `./gradlew :feed-service:test`는 통과한다.
-- [ ] 1.2 (대화형) MVP 구성값을 단언하던 feed-service 테스트를 고도화 3 값으로 바꾼다.
+- [x] 1.2 (대화형) MVP 구성값을 단언하던 feed-service 테스트를 고도화 3 값으로 바꾼다.
   - `MvpTimeoutDefaultsTest`, `HttpClientPoolCapacityTest`, `TaskExecutorCapacityTest`를 `IsolationSettingsTest` 하나로 바꾼다. `spring.config.location=classpath:/application.yml`로 테스트 기본값(1.1)을 빼고 main 설정만 읽어, 의존성마다 HttpClient의 연결·응답·커넥션 대기 타임아웃과 풀 크기, 서킷·TimeLimiter·벌크헤드 레지스트리의 인스턴스 설정, 시간 예산이 design 결정 3~7의 값인지 본다. Tomcat 최대 스레드 200 단언은 그대로 옮긴다. `TaskExecutorKeepAliveTest`, `HttpClientRetryDefaultsTest`는 그대로 둔다.
   - `FeedExperimentMetricsScenarioTest`의 공유 풀 단언을 의존성별 벌크헤드 사용 중 스레드·대기열로 바꾼다(`fault-experiments` "feed-service의 실험 지표"). 지표 이름은 2.1에서 확인한 것을 쓴다고 KDoc에 적고, 여기서는 `resilience4j_bulkhead` 접두어와 `name="<의존성>"`으로 찾는다.
   - `docs/architecture.md` 4-2의 "확인 방법"에 MVP 값 테스트가 F-001에서 `IsolationSettingsTest`로 바뀌었고 MVP 값은 이 표가 기록이라고 적는다.
@@ -43,7 +43,7 @@
 ## 2. 격리 구현
 
 - [ ] 2.1 Resilience4j를 더하고 Boot 4.1.2 호환을 확인한다(design 결정 2).
-  - feed-service `build.gradle.kts`에 `io.github.resilience4j:resilience4j-spring-boot4:2.4.0`. 의존성 추가 커밋은 따로 한다.
+  - 의존성(`io.github.resilience4j:resilience4j-spring-boot4:2.4.0`)은 1.2의 `IsolationSettingsTest`가 레지스트리 타입을 써야 해서 1.2에서 따로 커밋해 더했다(72e85fc). 그때 기존 통합 테스트의 컨텍스트가 뜨는 것까지 봤다. ThreadPool 벌크헤드에는 거절 카운터 지표가 없다(`ThreadPoolBulkheadMetricNames`).
   - `ResilienceAutoConfigurationTest`(`Integration`)에서 레지스트리 네 개가 `resilience4j.*` 설정의 인스턴스를 만들고, `/actuator/prometheus`에 서킷·벌크헤드(ThreadPool, Semaphore)·TimeLimiter 지표가 `name` 라벨로 나오는지 본다. 실제 지표 이름과 벌크헤드 거절을 지표로 셀 수 있는지를 design 결정 2와 Open Questions에 적는다.
   - 하나라도 안 되면 우회하지 말고 멈춘다(progress.md에 적고 BLOCKED).
   - 확인: `./gradlew :feed-service:integrationTest -Pkotest.filter.tests='*ResilienceAutoConfiguration*'`가 통과한다.

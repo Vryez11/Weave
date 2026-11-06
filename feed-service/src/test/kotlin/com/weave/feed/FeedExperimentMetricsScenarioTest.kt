@@ -24,7 +24,10 @@ import kotlin.time.Duration.Companion.seconds
  * `fault-experiments` 스펙의 "feed-service의 실험 지표" (F-007).
  *
  * 하위 서비스 다섯이 정상 응답하게 하고([DownstreamWireMock]) `GET /feed`를 한 번 부른 뒤 `/actuator/prometheus` 본문을 본다.
- * 지표 이름은 design 결정 4의 표를 따른다. 의존성은 `client_name`(호출 지연)과 `httpclient`(커넥션 풀) 라벨의 값으로 찾는다.
+ * 지표 이름은 add-fault-experiments design 결정 4의 표를 따른다. 의존성은 `client_name`(호출 지연)과 `httpclient`(커넥션 풀) 라벨의 값으로 찾는다.
+ * MVP의 공유 호출 스레드 풀(`applicationTaskExecutor`) 지표는 고도화 3에서 의존성별 벌크헤드 지표로 바뀌었다(F-001). 벌크헤드 지표는
+ * Resilience4j Micrometer 연동의 이름(`resilience4j_bulkhead_active_thread_count`, `resilience4j_bulkhead_queue_depth`)이고 의존성은
+ * `name` 라벨로 찾는다. 이 이름은 add-call-isolation tasks 2.1의 호환 확인에서 다시 본다.
  * 서버 요청 지표는 응답을 보낸 뒤 기록될 수 있어 몇 초 동안 다시 긁는다.
  *
  * Boot 테스트는 메트릭 내보내기를 꺼서 `prometheus` 엔드포인트가 404다. `@AutoConfigureMetrics`로 실제 실행과 같게 켠다.
@@ -73,14 +76,14 @@ class FeedExperimentMetricsScenarioTest :
                 }
             }
 
-            test("F-007 지표가 있다: 공유 호출 스레드 풀(applicationTaskExecutor)의 활성 스레드와 대기열 값이 있다") {
-                afterFeed { samples ->
-                    samples.shouldHave("executor_active_threads", "name" to "applicationTaskExecutor")
-                    samples.shouldHave("executor_queued_tasks", "name" to "applicationTaskExecutor")
-                }
-            }
-
             dependencies.forEach { dependency ->
+                test("F-001 지표가 있다: $dependency 벌크헤드의 사용 중 스레드와 대기열 값이 있다") {
+                    afterFeed { samples ->
+                        samples.shouldHave("resilience4j_bulkhead_active_thread_count", "name" to dependency)
+                        samples.shouldHave("resilience4j_bulkhead_queue_depth", "name" to dependency)
+                    }
+                }
+
                 test("F-007 지표가 있다: $dependency 커넥션 풀의 사용 중·대기 값이 있다") {
                     afterFeed { samples ->
                         samples.shouldHave(
