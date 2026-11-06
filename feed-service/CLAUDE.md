@@ -1,6 +1,7 @@
 # feed-service
 
-- 하위 서비스 호출은 `com.weave.feed.gateway`의 Gateway Bean을 거친다. 조회 메서드는 `.logFailure("<의존성>")`, 동기 호출은 `try`/`catch`에서 `DownstreamFailure.log(...)` 뒤 다시 던진다. 새 호출 경로도 같은 실패 로그를 남겨야 한다.
+- 하위 서비스 호출은 `com.weave.feed.gateway`의 Gateway Bean을 거친다. 조회 메서드는 `IsolatedCalls.call("<의존성>") { ... }`로만 부른다(서킷 → TimeLimiter → ThreadPool 벌크헤드, 실패 로그도 여기서 한 번). 동기 호출은 `try`/`catch`에서 `DownstreamFailure.log(...)` 뒤 다시 던진다. 새 호출 경로도 같은 실패 로그를 남겨야 한다.
+- 격리 인스턴스 이름은 `IsolatedCalls.DEPENDENCIES`(HTTP 서비스 그룹 이름과 같다)이고 시작할 때 레지스트리에서 꺼내 둔다. 다른 이름으로 부르면 `NoSuchElementException`이다. 시간 상한 초과는 `isolation-timeout` 스레드에서 끝나 MDC가 없으므로, 실패 로그는 `call`을 부른 스레드의 MDC를 받아 두었다가 남긴다.
 - 실패 원인(`cause`)은 `DownstreamFailure.of` 한 곳에서 정하고, 서킷이 실패로 세는지(`DownstreamFailure.countsAsCircuitFailure`)도 같은 분류를 쓴다(add-call-isolation design 결정 7). 응답 타임아웃(원인이 `SocketTimeoutException`)과 TimeLimiter의 `TimeoutException`은 `timeout`, 서킷이 막은 호출은 `circuit_open`, 벌크헤드 거절은 `bulkhead_full`, 요청 시간 예산 초과(`TimeBudgetExhaustedException`)는 `budget_exhausted`다. 커넥션 풀 대기 시간 초과(`org.apache.hc.core5.http.ConnectionRequestTimeoutException`)는 `io_failure`이고 `connect_failure`와 섞지 않는다. 연결 시간 초과(`ConnectTimeoutException`)도 `SocketTimeoutException`이지만 `connect_failure`다.
 - 호출 지표(`http.client.requests`)의 `client_name`은 호스트가 아니라 HTTP 서비스 그룹 이름(`post` 등)이다(`HttpClientConfig.groupNameClientMetrics`). 대시보드·리포트 질의는 이 값으로 의존성을 가른다.
 - 그룹의 요청 팩토리는 Boot가 아니라 `ConnectionPoolMetrics`(configurer 순서 `HIGHEST_PRECEDENCE + 20`)가 마지막에 다시 만들어 넣고, 커넥션 풀 지표(`httpcomponents_httpclient_pool_*{httpclient="<그룹>"}`)를 묶는다. 요청 팩토리를 바꾸는 configurer를 더하면 이 순서와 겹치지 않게 한다.

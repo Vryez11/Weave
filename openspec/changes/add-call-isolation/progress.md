@@ -16,8 +16,19 @@
 - Resilience4j 지표 이름은 design 결정 2의 "확인 결과" 표가 기준이다(`ResilienceAutoConfigurationTest`가 본다). 1.7 지표 테스트가 기대하는 이름과 같다.
 - 테스트에서 환경 변수 형식의 이름을 주려면 `ApplicationContextInitializer`로 `SystemEnvironmentPropertySource`를 맨 앞에 붙이고, 이름을 `...-systemEnvironment`로 끝나게 둔다(Boot가 그래야 환경 변수 규칙으로 읽는다). `FeedIsolationOverrideScenarioTest.EnvironmentOverride`.
 - 지표 이름(1.7 `FeedIsolationMetricsScenarioTest`가 기대한다): `resilience4j_circuitbreaker_state{name,state}`(지금 상태 값 1), `resilience4j_circuitbreaker_not_permitted_calls_total`, `resilience4j_bulkhead_active_thread_count`·`max_thread_pool_size`·`queue_depth`, `resilience4j_timelimiter_calls_total{kind="timeout"}`. 2.1에서 실제 이름이 다르면 멈춘다(테스트를 고쳐야 한다).
+- 조회 격리는 `IsolatedCalls.call`(2.4) 한 곳이다. 실패 로그는 돌려준 future를 `IsolatedCalls`가 직접 끝낼 때만 남긴다(`!result.isDone`). 2.6에서 `FeedAssembler`가 마감에 그 future를 먼저 `cancel`/`completeExceptionally`하면 뒤늦은 timeout 로그가 겹치지 않는다. 시간 상한 스케줄러(`isolation-timeout`)는 `IsolatedCalls` 안에 있다.
+- 서킷 기본 설정(`resilience4j.circuitbreaker.configs.default`)에 `record-failure-predicate: CircuitFailurePredicate`와 `ignore-exceptions: BulkheadFullException`이 있다. 인스턴스는 `base-config: default`로 이어진다. 2.7의 토글도 같은 `like` 서킷이라 이 판정을 그대로 쓴다.
+- `io.micrometer:context-propagation`은 feed-service 컴파일 클래스패스에 없다(`libs/observability`가 `implementation`으로만 둔다). 2.5의 `TraceContextPropagator`가 `ContextSnapshotFactory`를 쓰려면 feed-service `build.gradle.kts`에 명시해야 한다(design 결정 8이 정한 수단이고 BOM이 버전을 정한다).
 
 ## 지금 실패하는 것이 정상인 테스트 (구현 전)
+- **2.4 뒤 갱신(이 목록이 위 옛 항목보다 우선한다).** feed-service `integrationTest` 실패 18개: 끊김 재현 6(아래), 2.6 예산 1(`FeedCallIsolationBudgetScenarioTest` "합치면 예산을 넘는다"), 2.7 토글 1(`FeedLikeToggleIsolationScenarioTest` "like의 서킷이 열려 있다"), 2.8 전이 로그 1(`FeedCircuitBreakerScenarioTest` "서킷이 열린다"), 4장 `IsolationSettingsTest` 9. `FeedExperimentMetricsScenarioTest`, `FeedIsolationMetricsScenarioTest`, `FeedBulkheadTracePropagationOffTest`, 1.6 서킷 시나리오(전이 로그 말고)는 이제 통과한다.
+- **끊김 재현(2.4, PRD F-001 수용 기준):** 벌크헤드 스레드에 트레이스 문맥이 넘어가지 않아 실패한다. 2.5에서 통과해야 한다.
+  - `FeedTraceLogScenarioTest` "F-004 피드 요청의 다섯 호출: …"(post traceparent가 다름), "F-004 post가 끝난 뒤 시작한 호출: …"(user traceparent가 다름)
+  - `FeedBulkheadTraceScenarioTest` "다섯 호출의 traceId", "벌크헤드 스레드의 실패 로그"
+  - `FeedCallFailureLogScenarioTest` "F-004 post 뒤에 부른 호출이 실패한다: …"(like 실패 로그에 traceId 없음)
+  - `FeedCallIsolationScenarioTest` "응답하지 않는 의존성"(시간 단언은 통과하고 user timeout 줄의 traceId만 없다. user는 post 벌크헤드 스레드에서 부르므로 받아 둘 MDC가 비어 있다)
+  - 요청 스레드에서 부르는 post·recommendation·ad의 실패 로그는 MDC를 받아 두어 traceId가 있다(예: "느린 의존성" 통과). 끊기는 것은 벌크헤드 스레드에서 나간 HTTP 요청의 `traceparent`와, 벌크헤드 스레드에서 시작한 user·like 호출이다.
+- (이하 2.4 전 기록)
 - feed-service `integrationTest`: `FeedCallFailureLogScenarioTest`의 "F-001 호출 시간 상한을 넘긴다", `FeedExperimentMetricsScenarioTest`의 벌크헤드 지표 다섯, `IsolationSettingsTest`(Tomcat 단언 말고 모두).
 - e2e `integrationTest`: `ExperimentCircuitStateScenarioTest` 셋(`lib/circuits.sh` 없음), `ExperimentVerdictScenarioTest`의 기준별 판정 넷(3.1·4.7).
 - `FeedSlowDependencyScenarioTest`는 구현 전에도 통과한다. Boot 그룹 설정의 `read-timeout` 200ms만으로 HttpClient가 200ms에 끊어서다.
@@ -94,4 +105,13 @@
 - 확인: 새 `HttpClientBuilderSettingsTest`(단위 3) 통과, 새 `HttpClientGroupSettingsTest`(`Integration` 3), 기존 `HttpClientGroupTest`·`HttpClientPoolSizePropertyTest`·`HttpClientRetryDefaultsTest` 통과. `:feed-service:integrationTest` 실패 27개는 위 "정상인 실패"와 같다. `ktlintCheck`, `:feed-service:test`, `openspec validate` 통과.
 - 바꾼 파일: `feed-service/src/main/kotlin/com/weave/feed/client/HttpClientProperties.kt`(새 파일), `HttpClientConfig.kt`, `ConnectionPoolMetrics.kt`, 테스트 두 파일(새 파일), `feed-service/CLAUDE.md`, `tasks.md`, `progress.md`.
 - 다음(2.4): `IsolatedCalls`. 2.4 뒤 trace 테스트가 끊김으로 실패하는 것은 정상이고, 이름을 "끊김 재현"으로 적는다.
+---
+
+## 2026-11-06 21:28 - 2.4 `IsolatedCalls`로 Gateway 다섯의 조회를 감싼다 (Ralph)
+- `IsolatedCalls`(`com.weave.feed.gateway`)를 새로 뒀다. 서킷 `executeCompletionStage` → TimeLimiter `executeCompletionStage(자체 스케줄러)` → ThreadPool 벌크헤드 `executeSupplier` 순서로 감싸고, 결과 future에서 실패 로그를 한 번 남긴다(부른 스레드의 MDC로). 의존성 다섯의 인스턴스를 시작할 때 꺼내 두고, `weave.bulkhead.rejected.calls{name}`을 0부터 등록해 `onCallRejected`에서 센다. 서킷 판정 `CircuitFailurePredicate`(→ `DownstreamFailure.countsAsCircuitFailure`)도 같은 파일이다.
+- Gateway 다섯이 `applicationTaskExecutor` 대신 `IsolatedCalls`를 받는다. 토글은 그대로(2.7).
+- `application.yml`에 구조만 넣었다: 서킷 `configs.default`(실패 판정 함수, `ignore-exceptions: BulkheadFullException`), TimeLimiter `configs.default.cancel-running-future: true`, 벌크헤드 `configs.default.queue-capacity: 0`, 세 모듈 모두 `instances.<의존성>.base-config: default`. 값은 Resilience4j 기본값 그대로다(4장). 벌크헤드 거절을 성공으로 세지 않는 이유를 design 결정 7에 한 줄 더했다.
+- 확인: `:feed-service:integrationTest` 실패 18개가 위 "2.4 뒤 갱신" 목록과 같다(두 번 돌려 같았다). 1.5의 상한·벌크헤드 시나리오("응답하지 않는 의존성"은 traceId만 끊김 재현), 1.6 서킷 시나리오(전이 로그 말고), 1.1의 바뀐 시나리오(`FeedAggregationScenarioTest` 23개, `FeedSlowDependencyScenarioTest`, "호출 시간 상한을 넘긴다") 통과. `ktlintCheck`, `compileKotlin compileTestKotlin`, `:feed-service:test`, `openspec validate` 통과. e2e는 돌리지 않았다(Docker 필요, 이 작업의 확인 항목이 아니다).
+- 바꾼 파일: `feed-service/src/main/kotlin/com/weave/feed/gateway/IsolatedCalls.kt`(새 파일), `Gateways.kt`, `feed-service/src/main/resources/application.yml`, `feed-service/CLAUDE.md`, `design.md`, `tasks.md`, `progress.md`.
+- 다음(2.5): `TraceContextPropagator`. 위 "끊김 재현" 6개가 통과해야 한다. context-propagation 의존성 명시가 필요하다(패턴 참고). 시간 상한 실패 로그는 이미 MDC를 받아 두므로 스케줄러 쪽은 건드리지 않아도 된다.
 ---

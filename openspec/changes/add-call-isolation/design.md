@@ -130,7 +130,8 @@ Gateway마다 어노테이션을 붙이는 대신, 의존성 이름과 호출 �
 | `BulkheadFullException` | 세지 않음 | `bulkhead_full` |
 | `CallNotPermittedException` | (서킷이 막은 호출) | `circuit_open` |
 
-- 분류는 `DownstreamFailure.of`(실패 로그)와 서킷의 예외 판정이 같은 함수를 쓴다. 로그의 `cause`와 서킷이 센 것이 어긋나지 않게 한다. 서킷에는 `record-failure-predicate`로 그 함수를 넘긴다.
+- 분류는 `DownstreamFailure.of`(실패 로그)와 서킷의 예외 판정이 같은 함수를 쓴다. 로그의 `cause`와 서킷이 센 것이 어긋나지 않게 한다. 서킷에는 `record-failure-predicate`로 그 함수를 넘긴다(`CircuitFailurePredicate`, tasks 2.4).
+- Resilience4j는 실패 판정이 거짓인 예외를 성공으로 센다. 4xx는 하위 서비스가 응답한 것이라 성공으로 세도 되지만, 벌크헤드 거절은 부르지도 않은 호출이라 성공으로 세면 S-02처럼 절반이 거절될 때 실패율이 묽어진다. 그래서 `BulkheadFullException`은 `ignore-exceptions`로 아예 세지 않는다(tasks 2.4).
 - 429는 아키텍처 5-5에서 "F-005 설계에서 정한다"였다. F-001에서는 PRD F-001 수용 기준("4xx는 세지 않는다")대로 세지 않고, F-005가 Retry-After 처리와 함께 다시 정한다.
 - 커넥션 대기 시간 초과(`ConnectionRequestTimeoutException`)는 feed 쪽 자원 문제라 `io_failure`로 두되(feed-service `CLAUDE.md`), 결정 5대로라면 일어나지 않는다.
 

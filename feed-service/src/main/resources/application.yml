@@ -19,6 +19,45 @@ spring:
         # 200 RPS × 호출 5번 × 50ms = 동시 50개, 여유 2배 (design 결정 8). 대기열은 기본값(무제한)
         core-size: 100
 
+# 하위 서비스 호출 격리 (add-call-isolation design 결정 1, 5, 7). 인스턴스 이름은 HTTP 서비스 그룹 이름과 같고 IsolatedCalls가 꺼내 쓴다.
+# 여기에는 구조만 둔다. 값(상한, 벌크헤드 크기, 서킷 문턱)은 근거와 함께 따로 넣는다(design 결정 12)
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        # 실패 로그의 cause와 같은 분류로 센다: 상한·응답 타임아웃, 연결 실패, 입출력 실패, 5xx (design 결정 7)
+        record-failure-predicate: com.weave.feed.gateway.CircuitFailurePredicate
+        # 벌크헤드 거절은 하위 서비스를 부르지 않았으므로 성공으로도 세지 않는다. 세면 거절이 실패율을 묽힌다 (design 결정 5, 7)
+        ignore-exceptions: io.github.resilience4j.bulkhead.BulkheadFullException
+    instances:
+      post: { base-config: default }
+      user: { base-config: default }
+      like: { base-config: default }
+      recommendation: { base-config: default }
+      ad: { base-config: default }
+  timelimiter:
+    configs:
+      default:
+        # 상한이 지나면 future를 취소해 벌크헤드 대기열에서 아직 시작하지 않은 일을 뺀다 (design 결정 3)
+        cancel-running-future: true
+    instances:
+      post: { base-config: default }
+      user: { base-config: default }
+      like: { base-config: default }
+      recommendation: { base-config: default }
+      ad: { base-config: default }
+  thread-pool-bulkhead:
+    configs:
+      default:
+        # 자리가 없으면 기다리지 않고 바로 거절한다 (아키텍처 5-6, design 결정 5)
+        queue-capacity: 0
+    instances:
+      post: { base-config: default }
+      user: { base-config: default }
+      like: { base-config: default }
+      recommendation: { base-config: default }
+      ad: { base-config: default }
+
 weave:
   http-client:
     # 200 RPS × 50ms = 동시 10개, 여유 2배 (design 결정 8)

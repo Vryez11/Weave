@@ -54,7 +54,7 @@
 - [x] 2.3 HTTP 클라이언트의 의존성별 타임아웃과 풀 크기를 설정으로 받게 한다(design 결정 3, 5). 값은 아직 넣지 않는다.
   - `spring.http.serviceclient.<그룹>.connect-timeout`, `read-timeout`이 그룹 HttpClient에 적용되는지 확인하고, `weave.http-client.connection-request-timeout`, `weave.http-client.groups.<그룹>.max-connections`를 더한다. `ConnectionPoolMetrics`의 요청 팩토리 재생성 순서를 지킨다(feed-service `CLAUDE.md`).
   - 확인: 속성을 준 `HttpClientGroupTest`류의 새 단위·통합 테스트(그룹별 연결·응답·커넥션 대기 타임아웃과 풀 크기를 `HttpClientPools`로 읽는다)가 통과하고 기존 `HttpClientGroupTest`, `HttpClientRetryDefaultsTest`가 통과한다.
-- [ ] 2.4 `IsolatedCalls`로 Gateway 다섯의 조회를 감싼다(design 결정 1, 5, 7).
+- [x] 2.4 `IsolatedCalls`로 Gateway 다섯의 조회를 감싼다(design 결정 1, 5, 7).
   - 서킷 → TimeLimiter → ThreadPool 벌크헤드 → 호출. 실패 로그는 감싼 future의 결과에서 한 번만 남긴다. Gateway는 `applicationTaskExecutor`를 더는 받지 않는다.
   - 벌크헤드 거절 카운터 `weave.bulkhead.rejected.calls`(태그 `name`)를 의존성마다 0부터 등록하고 `onCallRejected`에서 센다(design Open Questions).
   - `application.yml`에는 구조만 둔다: 인스턴스 이름 다섯, 서킷의 실패 판정 함수, 벌크헤드 대기열 0. 값은 4장에서 넣는다.
