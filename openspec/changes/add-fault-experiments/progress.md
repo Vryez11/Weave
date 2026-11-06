@@ -12,6 +12,8 @@
 - 이 반복 세션에서는 `python3`, `docker`, `jq -f`, 셸 변수(`$x`)가 든 인자, `sed -i`가 승인 없이 돌지 않는다. 일회용 생성이 필요하면 `./gradlew -I <빌드 폴더의 init 스크립트> help`로 Kotlin을 돌린다.
 - Ralph 중에는 이미 커밋된 `src/test/` 파일(공통 도구 `ComposeEnvironment.kt` 등 포함)을 훅이 막는다. 테스트 도구가 더 필요하면 새 파일에 둔다(예: `ExperimentRuns.kt`).
 - `run.sh`의 `report.json` 형식은 `ExperimentRunComposeScenarioTest` KDoc, `run-all.sh` 판정 표 형식은 `ExperimentRunAllComposeScenarioTest` KDoc, 결과 폴더 파일 이름과 ad `GET /actuator/quota`의 `enabled`는 `ExperimentRuns` KDoc이 기준이다.
+- 라이브러리 클래스의 내부를 볼 때는 `javap -c -p`를 Gradle init 스크립트 안에서 `ProcessBuilder`로 돌려 파일로 남기고 Read로 읽는다(예: `feed-service/build/tmp/inspect4.init.gradle`). Gradle 9에는 `project.exec`가 없다. 파이프·`for`·`;` 뒤의 `grep`이 섞인 명령은 승인을 기다린다.
+- feed 통합 테스트에서 `HttpClientPools`(리플렉션 객체 그래프 순회)가 드물게 `ConcurrentModificationException`으로 실패한다(4.2에서 5번 중 1번, `HttpClientPoolSizePropertyTest`). 다시 돌리면 통과한다. 반복되면 사람에게 알린다(커밋된 테스트 도구라 Ralph가 고칠 수 없다).
 
 ---
 
@@ -170,4 +172,13 @@
 - 매니저 얻기: 리플렉션(`InternalHttpClient.connManager`)으로 정했다. 방법과 실패 처리는 design 결정 4에 적었다(Boot configurer 뒤에 도는 configurer, `HttpClientSettingsPropertyMapper`로 그룹 설정, 못 읽으면 시작할 때 예외).
 - design 결정 4에 공유 풀 메모는 아직 없다. 4.2에서 "Boot가 자동으로 붙인다"를 적는다.
 - 다음 반복은 4.2를 다시 연다.
+---
+
+## 2026-11-06 - 4.2 공유 풀과 의존성별 커넥션 풀 지표
+- `ConnectionPoolMetrics`(`RestClientHttpServiceGroupConfigurer`, 순서 `HIGHEST_PRECEDENCE + 20`): 그룹마다 `HttpServiceClientProperties.get(그룹)` → `HttpClientSettingsPropertyMapper(SslBundles?, HttpClientSettings?)` → `ClientHttpRequestFactoryBuilder` Bean으로 요청 팩토리를 다시 만들어 `builder.requestFactory`로 넣고, `InternalHttpClient.connManager`(package-private 클래스라 이름으로 확인)를 리플렉션으로 읽어 `PoolingHttpClientConnectionManagerMetricsBinder(manager, 그룹)`을 `ObjectProvider<MeterRegistry>`에 묶는다. 못 읽으면 시작할 때 예외. Bean은 `HttpClientConfig.connectionPoolMetrics`.
+- Boot의 그룹 처리(`PropertiesRestClientHttpServiceGroupConfigurer.configureClient`)는 javap로 확인했다: `mapper.map(properties.get(name))` → `requestFactoryBuilder.build(settings)` → `builder.requestFactory`, 그 뒤 base-url·헤더·API 버전만 더 건다. 그래서 다시 만든 팩토리가 Boot와 같은 설정이다.
+- 공유 풀은 Boot가 자동으로 붙인다고 design 결정 4에 적었다. 구현 메모도 같은 곳에 더했다.
+- 바꾼 파일: `feed-service/src/main/kotlin/com/weave/feed/client/{ConnectionPoolMetrics,HttpClientConfig}.kt`, `feed-service/CLAUDE.md`, `design.md`, `tasks.md`
+- 확인: `:feed-service:integrationTest`에서 `FeedExperimentMetricsScenarioTest` 13개 모두와 `HttpClientPoolCapacityTest`, `HttpClientPoolSizePropertyTest`, `MvpTimeoutDefaultsTest`, `HttpClientGroupTest`, `HttpClientRetryDefaultsTest` 등 feed 통합 테스트 전체 통과(5번 중 4번. 1번은 위 패턴의 `HttpClientPools` CME). 전체 `ktlintCheck compileKotlin compileTestKotlin test`, `openspec validate` 통과.
+- 다음 반복(4.3)이 알아 둘 것: `server.tomcat.threads.max: 200`만 feed `application.yml`의 `server.tomcat` 아래에 더하고 따로 커밋한다.
 ---
