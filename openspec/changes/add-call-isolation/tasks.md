@@ -64,7 +64,7 @@
   - `TraceContextPropagator`를 만들고 `thread-pool-bulkhead.configs.default.context-propagators`에 등록한다.
   - `docs/architecture.md` 7-3의 표 두 개에 ThreadPool 벌크헤드 줄(전파 없이·고친 뒤·테스트)을 채운다.
   - 확인: 2.4에서 실패하던 trace 테스트와 1.7의 traceId 시나리오가 통과하고, `FeedBulkheadTracePropagationOffTest`도 통과한다(끊김을 단언한다).
-- [ ] 2.6 요청 시간 예산을 넣는다(design 결정 4).
+- [x] 2.6 요청 시간 예산을 넣는다(design 결정 4).
   - `FeedAssembler`가 시계(`Clock`)와 `weave.feed.time-budget`을 받아 마감 시각으로 기다리고, 남은 시간이 없으면 user·like를 부르지 않으며, 마감이 지나면 끝나지 않은 의존성마다 `budget_exhausted` 로그를 남기고 취소한다.
   - 확인: 남은 시간 계산과 "부르지 않음"을 보는 `FeedAssemblerTest` 단위 테스트가 통과하고, 1.5의 예산 시나리오 두 개가 통과한다.
 - [ ] 2.7 좋아요 토글을 격리한다(design 결정 6).

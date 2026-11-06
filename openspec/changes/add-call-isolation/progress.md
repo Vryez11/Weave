@@ -21,7 +21,10 @@
 - `io.micrometer:context-propagation`은 2.5에서 feed-service `build.gradle.kts`에 명시했다(BOM이 버전을 정한다).
 - 벌크헤드 스레드는 Resilience4j 전파기의 `clear`를 마친 뒤 결과 future를 끝낸다. 그래서 `thenCompose`로 이어 붙인 일은 문맥이 없다. `IsolatedCalls.call`이 부른 스레드의 스냅샷(`traceContexts.captureAll()`)을 펼친 채로 결과를 끝내 잇는다(2.5). 2.6에서 `FeedAssembler`가 future를 다른 스레드에서 끝내거나 2.9의 Semaphore 경로를 더할 때도 이 점을 지킨다.
 
+- 요청 시간 예산은 `FeedAssembler.kt`의 `RequestBudget`(2.6)이다. 2.9의 Semaphore 모드도 Gateway의 future만 바꾸면 예산은 그대로 적용된다. 예산을 넘겨 먼저 끝낸 future는 `IsolatedCalls`가 실패 로그를 다시 남기지 않는다(`!result.isDone`).
+
 ## 지금 실패하는 것이 정상인 테스트 (구현 전)
+- **2.6 뒤:** feed-service `integrationTest` 실패 12개: 2.7 토글 1, 2.8 전이 로그 1, 2.9 `FeedTracePropagationOffTest` 1, 4장 `IsolationSettingsTest` 9.
 - **2.4 뒤 갱신(이 목록이 위 옛 항목보다 우선한다).** feed-service `integrationTest` 실패 18개: 끊김 재현 6(아래), 2.6 예산 1(`FeedCallIsolationBudgetScenarioTest` "합치면 예산을 넘는다"), 2.7 토글 1(`FeedLikeToggleIsolationScenarioTest` "like의 서킷이 열려 있다"), 2.8 전이 로그 1(`FeedCircuitBreakerScenarioTest` "서킷이 열린다"), 4장 `IsolationSettingsTest` 9. `FeedExperimentMetricsScenarioTest`, `FeedIsolationMetricsScenarioTest`, `FeedBulkheadTracePropagationOffTest`, 1.6 서킷 시나리오(전이 로그 말고)는 이제 통과한다.
 - **끊김 재현(2.4, PRD F-001 수용 기준):** 벌크헤드 스레드에 트레이스 문맥이 넘어가지 않아 실패한다. 2.5에서 통과해야 한다.
   - `FeedTraceLogScenarioTest` "F-004 피드 요청의 다섯 호출: …"(post traceparent가 다름), "F-004 post가 끝난 뒤 시작한 호출: …"(user traceparent가 다름)
@@ -132,3 +135,10 @@
 - 2.5를 체크했다. 다음(2.6): 요청 시간 예산. Ralph로 넘긴다.
 ---
 
+## 2026-11-06 21:45 - 2.6 요청 시간 예산 (Ralph)
+- `FeedAssembler`에 요청마다 `RequestBudget`(마감 시각, 시작한 호출 목록)을 둔다. 호출은 `budget.call`로 시작해 남은 시간이 0이면 부르지 않고(user·like가 post 뒤에), `budget.await`가 마감까지 남은 시간만 `get`한다. 마감이 지나면 `expire`가 끝나지 않은 호출(부르지 않은 것 포함)을 `TimeBudgetExhaustedException`으로 끝내고 의존성마다 `budget_exhausted` 로그를 남긴 뒤 `CompletionException`으로 실패한다(500). 마감 뒤 다른 스레드에서 시작하려는 호출도 같은 방식으로 바로 끝낸다(lock으로 경합을 막는다). 예산 값이 없으면 상한 없이 기다린다.
+- `allOf` 대신 차례로 기다리는 이유를 design 결정 4에 한 줄 적었다(MVP의 빠른 실패 유지).
+- 확인: 새 `FeedAssemblerBudgetTest`(단위 5: 남은 시간 계산, 남은 시간 없으면 user·like를 부르지 않음, 남으면 부름, 끝나지 않은 것만 `budget_exhausted`, 먼저 실패하면 그 실패) 통과. `FeedCallIsolationBudgetScenarioTest` 두 시나리오 통과. `:feed-service:integrationTest` 140개 중 실패 12(두 번 같다, 위 "2.6 뒤" 목록). `ktlintCheck`, `compileKotlin compileTestKotlin`, `:feed-service:test`, `openspec validate` 통과.
+- 바꾼 파일: `FeedAssembler.kt`, `FeedAssemblerBudgetTest.kt`(새 파일), `feed-service/CLAUDE.md`, `design.md`, `tasks.md`, `progress.md`.
+- 다음(2.7): 토글 격리. `like` 서킷 + Semaphore `like-toggle`. 서킷이 막은 토글도 실패 로그 한 줄(`circuit_open`).
+---
