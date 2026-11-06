@@ -100,7 +100,7 @@
   - `k6/feed.js`: `warmup`·`measure`·`faults` 시나리오, `measure` 태그로 건 threshold, 가용성 `Rate`, 보내지 못한 요청, `kind: fault` 태그. `setup()`·`teardown()`이 되돌리기를 한다.
   - `k6/contract.js`(MVP는 부분 응답 없음), `k6/reset.js`(되돌리기만)
   - 확인: Compose 환경에서 `docker compose run --rm k6 run` 으로 S-02를 RPS 5, 준비 5초, 측정 20초로 직접 돌려 요약의 `measure` 요청 수가 95~105, p50이 3,000ms 이상이고, 끝난 뒤 Toxiproxy `GET /proxies`에 톡식이 없다. 명령과 결과를 progress.md에 적는다.
-- [ ] 6.3 판정과 10초 구간 계산 스크립트를 만든다(design 결정 7, 8).
+- [x] 6.3 판정과 10초 구간 계산 스크립트를 만든다(design 결정 7, 8).
   - `experiments/lib/verdict.sh`, `experiments/lib/windows.sh`. 1.6에서 정한 인자와 출력 형식을 따른다. bash 3.2에서 돈다.
   - 확인: 1.6의 판정·복구 시나리오가 `./gradlew :e2e:integrationTest`로 통과한다.
 - [ ] 6.4 `experiments/run.sh`를 만든다(design 결정 6, 7).
