@@ -76,17 +76,22 @@ class IsolatedCalls(
     ): CompletableFuture<T> {
         val isolation = isolations.getValue(dependency)
         val callerMdc: Map<String, String>? = MDC.getCopyOfContextMap()
+        val callerContext = traceContexts.captureAll()
         val inBulkhead = Supplier<CompletionStage<T>> { isolation.bulkhead.executeSupplier(block) }
         val result = CompletableFuture<T>()
         isolation.circuitBreaker
             .executeCompletionStage { isolation.timeLimiter.executeCompletionStage(timeoutScheduler, inBulkhead) }
             .whenComplete { value, error ->
-                when {
-                    error == null -> result.complete(value)
-                    // 로그를 먼저 남겨 지금처럼 피드 응답보다 실패 로그가 앞선다
-                    !result.isDone -> {
-                        withMdc(callerMdc) { DownstreamFailure.log(dependency, error) }
-                        result.completeExceptionally(error)
+                // 결과에 이어 붙인 일(post 뒤의 user·like 호출)이 부른 스레드의 trace를 잇게 한다. 여기는 벌크헤드 스레드가
+                // 전파기의 문맥을 이미 닫은 뒤이거나 시간 상한 스레드다 (design 결정 8)
+                callerContext.setThreadLocals().use {
+                    when {
+                        error == null -> result.complete(value)
+                        // 로그를 먼저 남겨 지금처럼 피드 응답보다 실패 로그가 앞선다
+                        !result.isDone -> {
+                            withMdc(callerMdc) { DownstreamFailure.log(dependency, error) }
+                            result.completeExceptionally(error)
+                        }
                     }
                 }
             }

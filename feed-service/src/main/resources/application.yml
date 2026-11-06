@@ -51,6 +51,8 @@ resilience4j:
       default:
         # 자리가 없으면 기다리지 않고 바로 거절한다 (아키텍처 5-6, design 결정 5)
         queue-capacity: 0
+        # 벌크헤드 스레드에 요청의 관찰·MDC를 넘겨 traceId가 이어지게 한다 (design 결정 8, 아키텍처 7-3)
+        context-propagators: com.weave.feed.gateway.TraceContextPropagator
     instances:
       post: { base-config: default }
       user: { base-config: default }
