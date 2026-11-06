@@ -51,7 +51,7 @@ flowchart LR
     grafana --> loki & tempo & prom
 ```
 
-- **feed-service는 하위 서비스를 항상 Toxiproxy를 거쳐 부른다.** MVP와 기준선에서도 같다. 장애를 넣을 때 연결 구조가 바뀌지 않아야 결과를 비교할 수 있다. 프록시는 의존성마다 하나씩 둔다(예: `toxiproxy:18081 → post:8081`).
+- **feed-service는 하위 서비스를 항상 Toxiproxy를 거쳐 부른다.** MVP와 기준선에서도 같다. 장애를 넣을 때 연결 구조가 바뀌지 않아야 결과를 비교할 수 있다. 프록시는 의존성마다 하나씩 둔다(예: `post-proxy:18081 → post-service:8081`, 9-1).
 - **서비스끼리는 HTTP로만 통신한다.** 비즈니스 DTO를 공유하는 모듈은 없고, feed-service가 하위 서비스 응답 형식을 자기 쪽에 따로 정의한다.
 - **관찰 데이터는 Alloy 하나로 모은다.** 로그는 Alloy가 컨테이너 stdout을 읽어 Loki로, 스팬은 서비스가 OTLP로 Alloy에 보내 Tempo로 간다. 메트릭은 Prometheus가 각 서비스의 Actuator에서 긁어 간다.
 - **서비스마다 인스턴스 하나다.** 서킷 브레이커 상태는 인스턴스 메모리에 있어서, 인스턴스가 여러 개가 되면 인스턴스마다 따로 열리고 닫힌다. 이 프로젝트에서는 다루지 않는다(PRD 8장).
@@ -62,16 +62,18 @@ flowchart LR
 weave/
 ├── buildSrc/               # 컨벤션 플러그인 (kotlin, spring-service, spring-library)
 ├── libs/observability/     # 모든 서비스에 자동 적용되는 로그·트레이싱 설정 (7장)
+├── libs/fault-injection/   # 하위 서비스 5개의 앱 수준 장애 주입. experiment 프로필에서만 켠다 (9-2)
 ├── feed-service/           # 피드 집계, 장애 대응
 ├── post-service/  user-service/  like-service/  recommendation-service/  ad-service/
-├── docker/                 # Compose 보조 설정: alloy, grafana(대시보드·데이터 소스), toxiproxy, mysql
-├── experiments/            # k6 시나리오(S-01~S-10)와 장애 설정. results/는 커밋하지 않는다
-├── scripts/                # harness, git-hooks, ralph (하네스 구성 때)
+├── e2e/                    # 종단 간 테스트와 Compose 테스트
+├── docker/                 # Compose 보조 설정: service.Dockerfile, alloy, loki, tempo, prometheus, grafana(대시보드·데이터 소스), toxiproxy
+├── experiments/            # 장애 실험 세트: 시나리오 S-01~S-09, k6 스크립트, run.sh·run-all.sh (9-3). results/는 커밋하지 않는다
+├── scripts/                # harness, git-hooks, ralph
 ├── docs/  openspec/  conventions/
-└── docker-compose.yml
+└── compose.yaml
 ```
 
-지금 있는 것은 `buildSrc/`, `libs/observability/`, 서비스 6개, `docs/`, `conventions/`이다. `docker/`, `docker-compose.yml`은 고도화 1(관찰 인프라)과 고도화 2(Toxiproxy)에서, `experiments/`는 고도화 2에서, `openspec/`과 `scripts/`는 하네스 구성 때 만든다.
+`docker/`와 `compose.yaml`은 고도화 1(관찰 인프라)과 고도화 2(Toxiproxy, k6, 대시보드)에서, `libs/fault-injection/`과 `experiments/`는 고도화 2에서, `openspec/`과 `scripts/`는 하네스 구성 때 만들었다. PRD 4장의 S-10·S-11 실험 스크립트는 F-003에서 더한다.
 
 ## 4. 피드 요청 흐름
 
@@ -147,15 +149,17 @@ feed-service에 용량 설정(`weave.http-client.max-connections-per-route`, `sp
 
 ### 4-3. 시간 예산 (초기안)
 
-p99 300ms(PRD 2장) 안에 응답하기 위한 나눔이다. 하위 서비스의 평시 p99는 약 50ms로 둔다(PRD F-007). 아래 값은 출발점이고, 기준선을 잰 뒤 확정해 근거를 적는다.
+p99 300ms(PRD 2장) 안에 응답하기 위한 나눔이다. 하위 서비스의 평시 p99는 약 50ms로 둔다(PRD F-007). 아래 예산은 출발점이고, F-001에서 "기준선 평시 p99" 열을 근거로 확정한다.
 
-| 구간 | 예산 (안) | 이유 |
-|---|---|---|
-| ① post | 100ms | 평시 p99의 2배. 넘으면 stale 캐시로 넘어간다 |
-| ② user, like (병렬) | 100ms | 같은 기준 |
-| recommendation, ad | 200ms | ①+② 안에 끝나면 된다. 선택 등급이라 더 기다리지 않는다 |
-| 집계·직렬화와 여유 | 약 50ms | 남은 예산 |
-| **전체** | **250ms** | p99 300ms에 여유 50ms |
+"기준선 평시 p99"는 MVP 기준선 S-01(400 RPS, `20261106-075650-S-01`)에서 feed-service가 잰 의존성별 호출 p99다(`http_client_requests_seconds`, Toxiproxy를 거친 값). 피드 전체의 p99는 92ms였다([MVP 기준선](experiments/baseline-mvp.md)).
+
+| 구간 | 기준선 평시 p99 | 예산 (안) | 이유 |
+|---|---|---|---|
+| ① post | 51.4ms | 100ms | 평시 p99의 2배. 넘으면 stale 캐시로 넘어간다 |
+| ② user, like (병렬) | user 51.2ms, like 53.7ms | 100ms | 같은 기준 |
+| recommendation, ad | recommendation 51.0ms, ad 51.2ms | 200ms | ①+② 안에 끝나면 된다. 선택 등급이라 더 기다리지 않는다 |
+| 집계·직렬화와 여유 | | 약 50ms | 남은 예산 |
+| **전체** | 피드 92ms | **250ms** | p99 300ms에 여유 50ms |
 
 - ②는 남은 예산 안에서만 기다린다. ①이 80ms 걸렸으면 ②에 줄 수 있는 시간은 전체 예산에서 그만큼 줄어든다.
 - 하위 서비스에 남은 예산을 헤더로 넘기는 것(deadline 전파)은 다루지 않는다. 하위 서비스가 다시 다른 서비스를 부르지 않기 때문이다.
@@ -307,11 +311,11 @@ Retry-After 동안 호출을 막는 방법(서킷을 그 시간만큼 열어 두
   ```
 
 - **스팬:** 서비스는 `MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT=http://alloy:4318/v1/traces`(Compose에서만 준다, 7-1)로 OTLP HTTP를 보내고, Alloy가 묶어 Tempo(gRPC 4317)로 넘긴다. Tempo에서는 `/api/traces/<traceId>`로 조회한다.
-- **메트릭:** Prometheus가 서비스 6개의 `/actuator/prometheus`를 15초마다 긁는다(`docker/prometheus/prometheus.yml`).
+- **메트릭:** Prometheus가 서비스 6개의 `/actuator/prometheus`를 5초마다 긁는다(`docker/prometheus/prometheus.yml`, 9-1). feed-service는 Compose에서 Actuator를 관리 포트 8090으로 열어(`MANAGEMENT_SERVER_PORT`) 업무 요청이 Tomcat 스레드를 모두 묶어도 긁힌다. 관리 포트는 호스트에 열지 않는다.
 - **저장:** Loki·Tempo는 단일 프로세스이고 컨테이너 안에만 저장한다. 내리면 지워진다.
 - **포트:** 호스트에는 feed-service 8080과 관찰 인프라만 연다. 모두 `127.0.0.1`에만 묶는다(feed-service 8080, Grafana 3000, Loki 3100, Tempo 3200, Prometheus 9090, Alloy UI 12345). Grafana는 로그인 없이 연다.
 
-Grafana에서 로그의 traceId를 누르면 Tempo의 트레이스로(Loki derived field), 트레이스에서 같은 traceId의 로그로(Tempo trace-to-logs) 이동하도록 데이터 소스를 연결한다. 데이터 소스는 `docker/grafana/provisioning/datasources/`에 파일로 두고 자동으로 불러온다. 대시보드(7-4)는 `add-fault-experiments`에서 같은 방식으로 더한다.
+Grafana에서 로그의 traceId를 누르면 Tempo의 트레이스로(Loki derived field), 트레이스에서 같은 traceId의 로그로(Tempo trace-to-logs) 이동하도록 데이터 소스를 연결한다. 데이터 소스는 `docker/grafana/provisioning/datasources/`에 파일로 두고 자동으로 불러온다. 대시보드(7-4)도 `add-fault-experiments`에서 같은 방식으로 더했다.
 
 Loki·Tempo 조회는 `./gradlew :e2e:composeTest`가 Compose 환경을 띄워 확인한다(하네스 규칙 5장).
 
@@ -341,7 +345,19 @@ traceId는 스레드에 붙은 컨텍스트(MDC, 관찰 컨텍스트)에 있어�
 
 피드 SLO(가용성, p50·p95·p99), 의존성별 degrade 비율, 서킷 상태, 벌크헤드 사용량·거절, 커넥션 풀 사용량, Tomcat 스레드 사용량을 한 화면에 둔다. 실험 리포트의 그래프도 이 대시보드에서 뜬다.
 
-보여 줄 지표 대부분이 고도화 3·4에서 생기므로, 대시보드는 실험 리포트와 함께 `add-fault-experiments`(F-007)에서 만든다. 고도화 1(`add-trace-logging`)은 Prometheus가 긁어 가는 것까지만 했다.
+대시보드는 `add-fault-experiments`(F-007)에서 만들었다. 데이터 소스와 같이 파일로 두고 Grafana가 띄울 때 불러온다. 공급자 설정은 `docker/grafana/provisioning/dashboards/`, 대시보드는 `docker/grafana/dashboards/feed-experiments.json`(uid `weave-feed`, `http://localhost:3000/d/weave-feed`)이다. 화면에서 고친 내용은 저장되지 않으니 JSON을 고친다. 실험 리포트의 Grafana 링크는 이 대시보드에 측정 구간(`from`, `to`)을 붙인 것이다.
+
+지표마다 그 지표를 만드는 단계에서 패널을 더한다. 지금 있는 패널은 모두 feed-service(`instance="feed-service:8090"`, 관리 포트)의 지표다.
+
+| 행 | 패널 | 지표 | 더한 단계 |
+|---|---|---|---|
+| 피드 SLO | 피드 RPS(응답 코드별), 가용성(200 비율, 99.9% 선), p50·p95·p99(300ms 선) | `http_server_requests_seconds`(`uri="/feed"`) | 고도화 2 |
+| 의존성 호출 | 의존성별 호출 p99, 실패율(`outcome!="SUCCESS"`), RPS | `http_client_requests_seconds`(`client_name`) | 고도화 2 |
+| 자원 사용량 | Tomcat 사용 중·최대 스레드, 공유 풀 활성 스레드, 공유 풀 대기열, 의존성별 커넥션 풀 사용 중·대기, CPU(0.7 선) | `tomcat_threads_*`, `executor_*`(`name="applicationTaskExecutor"`), `httpcomponents_httpclient_pool_total_connections`(`state="leased"`)·`..._total_pending`(`httpclient`), `process_cpu_usage` | 고도화 2 |
+| 서킷·벌크헤드 | 서킷 상태, 벌크헤드 사용량·거절 | Resilience4j 지표 | 고도화 3 (`add-call-isolation`, F-001) |
+| degrade | 의존성별 degrade 비율 | F-002가 정한다 | 고도화 4 (`add-graceful-degradation`, F-002) |
+
+패널 질의에는 Grafana 시간 변수(`$__rate_interval` 등) 말고 변수를 두지 않는다. 장애가 없을 때도 모든 질의가 시계열을 돌려줘야 해서, 실패율처럼 분자가 빌 수 있는 질의는 0으로 채운다. `./gradlew :e2e:composeTest`의 `ExperimentDashboardComposeScenarioTest`가 S-01 짧은 실행 뒤 모든 패널 질의를 Prometheus에 보내 확인한다.
 
 ## 8. 좋아요 저장
 
@@ -361,30 +377,103 @@ traceId는 스레드에 붙은 컨텍스트(MDC, 관찰 컨텍스트)에 있어�
 
 ## 9. 장애 실험 환경
 
+구성은 `add-fault-experiments`(F-007)에서 정했다. 설계 근거는 그 change의 design 결정 1~12에 있다.
+
 ### 9-1. Docker Compose
 
-| 대상 | 자원 상한 (안) | 메모 |
-|---|---|---|
-| feed-service | CPU 2, 메모리 1GB | Tomcat 최대 스레드 수를 명시한다 |
-| 하위 서비스 5개 | 각 CPU 1, 메모리 512MB | |
-| MySQL, Redis, Toxiproxy | 각 CPU 1 | |
-| Alloy, Loki, Tempo, Prometheus, Grafana | 상한만 걸고 실험 대상에서 뺀다 | |
+루트 `compose.yaml` 하나가 실험 환경이다. 하위 서비스 5개는 늘 `experiment` 프로필(`SPRING_PROFILES_ACTIVE=experiment`)로 떠서 장애 주입 엔드포인트가 열려 있다. 하위 서비스 포트는 호스트에 열지 않는다.
 
-실험 결과가 노트북 상태에 흔들리지 않도록, S-01을 돌려 호스트 CPU가 여유 있는 부하를 실험 RPS로 정한다. 시작값은 200 RPS, 시나리오당 준비 1분 + 측정 5분으로 두고 기준선에서 조정한다.
+| 대상 | 자원 상한 (`deploy.resources.limits`) | 메모 |
+|---|---|---|
+| feed-service | CPU 2, 메모리 1GB | Tomcat 최대 스레드 200을 `application.yml`에 명시한다(Boot 기본값, 4-2). Actuator는 관리 포트 8090(`MANAGEMENT_SERVER_PORT`)이고 헬스 체크와 Prometheus가 이 포트를 본다 |
+| 하위 서비스 5개 | 각 CPU 1, 메모리 512MB | |
+| MySQL, Toxiproxy | 각 CPU 1 | Redis는 post stale 캐시와 함께 F-002에서 더한다 |
+| Alloy, Prometheus, Grafana | 각 CPU 0.5, 메모리 512MB | 실험 대상이 아니라 상한만 건다. OOM 재시작이 보이면 근거와 함께 올린다 |
+| Loki, Tempo | 각 CPU 0.5, 메모리 1GB | 부하 중 로그·스팬이 쌓인다 |
+| k6 (`grafana/k6:2.3.0`) | CPU 2, 메모리 2GB | `profiles: [experiment]`라 `up`으로는 뜨지 않고 `run.sh`가 `docker compose run`으로 부른다. `experiments/`를 마운트한다 |
+
+- **Toxiproxy**(`ghcr.io/shopify/toxiproxy:2.13.0`): 프록시 정의는 `docker/toxiproxy/toxiproxy.json`이다. 관리 API는 `127.0.0.1:8474`에만 연다. feed-service는 Toxiproxy가 healthy가 된 뒤 뜬다.
+- **Prometheus 수집 간격 5초:** 측정 5분에 표본 60개, S-09의 10초 장애가 한 번에 두 번 이상 긁힌다(`docker/prometheus/prometheus.yml`).
+- 상한은 예약이 아니다. Docker에 준 CPU가 상한의 합보다 작으면 컨테이너끼리 다툴 수 있어, 실험 RPS를 이 환경에서 S-01로 골랐다. **실험 RPS는 400**, 시나리오당 준비 1분 + 측정 5분이다. 고른 근거와 실행 환경은 [MVP 기준선](experiments/baseline-mvp.md)에 있다.
+
+feed-service는 하위 서비스를 의존성마다 하나인 프록시를 거쳐 부른다. 프록시 이름은 의존성 이름이고, Compose 네트워크 별칭으로 부른다.
+
+| 의존성 (프록시 이름) | feed-service가 부르는 주소 | 대상 |
+|---|---|---|
+| `post` | `http://post-proxy:18081` | `post-service:8081` |
+| `user` | `http://user-proxy:18082` | `user-service:8082` |
+| `like` | `http://like-proxy:18083` | `like-service:8083` |
+| `recommendation` | `http://recommendation-proxy:18084` | `recommendation-service:8084` |
+| `ad` | `http://ad-proxy:18085` | `ad-service:8085` |
 
 ### 9-2. 장애 주입
 
-| 수준 | 방법 | 쓰는 시나리오 |
-|---|---|---|
-| 네트워크 | Toxiproxy의 latency, timeout(무응답), reset_peer(끊김), bandwidth | S-02, S-03, S-04(다운) |
-| 앱 | 하위 서비스의 실험 전용 Actuator 엔드포인트로 지연 분포, 에러율을 켜고 끈다. 실험 프로필에서만 열린다 | S-01(평시 지연), S-05, S-09 |
-| 외부 API | ad가 429와 Retry-After, 쿼터 초과를 흉내 낸다 | S-07 |
+| 수준 | 장애 | 방법 | 쓰는 시나리오 |
+|---|---|---|---|
+| 네트워크 | 응답 지연 | 프록시에 `latency` 톡식(응답 방향) | S-02 |
+| 네트워크 | 무응답 | 프록시에 `timeout` 톡식(`timeout: 0`. 연결을 받고 데이터를 흘리지도 닫지도 않는다) | S-03, S-08 |
+| 네트워크 | 다운 | 프록시 끄기(`enabled: false`. 리스너가 닫혀 연결 거부) | S-04, S-06 |
+| 앱 | 평시 지연 분포, 에러율 | 하위 서비스 5개의 `/actuator/faults`(`libs/fault-injection`). `GET` 지금 값, `POST`(`latencyMedianMs`, `latencyP99Ms`, `errorRate` 중 준 것만), `DELETE` 기본값으로. 지연은 로그 정규분포이고 기본은 중앙값 20ms·p99 50ms·에러율 0이다. 에러는 500 `{"error":"injected fault"}`. `/actuator` 경로에는 걸지 않는다 | S-01(평시 지연), S-05, S-09 |
+| 외부 API | 요청 한도 | ad-service의 `/actuator/quota`. `POST {"limit": n, "windowSeconds": w}`로 고정 창 한도를 켜고 `DELETE`로 끈다. 넘으면 429와 `Retry-After`(창 끝까지 남은 초) | S-07 |
+
+- 네트워크 장애는 Toxiproxy `POST /reset` 하나로 모두 되돌린다. 앱 수준 장애와 요청 한도는 메모리에만 있어 서비스를 다시 띄워도 사라진다.
+- 장애는 손으로 넣지 않고 시나리오 시간표로 넣는다. 실험 세트가 시작할 때와 끝날 때 위 다섯 곳을 모두 되돌린다(`experiments/k6/reset.js`).
 
 ### 9-3. 실험 세트
 
-- `experiments/scenarios/`에 시나리오마다 k6 스크립트와 장애 설정을 둔다. 판정 기준(PRD 2장 SLO)은 k6 threshold로 적는다.
-- 명령 하나로 장애를 넣고, 부하를 주고, 장애를 거두고, 리포트를 남긴다. 명령은 `add-fault-experiments`에서 만들고 [하네스 규칙](../conventions/harness.md) 5장에 적는다.
-- 원본 결과는 `experiments/results/`에 두고 커밋하지 않는다. 요약은 PR 설명과 문서에 적는다.
+```
+experiments/
+├── run.sh  run-all.sh       # 명령 (아래)
+├── config.json              # 기본 RPS, 준비·측정 시간, k6 요청 시간 초과 5초, 사용자 ID 범위
+├── slo.json                 # PRD 2장 SLO(가용성 99.9%, p99 300ms). k6 threshold는 여기서만 읽는다
+├── expectations.json        # 단계별 기대 결과(시나리오마다 meet/miss)
+├── scenarios/S-01.json ...  # 설명, PRD 4장 문장, 장애 시간표(측정 시작부터 잰 초, 동작, 대상)
+├── k6/                      # feed.js(부하·장애·판정), faults.js, contract.js, reset.js
+├── lib/                     # verdict.sh(판정), windows.sh(10초 구간, 복구 시간)
+└── results/                 # 실행마다 폴더 하나. 커밋하지 않는다
+```
+
+| ID | 장애 |
+|---|---|
+| S-01 | 없음(평시) |
+| S-02 | recommendation 프록시 지연 3,000ms, 측정 내내 |
+| S-03 | recommendation 프록시 무응답, 측정 내내 |
+| S-04 | user 프록시 끄기, 측정 내내 |
+| S-05 | like 에러율 0.5, 측정 내내 |
+| S-06 | post 프록시 끄기, 측정 내내 |
+| S-07 | ad 요청 한도: 창 10초, 한도 = RPS × 10 ÷ 2 |
+| S-08 | S-03의 장애를 0초에 넣고 120초에 거둔다(복구 시간을 잰다) |
+| S-09 | user·like 에러율 1을 60·150·240초에 10초씩 |
+
+**명령**([하네스 규칙](../conventions/harness.md) 5장). Compose 환경을 먼저 띄운다(`./gradlew bootJar` 뒤 `docker compose up -d --build --wait`).
+
+```bash
+experiments/run.sh S-02                                       # 시나리오 하나 (준비 1분 + 측정 5분, 약 7분)
+experiments/run.sh S-01 --rps 5 --warmup 5s --duration 20s    # 짧게 (약 40초)
+experiments/run-all.sh                                        # S-01~S-09 (약 1시간). 0이면 장애 실험 세트 통과
+experiments/run-all.sh --list                                 # 돌릴 목록
+```
+
+- `run.sh`는 장애를 되돌리고 feed-service를 다시 띄워(앞 실행이 묶어 둔 스레드를 지운다) 같은 상태에서 시작한다. k6가 준비 구간 뒤 측정 구간 동안 같은 RPS로 `GET /feed`를 보내고, 시간표대로 장애를 넣고 거둔다. 끝나면(실패하거나 Ctrl-C로 멈춰도) 장애를 모두 되돌린다.
+- 판정: k6 threshold는 늘 `slo.json`이고 측정 구간 요청만 센다. 가용성은 k6가 보내지 못한 요청도 실패로 넣어 `lib/verdict.sh`가 다시 계산한다. SLO 충족 여부가 그 단계의 기대(`expectations.json`)와 같으면 0, 다르면 1, 실행하지 못하면 2로 끝난다. 고도화 2의 기대는 S-01만 `meet`이다. `miss`인데 SLO를 지키면 장애가 재현되지 않은 것이라 기대와 다르다.
+- `run-all.sh`는 시나리오마다 `run.sh`를 부르고, 기대와 다르거나 실행하지 못한 시나리오가 있어도 끝까지 돈 뒤 판정 표(마크다운)를 출력한다. 종료 코드는 가장 나쁜 것이다.
+- Compose 프로젝트나 env 파일을 바꿀 때는 `COMPOSE_PROJECT_NAME`, `COMPOSE_ENV_FILE`을 준다(`:e2e:composeTest`는 `weave-compose-test`와 `e2e/build/compose-test.env`를 쓴다).
+
+**리포트.** 실행마다 `experiments/results/<UTC yyyyMMdd-HHmmss>-<S-xx>/`에 `report.md`와 같은 값의 `report.json`, k6 요약 `summary.json`, 요청마다의 원본 `raw.json.gz`를 남긴다.
+
+| 항목 | 출처 |
+|---|---|
+| 시나리오, 커밋(더러우면 `-dirty`), 실행 시각, RPS, 준비·측정 시간, 기대 결과, 판정과 넘은 기준 | run.sh, `lib/verdict.sh` |
+| 측정 요청 수, 보내지 못한 요청 수, p50·p95·p99(실패한 요청 포함). 지연은 k6가 요청 앞뒤로 잰 경과 시간 `feed_latency`다. k6의 `http_req_duration`은 시간 초과된 요청을 0으로 남길 수 있어 쓰지 않는다 | k6 요약 |
+| 가용성 = 200 수 ÷ (측정 요청 수 + 보내지 못한 요청 수) | k6 요약 |
+| 의존성별 호출 p99, 실패율, 요청 배율(하위 서비스가 받은 요청 ÷ 피드 요청) | Prometheus |
+| 자원 사용량의 측정 구간 최댓값·평균: Tomcat 사용 중 스레드, 공유 풀 활성 스레드·대기열, 의존성별 커넥션 풀 사용 중·대기, feed-service CPU | Prometheus |
+| feed-service 지표 수집 비율(측정 구간 `up` 표본 중 1인 비율). 1보다 작으면 자원 사용량이 긁힌 구간만의 값이라고 적는다 | Prometheus |
+| degrade 비율, 서킷 상태 | MVP에는 없어 "없음". F-002, F-001이 채운다 |
+| 장애를 넣은 시각과 거둔 시각, 10초 구간 표(요청 수, `feed_latency` p99, 가용성), 복구 시간(S-08) | k6 원본, `lib/windows.sh` |
+| Grafana 링크(측정 구간을 붙인 `weave-feed` 대시보드, 7-4) | run.sh |
+
+원본 결과는 커밋하지 않는다. 기준선과 비교 요약은 `docs/experiments/`와 PR 설명에 적는다.
 
 ## 10. 테스트
 
@@ -405,6 +494,7 @@ traceId는 스레드에 붙은 컨텍스트(MDC, 관찰 컨텍스트)에 있어�
 |---|---|
 | 장애 대응 설정값, 시간 예산, 캐시 TTL | 서비스의 `application.yml`. 실험마다 바꿀 값은 환경 변수로 덮어쓸 수 있게 한다 |
 | 실행 환경별 차이(로컬 `bootRun`과 Compose의 주소) | Spring 프로필 `local`, `docker`. 실험 전용 엔드포인트는 `experiment` 프로필 |
+| 실험 전용 설정 | 하위 서비스 5개의 `src/main/resources/application-experiment.yml`. 장애 주입 스위치(`weave.fault-injection.enabled: true`)와 Actuator 노출 목록(`health,info,prometheus,faults`, ad-service는 `quota`도)을 둔다. ad-service는 요청 한도 스위치(`weave.ad.quota.enabled: true`)도 둔다. `libs/fault-injection`은 프로필 파일을 싣지 않는다(같은 이름의 파일이 서비스에도 있으면 하나만 읽힌다). feed-service에는 두지 않는다 |
 | MySQL 계정 | `.env` (커밋하지 않음). 이름과 설명만 `.env.example`에 |
 
 ## 12. OpenSpec change로 넘길 것
@@ -421,8 +511,7 @@ traceId는 스레드에 붙은 컨텍스트(MDC, 관찰 컨텍스트)에 있어�
 
 ## 13. 남은 것
 
-- 4-3 시간 예산과 5-6 설정값: 기준선 뒤
-- 실험 RPS와 실행 시간: S-01로 정한다
+- 4-3 시간 예산과 5-6 설정값: F-001에서 [MVP 기준선](experiments/baseline-mvp.md)을 근거로 정한다
 - user 로컬 캐시 TTL·크기, post 캐시 키 구조: `add-graceful-degradation`
 - 429와 Retry-After 처리 방식: `add-retry-policy`
 - 좋아요 순서 판단 방법: `add-idempotent-like`

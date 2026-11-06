@@ -1,0 +1,8 @@
+{
+  "id": "S-02",
+  "title": "추천 서비스 3초 지연",
+  "prd": "recommendation 응답 3초 지연",
+  "faults": [
+    { "at": 0, "action": "latency", "target": "recommendation", "latencyMs": 3000 }
+  ]
+}

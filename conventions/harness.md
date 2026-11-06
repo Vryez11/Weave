@@ -10,7 +10,7 @@ weave는 OpenSpec으로 만든 스펙을 AI 에이전트(Claude Code)에게 맡�
 
 스펙이 끝나는 조건을 정하고, 하네스가 그 조건을 자동으로 판정하고, 루프가 판정이 날 때까지 에이전트를 돌린다.
 
-> 상태: 하네스 구성(2026-11-04)에서 `CLAUDE.md`, `openspec/`, `scripts/harness/`, `scripts/git-hooks/`, `scripts/ralph/`, CI, PR 템플릿을 만들었다. `experiments/`는 고도화 2에서 만든다.
+> 상태: 하네스 구성(2026-11-04)에서 `CLAUDE.md`, `openspec/`, `scripts/harness/`, `scripts/git-hooks/`, `scripts/ralph/`, CI, PR 템플릿을 만들었다. `experiments/`(장애 실험 세트)는 고도화 2(`add-fault-experiments`)에서 만들었다.
 
 ## 1. 전체 흐름
 
@@ -100,7 +100,7 @@ flowchart TD
 
   Stop 훅(`scripts/harness/stop-check.sh`)은 `develop`에서 갈라진 뒤 바뀐 모듈의 검사만 돌린다. 같은 세션에서 세 번 연속 실패하면 더 막지 않고 사람에게 넘긴다.
 
-- **장애 실험 세트:** `experiments/`의 시나리오마다 Toxiproxy로 장애(지연, 끊김, 무응답, 에러율)를 넣고 k6로 부하를 준다. 판정 기준은 PRD의 SLO이고 k6 threshold로 적는다(예: 피드 p99, 피드 에러율, 부분 응답 비율). 전체 서비스와 인프라를 띄워야 해서 오래 걸리니 바깥 루프가 끝난 뒤 한 번, 그리고 장애 대응 change의 PR에서 돌린다. 어느 시나리오든 SLO를 넘거나 직전 기록보다 p99나 에러율이 크게 나빠지면 merge하지 않는다(나빠짐의 기준은 기준선 실험 뒤 정한다).
+- **장애 실험 세트:** `experiments/`의 시나리오마다 Toxiproxy로 장애(지연, 끊김, 무응답, 에러율)를 넣고 k6로 부하를 준다. 판정 기준은 PRD의 SLO이고 k6 threshold로 적는다(예: 피드 p99, 피드 에러율, 부분 응답 비율). 단계마다 어느 시나리오가 SLO를 지켜야 하는지는 `experiments/expectations.json`에 적고, 결과가 그 기대와 같으면 통과다(5장의 `run-all.sh`). 전체 서비스와 인프라를 띄워야 해서 오래 걸리니 바깥 루프가 끝난 뒤 한 번, 그리고 장애 대응 change의 PR에서 돌린다. 결과가 기대와 다르거나 직전 기록보다 p99나 에러율이 크게 나빠지면 merge하지 않는다(나빠짐의 기준은 기준선 실험 뒤 정한다).
 - **독립 검토:** 3-3의 검토 루프.
 
 ### 2-4. 도구 하네스
@@ -212,7 +212,8 @@ PR 템플릿(`.github/pull_request_template.md`)의 "확인한 것"이 이 목�
 | 서비스 하나 실행 | `./gradlew :<모듈>:bootRun`. like-service는 `./gradlew :like-service:bootTestRun`(Testcontainers MySQL을 함께 띄운다) |
 | Ralph 루프 | `scripts/ralph/ralph.sh <change-id> [최대 반복 수]` |
 | 로컬 인프라 | `./gradlew bootJar` 뒤 `docker compose up -d --build --wait`. 서비스 6개, MySQL, 관찰 인프라(Alloy, Loki, Tempo, Prometheus, Grafana)를 띄운다. MySQL 계정은 루트 `.env`에서 읽는다(`.env.example`). 내리기는 `docker compose down -v` |
-| Compose 테스트 | `./gradlew :e2e:composeTest`. 프로젝트 이름 `weave-compose-test`로 Compose 환경을 띄워 `Compose` 태그 테스트(Loki·Tempo의 traceId 조회)를 돌리고, 성공·실패와 관계없이 내린다. 호스트 포트가 같아 손으로 띄운 환경은 먼저 내린다 |
-| 장애 실험 시나리오 하나 | 고도화 2(`add-fault-experiments`)에서 만든다 |
+| Compose 테스트 | `./gradlew :e2e:composeTest`. 프로젝트 이름 `weave-compose-test`로 Compose 환경을 띄워 `Compose` 태그 테스트(Loki·Tempo의 traceId 조회, 프록시 경로, 대시보드, `run.sh`·`run-all.sh` 짧은 실행)를 돌리고, 성공·실패와 관계없이 내린다. 호스트 포트가 같아 손으로 띄운 환경은 먼저 내린다 |
+| 장애 실험 시나리오 하나 | 로컬 인프라를 띄운 뒤 `experiments/run.sh <S-xx> [--rps N] [--warmup 1m] [--duration 5m]`. 옵션 기본값은 `experiments/config.json`이다. 장애를 되돌리고 feed-service를 다시 띄운 뒤 부하를 주고, 끝나면(실패·중단해도) 장애를 모두 되돌린다. 리포트는 `experiments/results/<UTC 시각>-<S-xx>/report.md`(같은 값이 `report.json`). 종료 코드는 0 기대와 같음, 1 기대와 다름, 2 실행하지 못함. 다른 Compose 프로젝트에 돌릴 때는 `COMPOSE_PROJECT_NAME`, `COMPOSE_ENV_FILE`을 준다 |
+| 장애 실험 세트 | `experiments/run-all.sh [옵션] [S-xx ...]`. 시나리오가 없으면 S-01~S-09를 차례로 돌리고(기본값으로 약 1시간) 판정 표를 출력한다. **시나리오 없이 돌려 0으로 끝나는 것이 "장애 실험 세트 통과"다.** 목록만 보려면 `--list` |
 
 Stop 훅은 ktlint가 위반을 보고하면 증분 결과를 버리고(`--rerun-tasks`) 한 번 더 돌린다. ktlint-gradle이 지운 파일의 예전 위반을 계속 보고할 때가 있어서다.

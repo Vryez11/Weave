@@ -1,7 +1,10 @@
-# 서비스 6개, MySQL, 관찰 인프라(Alloy, Loki, Tempo, Prometheus, Grafana)를 띄운다 (add-trace-logging design 결정 7).
+# 서비스 6개, MySQL, 관찰 인프라(Alloy, Loki, Tempo, Prometheus, Grafana), Toxiproxy를 띄운다
+# (add-trace-logging design 결정 7, add-fault-experiments design 결정 1·10).
 # 띄우는 법: `./gradlew bootJar` 뒤 `docker compose up -d --build --wait`. MySQL 계정은 `.env`에서 읽는다(.env.example).
-# 호스트에는 feed-service(8080)와 관찰 인프라만 연다. 모두 로컬에서만 보도록 127.0.0.1에 묶는다.
-# 서비스끼리는 Compose 서비스 이름으로 부른다. 관찰 인프라의 설정은 docker/<이름>/에 있다.
+# 호스트에는 feed-service(8080), 관찰 인프라, Toxiproxy 관리 API(8474)만 연다. 모두 로컬에서만 보도록 127.0.0.1에 묶는다.
+# feed-service는 하위 서비스를 늘 Toxiproxy의 별칭(<의존성>-proxy:1808x)으로 부른다. 그 밖에는 Compose 서비스 이름으로 부른다.
+# 관찰 인프라와 Toxiproxy의 설정은 docker/<이름>/에 있다.
+# 부하 도구 k6는 experiment 프로필이라 up으로는 뜨지 않는다(experiments/run.sh가 docker compose run으로 부른다).
 
 # 서비스 공통값. 병합 키(<<)는 얕아서, environment나 depends_on을 따로 두는 서비스는 아래 앵커를 다시 병합한다
 x-service: &service
@@ -15,6 +18,34 @@ x-service: &service
     # 시작 로그와 첫 스팬부터 모이도록 Alloy를 먼저 띄운다
     alloy:
       condition: service_started
+
+# 하위 서비스 5개의 환경. Compose 환경은 실험 환경이라 장애 주입 엔드포인트(/actuator/faults)를 늘 켠다
+x-downstream-environment: &downstream-environment
+  <<: *service-environment
+  SPRING_PROFILES_ACTIVE: experiment
+
+# 자원 상한(아키텍처 9-1, add-fault-experiments design 결정 10). 예약이 아니라 상한이다.
+# 실험 결과가 노트북의 다른 컨테이너·프로그램에 덜 흔들리도록 실험 대상마다 건다
+x-downstream-deploy: &downstream-deploy
+  resources:
+    limits:
+      cpus: "1"
+      memory: 512M
+
+# 관찰 인프라는 실험 대상이 아니라 상한만 건다. 실험 대상과 CPU를 덜 다투도록 각 0.5개로 두고,
+# 메모리는 부하 중 로그·스팬이 쌓이는 Loki·Tempo만 1GB, 나머지는 512MB로 둔다.
+# 상한에 걸리면 컨테이너가 OOM으로 재시작되므로(docker compose ps) 그때 근거와 함께 올린다
+x-observability-deploy: &observability-deploy
+  resources:
+    limits:
+      cpus: "0.5"
+      memory: 512M
+
+x-observability-store-deploy: &observability-store-deploy
+  resources:
+    limits:
+      cpus: "0.5"
+      memory: 1G
 
 # 헬스 체크 공통값. start_period 동안은 2초마다 보고, 실패해도 횟수에 세지 않는다
 x-service-healthcheck: &service-healthcheck
@@ -32,22 +63,37 @@ services:
       dockerfile: ../../../docker/service.Dockerfile
     environment:
       <<: *service-environment
-      POST_BASE_URL: http://post-service:8081
-      USER_BASE_URL: http://user-service:8082
-      LIKE_BASE_URL: http://like-service:8083
-      RECOMMENDATION_BASE_URL: http://recommendation-service:8084
-      AD_BASE_URL: http://ad-service:8085
+      # 장애가 없을 때도 같은 경로로 부르도록 늘 Toxiproxy를 거친다 (docker/toxiproxy/toxiproxy.json)
+      POST_BASE_URL: http://post-proxy:18081
+      USER_BASE_URL: http://user-proxy:18082
+      LIKE_BASE_URL: http://like-proxy:18083
+      RECOMMENDATION_BASE_URL: http://recommendation-proxy:18084
+      AD_BASE_URL: http://ad-proxy:18085
+      # Actuator(지표, 헬스 체크)를 업무 포트와 다른 Tomcat 커넥터에 연다. 업무 요청이 Tomcat 스레드 200개를 모두 묶어도
+      # Prometheus가 긁을 수 있게 한다 (add-fault-experiments design 결정 10)
+      MANAGEMENT_SERVER_PORT: "8090"
+    depends_on:
+      <<: *service-depends-on
+      toxiproxy:
+        condition: service_healthy
     ports:
       - "127.0.0.1:8080:8080"
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 1G
     healthcheck:
       <<: *service-healthcheck
-      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:8080/actuator/health"]
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:8090/actuator/health"]
 
   post-service:
     <<: *service
     build:
       context: ./post-service/build/libs
       dockerfile: ../../../docker/service.Dockerfile
+    environment: *downstream-environment
+    deploy: *downstream-deploy
     healthcheck:
       <<: *service-healthcheck
       test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:8081/actuator/health"]
@@ -57,6 +103,8 @@ services:
     build:
       context: ./user-service/build/libs
       dockerfile: ../../../docker/service.Dockerfile
+    environment: *downstream-environment
+    deploy: *downstream-deploy
     healthcheck:
       <<: *service-healthcheck
       test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:8082/actuator/health"]
@@ -67,7 +115,7 @@ services:
       context: ./like-service/build/libs
       dockerfile: ../../../docker/service.Dockerfile
     environment:
-      <<: *service-environment
+      <<: *downstream-environment
       LIKE_DB_URL: jdbc:mysql://mysql:3306/weave_like
       LIKE_DB_USERNAME: ${LIKE_DB_USERNAME:?.env에 LIKE_DB_USERNAME을 채운다}
       LIKE_DB_PASSWORD: ${LIKE_DB_PASSWORD:?.env에 LIKE_DB_PASSWORD를 채운다}
@@ -75,6 +123,7 @@ services:
       <<: *service-depends-on
       mysql:
         condition: service_healthy
+    deploy: *downstream-deploy
     healthcheck:
       <<: *service-healthcheck
       test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:8083/actuator/health"]
@@ -84,6 +133,8 @@ services:
     build:
       context: ./recommendation-service/build/libs
       dockerfile: ../../../docker/service.Dockerfile
+    environment: *downstream-environment
+    deploy: *downstream-deploy
     healthcheck:
       <<: *service-healthcheck
       test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:8084/actuator/health"]
@@ -93,9 +144,60 @@ services:
     build:
       context: ./ad-service/build/libs
       dockerfile: ../../../docker/service.Dockerfile
+    environment: *downstream-environment
+    deploy: *downstream-deploy
     healthcheck:
       <<: *service-healthcheck
       test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:8085/actuator/health"]
+
+  # ---------- 장애 실험 (add-fault-experiments design 결정 1) ----------
+
+  toxiproxy:
+    # 2026-10-14에 나온 최신 안정판. 이미지가 scratch라 셸이 없고 서버와 toxiproxy-cli만 있다
+    image: ghcr.io/shopify/toxiproxy:2.13.0
+    command: ["-host=0.0.0.0", "-config=/config/toxiproxy.json"]
+    volumes:
+      - ./docker/toxiproxy/toxiproxy.json:/config/toxiproxy.json:ro
+    networks:
+      default:
+        # feed-service가 의존성마다 다른 호스트 이름으로 부르게 한다. 로그와 트레이스에서 의존성을 구분할 수 있다
+        aliases:
+          - post-proxy
+          - user-proxy
+          - like-proxy
+          - recommendation-proxy
+          - ad-proxy
+    ports:
+      # 관리 API. 장애를 넣고 거두는 run.sh와 테스트가 부른다
+      - "127.0.0.1:8474:8474"
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+    healthcheck:
+      <<: *service-healthcheck
+      # 관리 API가 응답하면 프록시 5개도 불러온 뒤다(-config는 API를 열기 전에 읽는다)
+      test: ["CMD", "/toxiproxy-cli", "list"]
+
+  k6:
+    # 실험 부하 도구(아키텍처 1장의 k6 2.3대, 2026-09-21에 나온 v2.3.0). experiment 프로필이라 up으로는 뜨지 않고,
+    # run.sh가 `docker compose run --rm --user <호스트 사용자> k6 ...`로만 부른다(결과 파일이 호스트 사용자 소유가 된다)
+    image: grafana/k6:2.3.0
+    profiles: [experiment]
+    volumes:
+      # 스크립트·시나리오를 읽고 results/에 결과를 쓴다
+      - ./experiments:/experiments
+    working_dir: /experiments
+    environment:
+      # k6 원본의 시각을 Z로 끝나는 UTC로 남긴다. lib/windows.sh가 이 형식만 읽는다
+      TZ: UTC
+    deploy:
+      resources:
+        # 실험 RPS 400의 가상 사용자 2,200(design 결정 5: RPS × 5초 × 1.1)을 돌려도 부하 도구가 병목이 되지 않을 크기.
+        # 기준선에서 2,200이 모두 바쁜 S-02·S-03까지 보내지 못한 요청이 0이었다(docs/experiments/baseline-mvp.md)
+        limits:
+          cpus: "2"
+          memory: 2G
 
   mysql:
     # like-service 테스트(Testcontainers)와 같은 버전
@@ -107,6 +209,10 @@ services:
       MYSQL_PASSWORD: ${LIKE_DB_PASSWORD:?.env에 LIKE_DB_PASSWORD를 채운다}
     volumes:
       - mysql-data:/var/lib/mysql
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
     healthcheck:
       # 초기화 중의 임시 서버는 TCP를 열지 않으므로 127.0.0.1로 물어 진짜 서버가 뜬 뒤에만 healthy가 된다.
       # ping은 인증 실패여도 서버가 살아 있으면 0으로 끝나 계정이 필요 없다
@@ -131,6 +237,7 @@ services:
     ports:
       # Alloy UI(파이프라인 상태)
       - "127.0.0.1:12345:12345"
+    deploy: *observability-deploy
     depends_on:
       - loki
       - tempo
@@ -142,6 +249,7 @@ services:
       - ./docker/loki/loki.yaml:/etc/loki/loki.yaml:ro
     ports:
       - "127.0.0.1:3100:3100"
+    deploy: *observability-store-deploy
 
   tempo:
     image: grafana/tempo:2.9.0
@@ -150,6 +258,7 @@ services:
       - ./docker/tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro
     ports:
       - "127.0.0.1:3200:3200"
+    deploy: *observability-store-deploy
     healthcheck:
       <<: *service-healthcheck
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:3200/ready"]
@@ -160,6 +269,7 @@ services:
       - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     ports:
       - "127.0.0.1:9090:9090"
+    deploy: *observability-deploy
     healthcheck:
       <<: *service-healthcheck
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:9090/-/ready"]
@@ -173,10 +283,14 @@ services:
       GF_AUTH_DISABLE_LOGIN_FORM: "true"
       GF_ANALYTICS_REPORTING_ENABLED: "false"
     volumes:
-      # 데이터 소스 폴더만 덮는다. 폴더 전체를 덮으면 이미지의 빈 provisioning 폴더(dashboards 등)가 없어져 오류 로그가 난다
+      # provisioning은 폴더마다 덮는다. 폴더 전체를 덮으면 이미지의 빈 provisioning 폴더(plugins 등)가 없어져 오류 로그가 난다
       - ./docker/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      # 피드 실험 대시보드 (add-fault-experiments design 결정 11). 공급자 설정이 /etc/grafana/dashboards를 읽는다
+      - ./docker/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./docker/grafana/dashboards:/etc/grafana/dashboards:ro
     ports:
       - "127.0.0.1:3000:3000"
+    deploy: *observability-deploy
     depends_on:
       - loki
       - tempo

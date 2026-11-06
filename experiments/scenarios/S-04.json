@@ -1,0 +1,8 @@
+{
+  "id": "S-04",
+  "title": "작성자 프로필 서비스 다운",
+  "prd": "user-service 다운",
+  "faults": [
+    { "at": 0, "action": "down", "target": "user" }
+  ]
+}

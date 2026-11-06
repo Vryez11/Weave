@@ -1,0 +1,8 @@
+{
+  "id": "S-07",
+  "title": "광고 요청 한도 초과",
+  "prd": "ad가 429와 Retry-After 반환",
+  "faults": [
+    { "at": 0, "action": "quota", "target": "ad", "windowSeconds": 10, "limitRatio": 0.5 }
+  ]
+}

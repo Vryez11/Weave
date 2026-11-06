@@ -31,6 +31,7 @@ Kotlin 2.3 · Spring Boot 4.1 · JDK 25 · Gradle 9 (Kotlin DSL)
 | 라이브러리 | 역할 |
 |---|---|
 | `libs/observability` | 모든 서비스에 자동 적용되는 공통 로깅·트레이싱 설정 |
+| `libs/fault-injection` | 하위 서비스 5개의 앱 수준 장애 주입(지연 분포, 에러율). `experiment` 프로필에서만 켠다 |
 
 | 테스트 모듈 | 역할 |
 |---|---|
@@ -46,7 +47,7 @@ Kotlin 2.3 · Spring Boot 4.1 · JDK 25 · Gradle 9 (Kotlin DSL)
 
 ### 전체 (Docker Compose)
 
-서비스 6개, MySQL, 관찰 인프라(Alloy, Loki, Tempo, Prometheus, Grafana)를 함께 띄운다. Docker가 필요하다.
+서비스 6개, MySQL, Toxiproxy, 관찰 인프라(Alloy, Loki, Tempo, Prometheus, Grafana)를 함께 띄운다. Docker가 필요하다. feed-service는 하위 서비스를 늘 Toxiproxy를 거쳐 부른다.
 
 ```bash
 cp .env.example .env   # MySQL 계정(LIKE_DB_USERNAME, LIKE_DB_PASSWORD, MYSQL_ROOT_PASSWORD)을 채운다
@@ -58,9 +59,23 @@ docker compose up -d --build --wait
 |---|---|
 | `http://localhost:8080/feed?size=10` (헤더 `X-User-Id: 1`) | 피드. 응답 헤더 `X-Trace-Id`가 그 요청의 traceId다 |
 | `http://localhost:3000` | Grafana. Explore에서 Loki로 `{service=~".+"} \| traceId="<traceId>"`를 조회하고, 로그의 traceId 링크로 Tempo 트레이스를 연다 |
+| `http://localhost:3000/d/weave-feed` | Grafana 피드 실험 대시보드 (피드 SLO, 의존성별 호출, 자원 사용량) |
 | `http://localhost:9090` | Prometheus |
+| `http://localhost:8474` | Toxiproxy 관리 API |
 
-피드와 관찰 인프라 포트는 모두 `127.0.0.1`에만 열린다. 내릴 때는 `docker compose down -v`.
+피드, 관찰 인프라, Toxiproxy 포트는 모두 `127.0.0.1`에만 열린다. 내릴 때는 `docker compose down -v`.
+
+### 장애 실험
+
+위의 Compose 환경을 띄운 뒤 돌린다. 호스트에 bash, `jq`, `gzip`, `docker compose`가 있어야 한다.
+
+```bash
+experiments/run.sh S-01 --rps 5 --warmup 5s --duration 20s   # 시나리오 하나를 짧게 (약 40초)
+experiments/run.sh S-02                                      # 기본값(experiments/config.json)으로 (약 7분)
+experiments/run-all.sh                                       # S-01~S-09 (약 1시간)
+```
+
+`run.sh`는 장애를 되돌리고 feed-service를 다시 띄운 뒤, k6로 부하를 주며 시나리오의 장애를 넣고 거둔다. 끝나면(멈춰도) 장애를 모두 되돌리고 `experiments/results/<시각>-<ID>/report.md`에 리포트를 남긴다. 종료 코드는 0 기대와 같음, 1 기대와 다름, 2 실행하지 못함이다. `run-all.sh`가 0으로 끝나면 장애 실험 세트가 통과한 것이다. 시나리오와 리포트 항목은 [아키텍처](docs/architecture.md) 9장에 있다.
 
 ### 서비스 하나
 
@@ -75,7 +90,7 @@ docker compose up -d --build --wait
 | 명령 | 무엇 |
 |---|---|
 | `./gradlew ktlintCheck build` | 린트, 단위·통합 테스트, 서비스 6개를 프로세스로 띄우는 종단 간 테스트 |
-| `./gradlew :e2e:composeTest` | Compose 환경을 띄워 Loki·Tempo에서 traceId로 조회하고 내린다 |
+| `./gradlew :e2e:composeTest` | Compose 환경을 띄워 traceId 조회, 프록시 경로, 대시보드, 장애 실험 명령을 짧게 확인하고 내린다 |
 
 ## 진행 상황
 

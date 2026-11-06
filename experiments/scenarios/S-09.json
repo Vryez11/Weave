@@ -1,0 +1,19 @@
+{
+  "id": "S-09",
+  "title": "작성자 프로필·좋아요 서비스 짧은 5xx 세 번",
+  "prd": "user·like 일시 5xx (짧은 순간 장애)",
+  "faults": [
+    { "at": 60, "action": "errorRate", "target": "user", "errorRate": 1 },
+    { "at": 60, "action": "errorRate", "target": "like", "errorRate": 1 },
+    { "at": 70, "action": "clear", "target": "user" },
+    { "at": 70, "action": "clear", "target": "like" },
+    { "at": 150, "action": "errorRate", "target": "user", "errorRate": 1 },
+    { "at": 150, "action": "errorRate", "target": "like", "errorRate": 1 },
+    { "at": 160, "action": "clear", "target": "user" },
+    { "at": 160, "action": "clear", "target": "like" },
+    { "at": 240, "action": "errorRate", "target": "user", "errorRate": 1 },
+    { "at": 240, "action": "errorRate", "target": "like", "errorRate": 1 },
+    { "at": 250, "action": "clear", "target": "user" },
+    { "at": 250, "action": "clear", "target": "like" }
+  ]
+}

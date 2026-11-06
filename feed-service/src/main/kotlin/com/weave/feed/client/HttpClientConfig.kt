@@ -5,13 +5,22 @@ import com.weave.feed.client.like.LikeClient
 import com.weave.feed.client.post.PostClient
 import com.weave.feed.client.recommendation.RecommendationClient
 import com.weave.feed.client.user.UserClient
+import io.micrometer.common.KeyValue
+import io.micrometer.core.instrument.MeterRegistry
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder
+import org.springframework.boot.http.client.HttpClientSettings
+import org.springframework.boot.http.client.autoconfigure.service.HttpServiceClientProperties
+import org.springframework.boot.ssl.SslBundles
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.core.ResolvableType
 import org.springframework.http.HttpStatusCode
 import org.springframework.http.client.ClientHttpResponse
+import org.springframework.http.client.observation.ClientHttpObservationDocumentation
+import org.springframework.http.client.observation.ClientRequestObservationContext
+import org.springframework.http.client.observation.DefaultClientRequestObservationConvention
 import org.springframework.http.converter.HttpMessageConverter
 import org.springframework.web.client.HttpClientErrorException
 import org.springframework.web.client.HttpMessageConverterExtractor
@@ -73,6 +82,36 @@ class HttpClientConfig {
                 }
             }
         }
+
+    /**
+     * 호출 지표(`http.client.requests`)의 `client.name`을 그룹 이름(`post` 등)으로 둔다(add-fault-experiments design 결정 4).
+     * 기본 관찰 규약은 URL의 호스트를 써서, 프록시 별칭이나 테스트의 `localhost`에 따라 의존성 이름이 바뀐다.
+     */
+    @Bean
+    fun groupNameClientMetrics(): RestClientHttpServiceGroupConfigurer =
+        RestClientHttpServiceGroupConfigurer { groups ->
+            groups.forEachClient { group, builder ->
+                builder.observationConvention(GroupNameObservationConvention(group.name()))
+            }
+        }
+
+    /** 그룹마다의 커넥션 풀 사용 중·대기 지표 (add-fault-experiments design 결정 4). 요청 팩토리를 다시 만드는 이유는 [ConnectionPoolMetrics]. */
+    @Bean
+    fun connectionPoolMetrics(
+        properties: HttpServiceClientProperties,
+        sslBundles: ObjectProvider<SslBundles>,
+        httpClientSettings: ObjectProvider<HttpClientSettings>,
+        requestFactoryBuilder: ClientHttpRequestFactoryBuilder<*>,
+        meterRegistry: ObjectProvider<MeterRegistry>,
+    ): RestClientHttpServiceGroupConfigurer =
+        ConnectionPoolMetrics(properties, sslBundles, httpClientSettings, requestFactoryBuilder, meterRegistry)
+
+    private class GroupNameObservationConvention(
+        private val groupName: String,
+    ) : DefaultClientRequestObservationConvention() {
+        override fun clientName(context: ClientRequestObservationContext): KeyValue =
+            KeyValue.of(ClientHttpObservationDocumentation.LowCardinalityKeyNames.CLIENT_NAME, groupName)
+    }
 
     /** 처리기의 조건이 [HttpStatusCode.isError]라 4xx·5xx만 온다. */
     private fun errorWithoutBodyInMessage(
