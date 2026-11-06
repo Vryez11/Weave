@@ -182,3 +182,10 @@
 - 확인: `:feed-service:integrationTest`에서 `FeedExperimentMetricsScenarioTest` 13개 모두와 `HttpClientPoolCapacityTest`, `HttpClientPoolSizePropertyTest`, `MvpTimeoutDefaultsTest`, `HttpClientGroupTest`, `HttpClientRetryDefaultsTest` 등 feed 통합 테스트 전체 통과(5번 중 4번. 1번은 위 패턴의 `HttpClientPools` CME). 전체 `ktlintCheck compileKotlin compileTestKotlin test`, `openspec validate` 통과.
 - 다음 반복(4.3)이 알아 둘 것: `server.tomcat.threads.max: 200`만 feed `application.yml`의 `server.tomcat` 아래에 더하고 따로 커밋한다.
 ---
+
+## 2026-11-06 - 4.3 feed-service의 Tomcat 최대 스레드를 명시한다
+- feed `application.yml`의 `server.tomcat` 아래에 `threads.max: 200`을 더했다(Boot 기본값, 아키텍처 4-2). 설정값 커밋이라 다른 변경과 섞지 않았다.
+- 바꾼 파일: `feed-service/src/main/resources/application.yml`, `tasks.md`
+- 확인: `:feed-service:integrationTest`에서 `MvpTimeoutDefaultsTest`의 Tomcat 단언 포함 feed 통합 테스트 전체 통과(실패 없음), `ktlintCheck`, `:feed-service:test`, `openspec validate` 통과.
+- 다음 반복(5.1)이 알아 둘 것: Toxiproxy 프록시 이름은 의존성 이름(`post` 등), 관리 API `127.0.0.1:8474`(1.7 메모). `docker`는 이 세션에서 승인 없이 돌지 않을 수 있다(알아 둘 패턴).
+---
