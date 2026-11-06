@@ -10,5 +10,9 @@ dependencies {
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.springframework.boot:spring-boot-starter-webmvc")
     testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")
+    // 시나리오 테스트가 부르는 /actuator/faults·health·prometheus. 서비스가 weave.spring-service로 이미 가진 것과 같다
+    testImplementation("org.springframework.boot:spring-boot-starter-actuator")
+    testImplementation("org.springframework.boot:spring-boot-starter-actuator-test")
+    testImplementation("io.micrometer:micrometer-registry-prometheus")
     testImplementation("io.kotest:kotest-extensions-spring:6.2.6")
 }

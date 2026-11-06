@@ -16,3 +16,12 @@
 - 확인: `./gradlew ktlintCheck build` 통과.
 - 다음 반복(1.2): 엔드포인트·필터를 시험하려면 테스트 의존성에 `spring-boot-starter-actuator`(`/actuator/faults`)와, 2.2의 traceId 단언용 `project(":libs:observability")`·`testFixtures(project(":libs:observability"))`(`LogCapture`)가 필요하다. main에는 2.2에서 `compileOnly` webmvc·servlet-api·actuator를 더하게 된다.
 ---
+
+## 2026-11-06 - 1.2 `fault-injection` 시나리오를 `libs/fault-injection` 테스트로 옮긴다
+- `FaultInjectionScenarioTest`(`weave.fault-injection.enabled=true`, 노출 `health,info,prometheus,faults`, `@AutoConfigureMetrics`): 기본 분포(데우기 20번 뒤 1,000번), 고정 지연, 에러율 1·0.5, 되돌린다, 장애 중의 헬스 체크, 범위를 벗어난 값 3가지. 테스트마다 `beforeTest`에서 `DELETE`로 되돌린다.
+- `FaultInjectionDisabledScenarioTest`: 속성 없이, 노출 목록에는 `faults`를 넣고 404를 본다(지금도 통과).
+- 테스트 의존성에 actuator 스타터·actuator-test·prometheus 레지스트리를 더했다. 공통 도구 `FaultsHttpClient.kt`(`FaultSettings`, `percentile`).
+- 바꾼 파일: `libs/fault-injection/build.gradle.kts`, `libs/fault-injection/src/test/kotlin/com/weave/faultinjection/*.kt`, `libs/fault-injection/CLAUDE.md`, `tasks.md`
+- 확인: `:libs:fault-injection:integrationTest` 11개 중 활성 스펙 9개가 실패(404, 지연 없음), `:libs:fault-injection:test`와 전체 `ktlintCheck compileKotlin compileTestKotlin test`, `openspec validate` 통과.
+- 다음 반복이 알아 둘 것: 테스트가 가정한 JSON 형식은 `GET /actuator/faults` → `{"latencyMedianMs":..,"latencyP99Ms":..,"errorRate":..}`(숫자는 실수로 비교), `POST`는 준 필드만 바꾸고 2xx, `DELETE`는 2xx. 2.2에서 이 형식을 맞춘다.
+---

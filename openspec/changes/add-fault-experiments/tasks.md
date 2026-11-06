@@ -8,7 +8,7 @@
   - `settings.gradle.kts`에 모듈을 넣고, `weave.spring-library`를 쓰는 `build.gradle.kts`와 빈 패키지(`com.weave.faultinjection`)를 둔다. 하위 서비스에는 아직 붙이지 않는다.
   - 테스트 소스에 업무 엔드포인트 하나(`GET /work`)가 있는 작은 웹 애플리케이션을 둔다(`libs/observability`의 testapp과 같은 방식).
   - 확인: `./gradlew ktlintCheck build`가 통과한다.
-- [ ] 1.2 `fault-injection` 스펙의 시나리오를 `libs/fault-injection` 테스트로 옮긴다("실험 프로필로 띄운다"와 "feed-service에는 없다"는 1.3에서 한다).
+- [x] 1.2 `fault-injection` 스펙의 시나리오를 `libs/fault-injection` 테스트로 옮긴다("실험 프로필로 띄운다"와 "feed-service에는 없다"는 1.3에서 한다).
   - 테스트 앱을 `weave.fault-injection.enabled=true`와 노출 목록으로 띄우는 스펙과, 속성 없이 띄우는 스펙("프로필 없이 띄운다")을 나눈다.
   - "기본 분포를 따른다"는 `GET /work`를 1,000번 부른다.
   - 확인: `./gradlew :libs:fault-injection:integrationTest`가 새 테스트에서 실패하고, `./gradlew :libs:fault-injection:test`는 통과한다.
