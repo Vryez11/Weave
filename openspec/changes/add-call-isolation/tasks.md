@@ -6,7 +6,7 @@
 
 **1.1~1.4는 이미 커밋된 테스트를 고치므로 Ralph 루프가 아니라 대화형(`/opsx:apply`)으로 먼저 끝낸다**(하네스 규칙 2-2의 훅). Ralph가 이 넷 중 체크되지 않은 작업을 만나면 구현하지 말고 progress.md에 적은 뒤 `<promise>BLOCKED</promise>`로 멈춘다.
 
-- [ ] 1.1 (대화형) 테스트 환경의 넉넉한 기본값과 `feed-aggregation` 델타를 테스트에 옮긴다.
+- [x] 1.1 (대화형) 테스트 환경의 넉넉한 기본값과 `feed-aggregation` 델타를 테스트에 옮긴다.
   - `feed-service/src/test/resources/config/application.yml`에 호출 시간 상한·응답·연결 타임아웃 2초, 시간 예산 5초를 둔다(design 결정 13). 속성 이름은 design 결정 3·4·12를 따른다. 아직 구현이 없어 읽히지 않아도 된다.
   - `FeedAggregationScenarioTest`: "서로 기다리지 않는다"는 상한 1초·예산 2초를 속성으로 주고, "하위 서비스 하나가 느리다"는 상한 200ms에서 400ms 안에 500이 오는지로 바꾼다. 테스트 이름의 기능 ID는 `F-001`로 바꾼다.
   - `FeedCallFailureLogScenarioTest`에 "호출 시간 상한을 넘긴다"(실패 줄 하나)를 더한다.

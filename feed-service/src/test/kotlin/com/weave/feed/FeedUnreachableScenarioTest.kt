@@ -11,7 +11,7 @@ import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
 
 /**
- * `feed-aggregation` 스펙의 "하위 서비스 하나에 연결할 수 없다" 시나리오 (F-006).
+ * `feed-aggregation` 스펙의 "하위 서비스 하나에 연결할 수 없다" 시나리오 (F-001).
  *
  * recommendation 주소만 아무것도 떠 있지 않은 포트(1번)로 주고, 나머지는 WireMock이 정상으로 응답한다.
  */
@@ -25,7 +25,7 @@ class FeedUnreachableScenarioTest :
 
         beforeEach { wireMock.reset() }
 
-        test("F-006 하위 서비스 하나에 연결할 수 없다: recommendation 주소에 아무것도 없으면 피드는 500이다") {
+        test("F-001 하위 서비스 하나에 연결할 수 없다: recommendation 주소에 아무것도 없으면 피드는 500이다") {
             wireMock.stubPosts(listOf(DownstreamWireMock.Post(id = 10, authorId = 3)))
             wireMock.stubUsers(listOf(3))
             wireMock.stubLikes(listOf(DownstreamWireMock.LikeState(postId = 10, likeCount = 0, liked = false)))

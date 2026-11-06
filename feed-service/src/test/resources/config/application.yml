@@ -1,0 +1,29 @@
+# 테스트 전용 격리 값 (add-call-isolation design 결정 13).
+#
+# Boot는 classpath:/config/application.yml을 classpath:/application.yml(main)보다 우선해 함께 읽으므로, main 설정을 가리지 않고
+# 아래 값만 덮는다. 격리 값을 단언하지 않는 테스트가 WireMock의 첫 호출(클래스 로딩, 연결 수립)이나 일부러 준 지연에
+# 흔들리지 않게 시간 상한과 타임아웃을 넉넉히 둔다. 격리를 확인하는 테스트는 @SpringBootTest(properties)로 값을 직접 준다.
+# 실제 값은 IsolationSettingsTest(main 설정만 읽는다)와 장애 실험 세트가 확인한다.
+spring:
+  http:
+    serviceclient:
+      post: { connect-timeout: 2s, read-timeout: 2s }
+      user: { connect-timeout: 2s, read-timeout: 2s }
+      like: { connect-timeout: 2s, read-timeout: 2s }
+      recommendation: { connect-timeout: 2s, read-timeout: 2s }
+      ad: { connect-timeout: 2s, read-timeout: 2s }
+
+resilience4j:
+  timelimiter:
+    instances:
+      post: { timeout-duration: 2s }
+      user: { timeout-duration: 2s }
+      like: { timeout-duration: 2s }
+      recommendation: { timeout-duration: 2s }
+      ad: { timeout-duration: 2s }
+
+weave:
+  http-client:
+    connection-request-timeout: 2s
+  feed:
+    time-budget: 5s
