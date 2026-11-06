@@ -97,3 +97,15 @@
   - 6.5: 표 줄 말고는 표준 출력에 `| S-`로 시작하는 줄을 쓰지 않는다. 리포트 칸은 레포 루트 기준 상대 경로나 절대 경로.
   - `composeTest`에 run.sh 실행이 8번(run-all 2번 포함) 더해져 10분 남짓 길어진다. Kotest 기본 테스트 시간 제한 안에 들도록 run-all 테스트의 시간 제한을 8분으로 뒀다.
 ---
+
+## 2026-11-06 - 2.1 지연 분포 뽑기와 장애 설정 검증
+- `LatencyDistribution(medianMs, p99Ms).sampleMs(java.util.Random)`: μ = ln m, σ = ln(q/m)/2.326. σ = 0(m = q)이면 계산 없이 m을 돌려준다. `exp(ln 300)`이 299.999…가 되어 고정 지연 300ms가 짧아지는 것을 단위 테스트가 잡았다. m = 0이면 지연 0(로그 정규분포로 못 나타냄. 스펙의 거절 목록에 없어 받기로 했다).
+- `FaultConfig(latencyMedianMs, latencyP99Ms, errorRate)`: `init`의 `require`로 검증(지연은 유한한 0 이상, p99 ≥ 중앙값, 에러율 0~1, NaN 거절). 기본값은 두지 않았다(2.2가 속성 클래스에 둔다).
+- 단위 테스트 `LatencyDistributionTest`(시드 7, 10,000번, (20,50)·(50,200)·(100,120)의 중앙값·p99 ±5%, 고정, 0), `FaultConfigTest`(거절 8가지, copy 거절, 경계 값).
+- 바꾼 파일: `libs/fault-injection/src/main/kotlin/com/weave/faultinjection/{LatencyDistribution,FaultConfig}.kt`, `libs/fault-injection/src/test/kotlin/com/weave/faultinjection/{LatencyDistributionTest,FaultConfigTest}.kt`, `libs/fault-injection/CLAUDE.md`, `tasks.md`
+- 확인: `:libs:fault-injection:test -Pkotest.filter.tests='*F-007*'` 18개 통과, 전체 `ktlintCheck compileKotlin compileTestKotlin test`, `openspec validate` 통과.
+- 다음 반복(2.2)이 알아 둘 것:
+  - main 패키지의 `.gitkeep`은 이 세션에서 `git rm`이 승인 없이 돌지 않아 남겼다. 지워도 된다.
+  - 필터는 `ThreadLocalRandom.current()`를 `sampleMs`와 에러율 뽑기에 넘기면 된다. 잠들 때 밀리초 아래를 버리면 고정 지연이 짧아지니 나노초로 바꿔 잔다(`Thread.sleep(Duration)` 등).
+  - `POST`는 `current.copy(준 필드만)`를 `runCatching`으로 감싸 `IllegalArgumentException`을 400으로 바꾸면 "값을 바꾸지 않는다"가 따라온다.
+---
