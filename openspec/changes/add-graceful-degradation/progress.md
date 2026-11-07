@@ -111,3 +111,16 @@
   - 남은 실패 20개: `FeedUserProfileCacheScenarioTest` 3(2.3. "유효 기간이 지났다"는 이제 통과한다), `FeedPostStaleCacheScenarioTest` 5·`FeedPostUnavailableDeadlineScenarioTest` 1·`FeedPostStaleCacheOverrideScenarioTest` 1·`FeedPostCacheOutageScenarioTest` 1·`FeedPostCacheReadPauseScenarioTest` 1·`FeedPostCacheWritePauseScenarioTest` 1·`FeedTraceLogScenarioTest` 2(2.4), `FeedFallbackLogScenarioTest` 3(2.5), `FeedDegradationMetricsScenarioTest` 2(2.6).
   - 2.3의 user 캐시 채움은 `compose`에 기본값 있는 매개변수(예: 캐시에서 찾은 프로필 `Map<Long, UserResponse>`)로 넣고, 모두 채우면 `CACHED`로 가른다. `FeedDegradationGradeTest`의 "user 실패" 단언은 캐시 입력이 없을 때의 것이라 그대로 맞다.
 ---
+
+## 2026-11-07 21:25 - 2.3 user 로컬 캐시를 넣는다
+- `degradation/UserProfileCache.kt`: `UserProfileCache`(`putAll`, `getAll` = Caffeine `getAllPresent`라 작성자마다 적중·누락을 센다), `UserCacheProperties`(`weave.user-cache.expire-after-write`·`maximum-size`, 둘 다 nullable), `UserProfileCacheConfig`(둘 중 하나라도 없으면 `UserProfileCache.DISABLED`. 넣지도 찾지도 않고 지표도 없다). `Ticker`는 `Clock`에서, `recordStats`, `CaffeineCacheMetrics`(`cache="user-profiles"`).
+- `ClockConfig`의 `Clock` Bean(`systemUTC`). `FeedAssembler`는 이미 `clock` 매개변수가 있어 Bean을 받는다.
+- `FeedAssembler`: user `Result`를 요청 스레드에서 받아 성공이면 `putAll`, 실패면 게시글 작성자로 `getAll`해 `compose(cachedUsers = ...)`에 넘긴다. 새 매개변수 `userProfileCache`는 기본값 `DISABLED`.
+- `FeedDegradation.compose(..., cachedUsers = emptyMap())`: user 실패면 캐시에 있는 작성자는 그 프로필(`unknown` false), 없으면 `unknown`. 모든 게시글의 작성자가 캐시에 있으면 `CACHED`, 아니면 `MISSING`.
+- 확인: 새 `degradation/UserProfileCacheTest` 8개, `FeedUserProfileCacheScenarioTest` 4개 통과. `:feed-service:integrationTest` 실패 20 → 17, 새 실패 없음(`ResilienceAutoConfigurationTest`도 이번엔 통과). `:feed-service:test`, `ktlintCheck`, `compileKotlin compileTestKotlin`, `openspec validate` 통과.
+- 바꾼 파일: `FeedAssembler.kt`, `ClockConfig.kt`(새 파일), `degradation/FeedDegradation.kt`, `degradation/UserProfileCache.kt`(새 파일), `src/test/.../degradation/UserProfileCacheTest.kt`(새 파일), `feed-service/CLAUDE.md`, tasks.md, progress.md
+- 다음 반복이 알아 둘 것:
+  - 남은 실패 17개: 2.4 12개(`FeedPostStaleCacheScenarioTest` 5, `FeedPostUnavailableDeadlineScenarioTest`, `FeedPostStaleCacheOverrideScenarioTest`, `FeedPostCacheOutageScenarioTest` 1, `FeedPostCacheReadPauseScenarioTest`, `FeedPostCacheWritePauseScenarioTest`, `FeedTraceLogScenarioTest` 2), 2.5 `FeedFallbackLogScenarioTest` 3, 2.6 `FeedDegradationMetricsScenarioTest` 2.
+  - 2.5의 `cacheHits`·`cacheMisses`는 `FeedAssembler.cachedUsers`가 돌려준 맵 크기와 작성자 수(중복 없이)의 차로 낸다.
+  - 4.2에서 main `application.yml`에 값을 넣으면 `UserCacheProperties`를 non-null로 바꾸고 `DISABLED` 분기를 지울 수 있다(설정 없는 테스트 컨텍스트가 main 값을 받는다).
+---

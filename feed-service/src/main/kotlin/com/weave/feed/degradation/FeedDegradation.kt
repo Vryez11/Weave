@@ -26,6 +26,9 @@ import java.time.Instant
  *
  * 실패한 결과는 실패의 종류와 관계없이 등급표(PRD 3장)대로 대체하고 그 영역을 `missing`으로 둔다: user는 작성자마다 `unknown`,
  * like는 모든 게시글이 `count` null과 `UNKNOWN`, recommendation·ad는 빈 목록이다.
+ *
+ * user가 실패하면 [cachedUsers](user 로컬 캐시에서 찾은 프로필, design 결정 7)에 있는 작성자는 그 프로필로 채운다. 모든 작성자를
+ * 채웠으면 영역은 `cached`(degrade가 아니다), 한 명이라도 `unknown`이면 `missing`이다(design 결정 10). user가 성공하면 쓰지 않는다.
  */
 object FeedDegradation {
     fun compose(
@@ -34,18 +37,19 @@ object FeedDegradation {
         likes: Result<List<LikeResponse>>,
         recommendations: Result<List<RecommendationResponse>>,
         ads: Result<List<AdResponse>>,
+        cachedUsers: Map<Long, UserResponse> = emptyMap(),
     ): ComposedFeed {
         val sections =
             linkedMapOf(
                 POST to if (posts is PostSource.Stale) SectionOutcome.STALE else SectionOutcome.FRESH,
-                USER to users.outcome(),
+                USER to users.outcome(posts.posts, cachedUsers),
                 LIKE to likes.outcome(),
                 RECOMMENDATION to recommendations.outcome(),
                 AD to ads.outcome(),
             )
         val response =
             FeedResponse(
-                posts = toFeedPosts(posts.posts, users.getOrNull(), likes.getOrNull()),
+                posts = toFeedPosts(posts.posts, users.map { it.associateBy { user -> user.id } }, cachedUsers, likes.getOrNull()),
                 recommendations = recommendations.getOrDefault(emptyList()).map { FeedRecommendation(it.postId, it.title, it.reason) },
                 ads = ads.getOrDefault(emptyList()).map { FeedAd(it.id, it.title, it.imageUrl, it.landingUrl) },
                 degradation =
@@ -57,16 +61,31 @@ object FeedDegradation {
         return ComposedFeed(response, sections)
     }
 
-    /** 실패한 결과는 대체 방법과 관계없이 빠진 영역이다. user를 로컬 캐시로 채운 경우(`cached`)는 tasks 2.3에서 가른다. */
+    /** 실패한 결과는 대체 방법과 관계없이 빠진 영역이다. */
     private fun Result<*>.outcome(): SectionOutcome = if (isSuccess) SectionOutcome.FRESH else SectionOutcome.MISSING
 
-    /** [users]가 null(user 실패)이면 작성자는 모두 `unknown`, [likes]가 null(like 실패)이면 좋아요는 모두 `UNKNOWN`이다. */
+    /** user 실패에서 모든 작성자를 캐시로 채웠으면 `cached`다. */
+    private fun Result<List<UserResponse>>.outcome(
+        posts: List<PostResponse>,
+        cachedUsers: Map<Long, UserResponse>,
+    ): SectionOutcome =
+        when {
+            isSuccess -> SectionOutcome.FRESH
+            posts.all { it.authorId in cachedUsers } -> SectionOutcome.CACHED
+            else -> SectionOutcome.MISSING
+        }
+
+    /**
+     * [users]가 실패면 작성자를 [cachedUsers]로 채우고, 거기도 없으면 `unknown`이다. [likes]가 null(like 실패)이면 좋아요는 모두
+     * `UNKNOWN`이다.
+     */
     private fun toFeedPosts(
         posts: List<PostResponse>,
-        users: List<UserResponse>?,
+        users: Result<Map<Long, UserResponse>>,
+        cachedUsers: Map<Long, UserResponse>,
         likes: List<LikeResponse>?,
     ): List<FeedPost> {
-        val usersById = users?.associateBy { it.id }
+        val usersById = users.getOrNull()
         val likesByPostId = likes?.associateBy { it.postId }
         return posts.map { post ->
             FeedPost(
@@ -76,9 +95,10 @@ object FeedDegradation {
                 createdAt = post.createdAt,
                 author =
                     if (usersById == null) {
-                        FeedAuthor(id = post.authorId, nickname = null, profileImageUrl = null, unknown = true)
+                        cachedUsers[post.authorId]?.toFeedAuthor()
+                            ?: FeedAuthor(id = post.authorId, nickname = null, profileImageUrl = null, unknown = true)
                     } else {
-                        usersById[post.authorId]?.let { FeedAuthor(it.id, it.nickname, it.profileImageUrl) }
+                        usersById[post.authorId]?.toFeedAuthor()
                     },
                 like =
                     if (likesByPostId == null) {
@@ -93,6 +113,8 @@ object FeedDegradation {
             )
         }
     }
+
+    private fun UserResponse.toFeedAuthor() = FeedAuthor(id, nickname, profileImageUrl)
 
     private const val POST = "post"
     private const val USER = "user"
