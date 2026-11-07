@@ -122,6 +122,14 @@ resilience4j:
       ad: { base-config: default }
 
 weave:
+  # post stale 캐시(Redis). post가 성공할 때마다 마지막 정상 응답을 size별로 남기고, 실패하면 허용 시간 안의 것으로 stale 응답한다
+  # (add-graceful-degradation design 결정 4, 5)
+  post-cache:
+    # PRD 3장·10장: 짧은 장애(배포 실패, 재시작)는 가리고, 복구 뒤 오래된 피드가 길게 남지 않게 한다. Redis TTL도 같다
+    max-staleness: 10m
+    # 같은 키는 1초에 한 번만 쓴다. 400 RPS에서 매번 쓰면 같은 값(약 6KB)을 초당 400번 덮어쓴다. 1초면 cachedAt이 마지막 정상 응답보다
+    # 최대 1초 이르고, 허용 시간 10분의 0.17%라 판단에 영향이 없다
+    write-interval: 1s
   # user 로컬 캐시. user가 실패했을 때만 읽고, 성공할 때마다 받은 프로필을 넣는다 (add-graceful-degradation design 결정 7)
   user-cache:
     # 정상 동안은 피드의 작성자가 요청마다 다시 쓰여 늘 새것이라, 이 값은 user-service가 죽은 뒤 작성자를 채울 수 있는 시간과

@@ -393,12 +393,12 @@ Redis가 느려지거나 죽어도 피드를 막지 않게 하는 것:
 
 ### 6-4. 설정값
 
-feed-service `application.yml`에 근거 주석과 함께 둔다. 값은 `add-graceful-degradation` tasks 4장에서 측정·계산 뒤 넣는다. 그 전에는 `weave.post-cache.*`나 `weave.user-cache.*` 중 하나라도 없으면 그 캐시를 쓰지 않는다(`PostStaleCache.DISABLED`, `UserProfileCache.DISABLED`. post가 실패하면 503, user가 실패하면 모두 `unknown`).
+feed-service `application.yml`에 근거 주석과 함께 둔다(`add-graceful-degradation` tasks 4장에서 측정·계산 뒤 넣었다). `weave.post-cache.*`나 `weave.user-cache.*` 중 하나라도 없으면(설정으로 지우면) 그 캐시를 쓰지 않는다(`PostStaleCache.DISABLED`, `UserProfileCache.DISABLED`. post가 실패하면 503, user가 실패하면 모두 `unknown`).
 
 | 속성 | 값 | 근거 |
 |---|---|---|
-| `weave.post-cache.max-staleness` | 10m (tasks 4.3) | PRD 3장 |
-| `weave.post-cache.write-interval` | 1s (tasks 4.3) | 400 RPS에서 매번 쓰면 같은 값을 초당 400번 덮어쓴다. 1초면 `cachedAt`이 최대 1초 이르고, 허용 시간 10분의 0.17%다 |
+| `weave.post-cache.max-staleness` | 10m | PRD 3장, 10장 |
+| `weave.post-cache.write-interval` | 1s | 400 RPS에서 매번 쓰면 같은 값을 초당 400번 덮어쓴다. 1초면 `cachedAt`이 최대 1초 이르고, 허용 시간 10분의 0.17%다 |
 | `spring.data.redis.timeout`, `connect-timeout` | 30ms (tasks 4.1) | 예산 250ms = post 상한 100 + 읽기 + user·like 상한 100 + 집계 20 → 읽기 ≤ 30ms. S-06(400 RPS, `20261107-130950-S-06`)에서 GET 120,003건의 99.90%가 1.05ms 이하, 모두 9.79ms 이하(기준: p99 ≤ 상한의 1/3). Redis CPU 약 3%(상한 0.5코어) |
 | `weave.user-cache.expire-after-write` | 1h (tasks 4.2) | post stale 허용 10분보다 충분히 길게(6배). 측정이 아니라 판단이고 change 승인 때 확인했다 |
 | `weave.user-cache.maximum-size` | 10000 (tasks 4.2) | 잰 항목 크기 약 320~336B × 1만 ≈ 3.2MB, 힙 최대 256MB의 1.3% |
