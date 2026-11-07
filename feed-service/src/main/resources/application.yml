@@ -33,16 +33,33 @@ resilience4j:
   circuitbreaker:
     configs:
       default:
+        # 최근 호출 100개로 판단한다. 400 RPS에서 의존성마다 0.25초 분량이라 장애에 빨리 반응하고, 창이 차기 전(시작 직후 JIT 준비 등)에는
+        # 열지 않는다 (design 결정 7)
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 100
+        minimum-number-of-calls: 100
+        # 기준선 S-01의 의존성별 호출 실패율은 0이다. 평시에 열릴 일이 없고 S-05(like 에러율 50%)는 문턱 근처에서 열렸다 닫혔다 한다
+        failure-rate-threshold: 50
+        # 상한에 걸리기 전에 느려지는 중을 잡는다. 평시에 경계(67.11ms·156.59ms 버킷)를 넘는 비율은 0.17% 이하다. 상한마다 80%라
+        # 인스턴스에서 값을 준다 (design 결정 3, 7)
+        slow-call-rate-threshold: 50
+        # S-08 복구 시간 목표 20초(기준선 40초의 절반)에서 거꾸로 정했다. 거둔 뒤 최대 5초 열려 있고 시험 호출이 바로 이어져,
+        # 거둔 뒤 첫 10초 구간 안에 닫힌다. 열린 동안 죽은 서비스로 가는 호출은 5초에 시험 호출 10개뿐이다
+        wait-duration-in-open-state: 5s
+        # 400 RPS에서 25ms 분량이라 복구를 늦추지 않으면서, 문턱 50%를 다섯 번 이상의 실패로 판단한다
+        permitted-number-of-calls-in-half-open-state: 10
+        # 요청이 없어도 열림 유지 시간이 지나면 반열림이 된다 (call-isolation "복구하면 서킷이 닫힌다")
+        automatic-transition-from-open-to-half-open-enabled: true
         # 실패 로그의 cause와 같은 분류로 센다: 상한·응답 타임아웃, 연결 실패, 입출력 실패, 5xx (design 결정 7)
         record-failure-predicate: com.weave.feed.gateway.CircuitFailurePredicate
         # 벌크헤드 거절은 하위 서비스를 부르지 않았으므로 성공으로도 세지 않는다. 세면 거절이 실패율을 묽힌다 (design 결정 5, 7)
         ignore-exceptions: io.github.resilience4j.bulkhead.BulkheadFullException
     instances:
-      post: { base-config: default }
-      user: { base-config: default }
-      like: { base-config: default }
-      recommendation: { base-config: default }
-      ad: { base-config: default }
+      post: { base-config: default, slow-call-duration-threshold: 80ms }
+      user: { base-config: default, slow-call-duration-threshold: 80ms }
+      like: { base-config: default, slow-call-duration-threshold: 80ms }
+      recommendation: { base-config: default, slow-call-duration-threshold: 160ms }
+      ad: { base-config: default, slow-call-duration-threshold: 160ms }
   timelimiter:
     configs:
       default:
