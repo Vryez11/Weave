@@ -28,7 +28,7 @@ import java.util.concurrent.TimeUnit
  *   Redis 오류와 읽을 수 없는 값은 모두 [PostCacheRead.Error]다.
  * - **쓰기([write]):** post가 성공할 때마다 부르지만, 같은 키는 [writeInterval]에 한 번만 전용 스레드 하나([writer], 대기열
  *   [WRITE_QUEUE_CAPACITY])로 넘기고 바로 돌아간다. 대기열이 차면 버린다. Redis가 멈춰도 쓰기 스레드만 묶이고 피드는 기다리지 않는다.
- * - 읽기·쓰기 실패는 로그 줄을 남기지 않는다(design 결정 4). post를 대체하지 못한 요청은 `FeedAssembler`가 대체 로그를 남긴다.
+ * - 읽기·쓰기 실패는 로그 줄을 남기지 않고 지표만 센다(design 결정 4, 10). post를 대체하지 못한 요청은 `FeedAssembler`가 대체 로그를 남긴다.
  */
 class PostStaleCache private constructor(
     private val redis: StringRedisTemplate?,
@@ -37,6 +37,7 @@ class PostStaleCache private constructor(
     private val maxStaleness: Duration,
     private val writeInterval: Duration,
     private val writer: ExecutorService?,
+    private val metrics: DegradationMetrics,
 ) : AutoCloseable {
     /** 키마다 마지막으로 쓰기를 넘긴 시각. */
     private val lastSubmitted = ConcurrentHashMap<Int, Instant>()
@@ -79,6 +80,7 @@ class PostStaleCache private constructor(
             writer.execute { store(size, CachedPosts(now, posts)) }
         } catch (_: RejectedExecutionException) {
             // 대기열이 찼다. Redis가 쓰기 간격보다 오래 응답하지 않는 것이라 버린다(design 결정 5)
+            metrics.postCacheWrite(PostCacheWrite.DROPPED)
         }
     }
 
@@ -88,8 +90,10 @@ class PostStaleCache private constructor(
     ) {
         try {
             redis?.opsForValue()?.set(key(size), jsonMapper!!.writeValueAsString(value), maxStaleness)
+            metrics.postCacheWrite(PostCacheWrite.SUCCESS)
         } catch (_: RuntimeException) {
             // 쓰기 실패는 피드에 영향이 없다. 다음 정상 응답이 다시 쓴다
+            metrics.postCacheWrite(PostCacheWrite.ERROR)
         }
     }
 
@@ -108,10 +112,11 @@ class PostStaleCache private constructor(
         const val WRITE_QUEUE_CAPACITY = 50
 
         /** 읽지도 쓰지도 않는다. post가 실패하면 늘 [PostCacheRead.Miss]다. */
-        val DISABLED = PostStaleCache(null, null, Clock.systemUTC(), Duration.ZERO, Duration.ZERO, null)
+        val DISABLED = PostStaleCache(null, null, Clock.systemUTC(), Duration.ZERO, Duration.ZERO, null, DegradationMetrics.DISABLED)
 
         fun key(size: Int): String = "weave:feed:posts:latest:v1:size:$size"
 
+        /** 쓰기 결과는 [metrics]의 `weave.post.cache.writes`로 센다. 읽기 결과는 읽은 쪽(`FeedAssembler`)이 센다. */
         fun create(
             redis: StringRedisTemplate,
             jsonMapper: ObjectMapper,
@@ -119,7 +124,8 @@ class PostStaleCache private constructor(
             maxStaleness: Duration,
             writeInterval: Duration,
             writer: ExecutorService = newWriter(),
-        ): PostStaleCache = PostStaleCache(redis, jsonMapper, clock, maxStaleness, writeInterval, writer)
+            metrics: DegradationMetrics = DegradationMetrics.DISABLED,
+        ): PostStaleCache = PostStaleCache(redis, jsonMapper, clock, maxStaleness, writeInterval, writer, metrics)
 
         /** 스레드 하나, 대기열 [WRITE_QUEUE_CAPACITY]. 차면 [RejectedExecutionException]으로 거절한다. */
         fun newWriter(): ExecutorService =
@@ -150,6 +156,11 @@ sealed class PostCacheRead(
     data object Miss : Unusable("miss", "cache_miss")
 
     data object Error : Unusable("error", "cache_error")
+
+    companion object {
+        /** 모든 [tag]. 지표는 시작할 때 이 값마다 0으로 등록한다. */
+        val TAGS = listOf("hit", Expired.tag, Miss.tag, Error.tag)
+    }
 }
 
 /** post가 실패했고 stale 캐시로도 대체할 수 없다. `FeedController`가 503으로 바꾼다(design 결정 8). */
@@ -179,10 +190,11 @@ class PostStaleCacheConfig {
         redis: StringRedisTemplate,
         jsonMapper: ObjectMapper,
         clock: Clock,
+        metrics: DegradationMetrics,
     ): PostStaleCache {
         val maxStaleness = properties.maxStaleness ?: return PostStaleCache.DISABLED
         val writeInterval = properties.writeInterval ?: return PostStaleCache.DISABLED
-        return PostStaleCache.create(redis, jsonMapper, clock, maxStaleness, writeInterval)
+        return PostStaleCache.create(redis, jsonMapper, clock, maxStaleness, writeInterval, metrics = metrics)
     }
 
     /**

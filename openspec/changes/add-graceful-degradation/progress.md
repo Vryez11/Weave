@@ -147,3 +147,13 @@
   - 2.6의 `weave.feed.sections`는 `FeedAssembler.assemble`에서 이벤트를 남기는 자리(`composed.sections`)에서 같이 세면 된다. 503은 `compose`까지 가지 않으니 세지 않는다(design 결정 10 "200 피드 응답마다").
   - post 캐시 읽기 지표는 `stalePosts`의 `postStaleCache.read` 결과(`PostCacheRead.tag`)로 센다.
 ---
+
+## 2026-11-07 21:45 - 2.6 대체 지표를 낸다
+- `degradation/DegradationMetrics.kt`: `DegradationMetrics(registry)`가 만들 때 `weave.feed.sections` 20개(`IsolatedCalls.DEPENDENCIES` × `SectionOutcome`), `weave.post.cache.reads` 4개(`PostCacheRead.TAGS`), `weave.post.cache.writes` 3개(`PostCacheWrite`)를 0으로 등록한다. `DISABLED`는 빈 `CompositeMeterRegistry`(아무 데도 내보내지 않는다). Bean은 `DegradationMetricsConfig`.
+- `FeedAssembler`: `compose` 뒤 `metrics.sections(composed.sections)`(503은 세지 않는다), `stalePosts`에서 읽은 결과를 `metrics.postCacheRead`. 새 매개변수 `metrics`는 기본값 `DISABLED`.
+- `PostStaleCache`: `store` 성공·실패에 `success`·`error`, 대기열 거절에 `dropped`. `create`에 기본값 있는 `metrics` 매개변수(커밋된 `PostStaleCacheTest`가 그대로 컴파일된다). 읽기는 `DISABLED` 캐시의 `Miss`도 세도록 읽은 쪽(`FeedAssembler`)이 센다.
+- 확인: 새 `degradation/DegradationMetricsTest` 5개, `FeedDegradationMetricsScenarioTest` 2개 통과. `./gradlew :feed-service:ktlintCheck :feed-service:test :feed-service:integrationTest`가 실패 없이 통과(`ResilienceAutoConfigurationTest` 포함).
+- 바꾼 파일: `FeedAssembler.kt`, `degradation/PostStaleCache.kt`, `degradation/DegradationMetrics.kt`(새 파일), `src/test/.../degradation/DegradationMetricsTest.kt`(새 파일), `feed-service/CLAUDE.md`, tasks.md, progress.md
+- 다음 반복이 알아 둘 것:
+  - 2장 구현이 끝났다. feed-service `integrationTest`에 남은 실패가 없다. 다음은 2.7(아키텍처 문서). 지표 이름·클래스는 `DegradationMetrics` KDoc 표에 있다.
+---

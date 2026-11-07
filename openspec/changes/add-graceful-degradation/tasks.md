@@ -58,7 +58,7 @@
   - `fallback_applied`를 요청 스레드에서 의존성마다 한 줄. 필드는 design 결정 9.
   - feed-service `CLAUDE.md`에 대체 경로(Assembler 한 곳, 요청 스레드, 로그 한 줄)를 적는다.
   - 확인: 1.7의 `FeedFallbackLogScenarioTest`가 통과한다.
-- [ ] 2.6 대체 지표를 낸다(design 결정 10).
+- [x] 2.6 대체 지표를 낸다(design 결정 10).
   - `weave.feed.sections`(20개 시계열 0부터), `weave.post.cache.reads`, `weave.post.cache.writes`. user 캐시는 2.3의 Caffeine 지표.
   - 확인: 1.7의 `FeedDegradationMetricsScenarioTest`가 통과하고 `./gradlew :feed-service:test :feed-service:integrationTest`가 모두 통과한다.
 - [ ] 2.7 아키텍처 문서를 구현에 맞춘다.

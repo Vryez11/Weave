@@ -3,6 +3,7 @@ package com.weave.feed
 import com.weave.feed.client.like.LikeResponse
 import com.weave.feed.client.post.PostResponse
 import com.weave.feed.client.user.UserResponse
+import com.weave.feed.degradation.DegradationMetrics
 import com.weave.feed.degradation.FallbackLog
 import com.weave.feed.degradation.FeedDegradation
 import com.weave.feed.degradation.PostCacheRead
@@ -37,7 +38,8 @@ import java.util.concurrent.TimeoutException
  * 실패도 값([Result])으로 받아 넘겨 등급대로 대체한다. user가 성공하면 받은 프로필을 [UserProfileCache]에 넣고, 실패하면 그 캐시에서
  * 작성자를 찾아 넘긴다. post가 성공하면 그 게시글을 [PostStaleCache]에 넘기고(쓰기는 비동기), 실패하면 같은 `size`의 stale 캐시로
  * 게시글을 채운다. 그것도 안 되면 [PostsUnavailableException]이다(design 결정 4, 8). 캐시는 요청 스레드에서 다룬다. 대체한 의존성마다
- * [FallbackLog]로 한 줄을 응답 전에 요청 스레드에서 남긴다(design 결정 9).
+ * [FallbackLog]로 한 줄을 응답 전에 요청 스레드에서 남기고, 200 응답의 영역 결과와 post 캐시 읽기 결과를 [DegradationMetrics]로 센다
+ * (design 결정 9, 10).
  *
  * 요청 시간 예산(add-call-isolation design 결정 4): 요청을 받은 시각에 [timeBudget]만큼 뒤를 마감으로 정하고(시계는 [clock]),
  * 의존성마다 마감까지 남은 시간만 기다린다. post가 끝났을 때 남은 시간이 없으면 user와 like를 부르지 않는다. 마감이 지나면
@@ -55,6 +57,7 @@ class FeedAssembler(
     private val clock: Clock = Clock.systemUTC(),
     private val userProfileCache: UserProfileCache = UserProfileCache.DISABLED,
     private val postStaleCache: PostStaleCache = PostStaleCache.DISABLED,
+    private val metrics: DegradationMetrics = DegradationMetrics.DISABLED,
 ) {
     /** post를 대체할 수 없으면 [PostsUnavailableException]을 던진다(design 결정 8). */
     fun assemble(
@@ -90,6 +93,7 @@ class FeedAssembler(
         val authors = source.posts.distinctBy { it.authorId }.size
         val events = FallbackLog.events(composed.sections, cacheHits = cachedUsers.size, cacheMisses = authors - cachedUsers.size)
         events.forEach(FallbackLog::log)
+        metrics.sections(composed.sections)
         return composed.response
     }
 
@@ -102,7 +106,7 @@ class FeedAssembler(
         userId: Long,
         size: Int,
     ): Pair<PostSource, CompletableFuture<Details>> =
-        when (val cached = postStaleCache.read(size)) {
+        when (val cached = postStaleCache.read(size).also(metrics::postCacheRead)) {
             is PostCacheRead.Hit -> {
                 val details = fetchDetails(budget, userId, cached.posts)
                 PostSource.Stale(cached.posts, cached.cachedAt) to completedFuture(details)
