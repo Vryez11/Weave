@@ -100,7 +100,7 @@
   - 유효 기간 1시간, 최대 크기 10,000(승인 때 바뀌었으면 그 값). 항목 크기 추정(약 0.5KB)을 1만 개를 넣어 `Runtime` 사용량 차이로 한 번 재 design 결정 7에 적는다.
   - 확인: `DegradationSettingsTest`의 user 캐시 단언이 통과한다.
 - [x] 4.3 stale 허용 10분과 쓰기 간격 1초를 넣는다(design 결정 4, 5). 확인: `DegradationSettingsTest`가 모두 통과하고 `./gradlew ktlintCheck build`가 1.3의 "지금 단계의 기대" 말고는 통과한다.
-- [ ] 4.4 평시를 다시 재고 고도화 4의 기대를 적는다.
+- [x] 4.4 평시를 다시 재고 고도화 4의 기대를 적는다.
   - `./gradlew bootJar` 뒤 Compose를 다시 띄워 S-01로 데우고 `experiments/run.sh S-01`이 0으로 끝나는지(3.3의 degrade 기준은 아직 기대에 없다), 리포트의 의존성별 degrade 비율이 모두 1% 미만인지 본다. 결과를 design 결정 16에 적는다.
   - `experiments/expectations.json`을 고도화 4로 바꾼다(design 결정 12). 설정값 커밋과 섞지 않는다.
   - 확인: S-01이 0으로 끝나고 `./gradlew ktlintCheck build`가 통과한다.
