@@ -127,8 +127,11 @@ on_signal() {
 }
 trap on_signal INT TERM
 
-# 판정 표의 기대 열. 기준별 기대(객체)는 "가용성 miss · p99 meet"으로 적는다
-expectation_text='if type == "object" then "가용성 \(.availability) · p99 \(.p99)" else . end'
+# 판정 표의 기대 열. 기준별 기대(객체)는 "가용성 miss · p99 meet"으로 적고, degrade 비율 기준이 있으면
+# " · degrade 비율 meet"을 덧붙인다
+expectation_text='if type == "object"
+  then "가용성 \(.availability) · p99 \(.p99)" + (if has("degradeRatio") then " · degrade 비율 \(.degradeRatio)" else "" end)
+  else . end'
 
 expectation_of() {
   jq -r --arg id "$1" ".scenarios[\$id] // \"-\" | $expectation_text" "$here/expectations.json" 2>/dev/null || echo "-"

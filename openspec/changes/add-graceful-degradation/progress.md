@@ -191,3 +191,12 @@
   - 3.3의 `verdict.sh`는 `degradeRatio`를 직접 `lib/degrade.sh "$summary"`로 계산하면 된다(같은 k6 요약을 받는다). 픽스처 `summary-S-01-like-degraded.json`은 like 0.02.
   - 지금 `verdict.sh`의 기대 객체 검사(`keys == ["availability", "p99"]`)가 `degradeRatio` 키를 거절해 "평시에 영역이 빠진다"가 2로 끝난다. 3.3에서 이 검사를 넓힌다.
 ---
+
+## 2026-11-07 22:00 - 3.3 degrade 비율 판정 기준을 넣는다
+- `slo.json`에 `"degradeRatio": 0.01`. `lib/verdict.sh`: 기대 객체는 `availability`·`p99`가 있어야 하고 `degradeRatio`는 선택. `degradeRatio`가 있을 때만 `lib/degrade.sh`로 계산해 상한 이상인 의존성마다 `"degradeRatio: <의존성> <비율> >= <상한>"`을 넘은 기준으로 더하고(200 응답이 없으면 `"degradeRatio: 200 응답 없음"` 하나), `criteria`에 `degradeRatio`를 넣는다. 기준 이름은 `degradeRatio:` 접두사로 가른다.
+- `run-all.sh` 판정 표 기대 열과 `run.sh` `report.md`(기준 이름 `degrade 비율`, 기대 결과 줄)에 ` · degrade 비율 <값>`을 덧붙였다. `report.md`는 tasks에 없지만, 안 고치면 기준별 줄에 `null 충족`이 찍혀 같이 고쳤다.
+- 확인: `:e2e:integrationTest` 45개 중 실패 1개("지금 단계의 기대", 4.4 몫). "평시에 영역이 빠진다"·"장애 시나리오의 degrade 비율은 판정하지 않는다" 통과. `ktlintCheck`, `compileKotlin compileTestKotlin`, `:e2e:test`, `openspec validate` 통과. 판정 표 jq 식은 `expectations-stage4.json`에 인라인 jq로 돌려 봤다(이번 세션은 인라인 jq가 됐다). `/bin/bash -n`은 막혀 run-all.sh·run.sh 변경은 5.2 Compose 테스트가 처음 돌린다.
+- 바꾼 파일: `experiments/slo.json`, `experiments/lib/verdict.sh`, `experiments/run-all.sh`, `experiments/run.sh`, `docs/architecture.md`(9-3 폴더 구조·판정 설명), tasks.md, progress.md
+- 다음 반복이 알아 둘 것:
+  - 다음은 3.4(`run.sh` 시작 때 post 캐시 비우기). Redis 서비스 이름은 `redis`, `docker compose exec -T redis redis-cli FLUSHDB`(design 결정 12). `run.sh`의 장애 되돌리기 위치를 찾아 그 뒤(시작 때만)에 둔다.
+---

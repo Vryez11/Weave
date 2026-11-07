@@ -492,9 +492,10 @@ jq -r '
   def utc: . / 1000 | floor | todate;
   def row(cells): "| " + (cells | map(show) | join(" | ")) + " |";
   # label은 jq 예약어(label $name | ... break)라 함수 이름으로 쓰지 않는다
-  def criterion_name: {availability: "가용성", p99: "p99", other: "그 밖의 기준"}[.];
+  def criterion_name: {availability: "가용성", p99: "p99", degradeRatio: "degrade 비율", other: "그 밖의 기준"}[.];
   def expected: if type == "string" then (if . == "meet" then "SLO 충족(meet)" else "SLO 미충족(miss)" end)
-                else "가용성 \(.availability) · p99 \(.p99)" end;
+                else "가용성 \(.availability) · p99 \(.p99)"
+                     + (if has("degradeRatio") then " · degrade 비율 \(.degradeRatio)" else "" end) end;
   [
     "# 장애 실험 리포트: \(.scenario) \(.title // "")",
     "",

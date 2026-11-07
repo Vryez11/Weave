@@ -75,7 +75,7 @@
   - `contract.js`(`PARTIAL_RESPONSE = true`, `missing` + `stale[].section`), `feed.js`(`degraded_responses`, 하위 지표 기준 `count>=0`), `run.sh`의 `degradeRatio`(의존성 5개와 `any`, 200 응답이 없으면 "없음"), `report.md` 줄. 1.3에서 정한 계산 스크립트를 쓴다.
   - `docs/architecture.md` 9-3 리포트 표의 degrade 줄을 고친다.
   - 확인: 1.3의 `ExperimentDegradeRatioScenarioTest`가 통과하고 바뀐 스크립트가 `/bin/bash -n`을 통과한다.
-- [ ] 3.3 degrade 비율 판정 기준을 넣는다(design 결정 12).
+- [x] 3.3 degrade 비율 판정 기준을 넣는다(design 결정 12).
   - `slo.json`의 `degradeRatio`, `lib/verdict.sh`가 기대 객체의 `degradeRatio` 키를 읽는다. `run-all.sh` 판정 표의 "기대" 열에 degrade 기준을 적는다. `expectations.json`은 아직 바꾸지 않는다(4.4).
   - 확인: 1.3의 판정 테스트 중 "지금 단계의 기대"를 뺀 것이 `./gradlew :e2e:integrationTest`로 통과한다.
 - [ ] 3.4 `run.sh`가 시작할 때 post 캐시를 비운다(design 결정 12).
