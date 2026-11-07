@@ -84,16 +84,17 @@ class FeedTraceLogScenarioTest :
                 }
             }
 
-            test("F-004 오류 응답: 요청 검증 실패의 400과 하위 서비스 실패의 500 모두 X-Trace-Id가 있다") {
+            test("F-004 F-002 오류 응답: 요청 검증 실패의 400과 게시글을 대체할 수 없는 503 모두 X-Trace-Id가 있다") {
+                // 테스트 기본 설정의 post 캐시 저장소는 연결할 수 없는 주소라, post가 실패하면 대체할 캐시가 없어 503이다
                 stubAllHealthy()
-                wireMock.stubFailure("recommendation", 503)
+                wireMock.stubFailure("post", 503)
 
                 val badRequest = feed().getFeed(headers = emptyMap())
                 badRequest.statusCode() shouldBe 400
                 badRequest.traceId() shouldMatch hex32
 
                 val serverError = feed().getFeed()
-                serverError.statusCode() shouldBe 500
+                serverError.statusCode() shouldBe 503
                 serverError.traceId() shouldMatch hex32
             }
         }
@@ -175,19 +176,19 @@ class FeedTraceLogScenarioTest :
         }
 
         context("요청 완료 로그") {
-            test("F-004 실패한 요청: GET /feed가 500이면 http_request 줄에 status 500과 X-Trace-Id와 같은 traceId가 있다") {
+            test("F-004 F-002 실패한 요청: GET /feed가 503이면 http_request 줄에 status 503과 X-Trace-Id와 같은 traceId가 있다") {
                 stubAllHealthy()
-                wireMock.stubFailure("recommendation", 503)
+                wireMock.stubFailure("post", 503)
 
                 LogCapture().use { capture ->
                     val response = feed().getFeed()
 
-                    response.statusCode() shouldBe 500
+                    response.statusCode() shouldBe 503
                     val traceId = response.traceId()
                     eventually(5.seconds) {
                         val lines = capture.requestLines(traceId)
                         lines shouldHaveSize 1
-                        lines.single()["status"] shouldBe 500
+                        lines.single()["status"] shouldBe 503
                     }
                 }
             }
@@ -206,7 +207,8 @@ class FeedTraceLogScenarioTest :
                 LogCapture().use { capture ->
                     val response = feed().getFeed()
 
-                    response.statusCode() shouldBe 500
+                    // recommendation은 선택 등급이라 피드는 200이다 (F-002)
+                    response.statusCode() shouldBe 200
                     response.traceId()
                     // 남기지 않음은 기다려도 판정할 수 없으니, 뒤에 보낸 확인용 요청의 줄이 나올 때까지 기다린다.
                     // Tomcat이 처리되지 않은 예외를 남기는 줄은 요청 완료 로그보다 늦게 쓰이므로 그 요청의 줄로는 기다리지 않는다.

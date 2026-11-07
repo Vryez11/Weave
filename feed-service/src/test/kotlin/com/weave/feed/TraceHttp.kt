@@ -3,6 +3,8 @@ package com.weave.feed
 import com.github.tomakehurst.wiremock.verification.LoggedRequest
 import io.kotest.assertions.withClue
 import io.kotest.matchers.nulls.shouldNotBeNull
+import tools.jackson.module.kotlin.jacksonObjectMapper
+import tools.jackson.module.kotlin.readValue
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -43,6 +45,11 @@ class TracedFeedHttp(
         private val client: HttpClient = HttpClient.newHttpClient()
     }
 }
+
+private val responseMapper = jacksonObjectMapper()
+
+/** 응답 본문을 JSON 객체로 읽는다. */
+fun HttpResponse<String>.json(): Map<String, Any?> = responseMapper.readValue<Map<String, Any?>>(body())
 
 /** 응답의 `X-Trace-Id`. 없으면 테스트를 실패시킨다. */
 fun HttpResponse<*>.traceId(): String = withClue("응답의 X-Trace-Id 헤더") { headers().firstValue("X-Trace-Id").orElse(null).shouldNotBeNull() }

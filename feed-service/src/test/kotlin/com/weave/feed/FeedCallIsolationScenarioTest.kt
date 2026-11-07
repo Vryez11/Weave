@@ -139,15 +139,20 @@ class FeedCallIsolationBudgetScenarioTest :
             FeedHttpClient(localPort()).getFeed()
         }
 
-        test("F-001 의존성마다는 상한 안이지만 합치면 예산을 넘는다: post와 user가 150ms씩 늦으면 350ms 안에 500이 오고 user budget_exhausted 실패 로그가 있다") {
+        test("F-001 F-002 의존성마다는 상한 안이지만 합치면 예산을 넘는다: post와 user가 150ms씩 늦으면 350ms 안에 200이 오고 user가 빠지며 user budget_exhausted 실패 로그가 있다") {
             wireMock.stubPosts(HEALTHY_POSTS, delayMs = 150)
             wireMock.stubUsers(listOf(3, 4), delayMs = 150)
 
             LogCapture().use { capture ->
                 val (response, elapsed) = measureTimedValue { TracedFeedHttp(localPort()).getFeed() }
 
-                response.statusCode() shouldBe 500
+                response.statusCode() shouldBe 200
                 elapsed shouldBeLessThan 350.milliseconds
+                @Suppress("UNCHECKED_CAST")
+                withClue("degradation.missing") {
+                    ((response.json()["degradation"] as Map<String, Any?>)["missing"] as List<*>).contains("user") shouldBe
+                        true
+                }
                 val traceId = response.traceId()
                 eventually(5.seconds) {
                     withClue("traceId가 X-Trace-Id와 같은 user의 budget_exhausted downstream_call_failed 줄") {
