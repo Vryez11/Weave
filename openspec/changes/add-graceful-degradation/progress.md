@@ -178,3 +178,16 @@
   - Compose의 Redis에 아직 post 캐시 키가 생기지 않는다. `weave.post-cache.*` 값이 4.3 전이라 `PostStaleCache.DISABLED`다. 3장 확인에서 키를 기대하지 않는다.
   - Ralph 권한에서 호스트 `curl`도 막힌다. 피드는 `docker compose exec -T feed-service curl ...`로 부른다(헤더 `X-User-Id`).
 ---
+
+## 2026-11-07 21:52 - 3.2 부하 도구가 부분 응답을 읽고 리포트가 degrade 비율을 적는다
+- `k6/contract.js`: `PARTIAL_RESPONSE = true`, `SECTIONS`, `degradedSections(res)`(200 응답의 `degradation.missing` + `stale[].section`, 중복 없이, 의존성 이름만. 200이 아니거나 본문을 못 읽으면 빈 배열). 함수 이름을 `missingSections`에서 바꿨다(쓰는 곳은 `feed.js`뿐).
+- `k6/feed.js`: `degraded_responses` 카운터(영역이 하나라도 있으면 +1), threshold `degraded_responses{scenario:measure}`와 `degraded_sections{scenario:measure,section:<의존성>}` 5개에 `count>=0`(`options` 뒤 `for`로 단다).
+- 새 `lib/degrade.sh`: KDoc대로. 비율은 `round_to(4)`(run.sh의 다른 비율과 같다). KDoc의 "소수 넷째 자리에서 반올림"은 넷째 자리까지로 읽었다(테스트 값은 어느 쪽이든 같다).
+- `run.sh`: 판정 뒤 `degrade.sh`를 부르고(실패면 2로 끝남) `report.json`의 `degradeRatio`에 그대로 싣는다. `report.md`는 객체면 `degrade 비율 <의존성>` 다섯 줄과 `degrade 비율(하나라도)` 한 줄, "없음"이면 한 줄.
+- `verdict.sh`는 `{scenario:measure}`로 끝나는 키만 보므로 `degraded_sections{...,section:...}` threshold는 판정에 안 들어가고, `degraded_responses{scenario:measure}`는 "그 밖의 기준"이지만 늘 통과한다.
+- 확인: `ExperimentDegradeRatioScenarioTest` 3개 통과. `:e2e:integrationTest` 45개 중 실패 2개(3.3 "평시에 영역이 빠진다", 4.4 "지금 단계의 기대", 예정대로), 새 실패 없음. `k6 inspect`로 feed.js 파싱·threshold, 임시 k6 스크립트로 `degradedSections`의 다섯 경우를 확인했다. `/bin/bash -n`은 권한에서 막혀 run.sh 변경은 5.2 Compose 테스트가 처음 돌린다. `ktlintCheck`, `compileKotlin compileTestKotlin`, `:e2e:test`, `openspec validate` 통과.
+- 바꾼 파일: `experiments/k6/contract.js`, `experiments/k6/feed.js`, `experiments/lib/degrade.sh`(새 파일), `experiments/run.sh`, `experiments/CLAUDE.md`(k6 확인 방법), `docs/architecture.md`(9-3 표의 degrade 줄, 폴더 구조의 lib), tasks.md, progress.md
+- 다음 반복이 알아 둘 것:
+  - 3.3의 `verdict.sh`는 `degradeRatio`를 직접 `lib/degrade.sh "$summary"`로 계산하면 된다(같은 k6 요약을 받는다). 픽스처 `summary-S-01-like-degraded.json`은 like 0.02.
+  - 지금 `verdict.sh`의 기대 객체 검사(`keys == ["availability", "p99"]`)가 `degradeRatio` 키를 거절해 "평시에 영역이 빠진다"가 2로 끝난다. 3.3에서 이 검사를 넓힌다.
+---

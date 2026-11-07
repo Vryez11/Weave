@@ -600,7 +600,7 @@ experiments/
 ├── expectations.json        # 단계별 기대 결과(시나리오마다 meet/miss, 또는 기준마다 {availability, p99})
 ├── scenarios/S-01.json ...  # 설명, PRD 4장 문장, 장애 시간표(측정 시작부터 잰 초, 동작, 대상)
 ├── k6/                      # feed.js(부하·장애·판정), faults.js, contract.js, reset.js
-├── lib/                     # verdict.sh(판정), windows.sh(10초 구간, 복구 시간), circuits.sh(서킷 상태 이어 적기)
+├── lib/                     # verdict.sh(판정), windows.sh(10초 구간, 복구 시간), circuits.sh(서킷 상태 이어 적기), degrade.sh(degrade 비율)
 └── results/                 # 실행마다 폴더 하나. 커밋하지 않는다
 ```
 
@@ -642,7 +642,7 @@ experiments/run-all.sh --list                                 # 돌릴 목록
 | 자원 사용량의 측정 구간 최댓값·평균: Tomcat 사용 중 스레드, 의존성별 벌크헤드 사용 중 스레드·대기열(`resilience4j_bulkhead_active_thread_count`, `resilience4j_bulkhead_queue_depth`. ThreadPool 벌크헤드 지표라 Semaphore 모드의 사용량은 담지 않는다), 의존성별 커넥션 풀 사용 중·대기, feed-service CPU | Prometheus |
 | feed-service 지표 수집 비율(측정 구간 `up` 표본 중 1인 비율). 1보다 작으면 자원 사용량이 긁힌 구간만의 값이라고 적는다 | Prometheus |
 | 의존성별 서킷 상태: 측정 구간에 거친 상태를 바뀔 때만 이어 적는다(`CLOSED → OPEN → HALF_OPEN → CLOSED`). `resilience4j_circuitbreaker_state`를 5초 간격 `query_range`로 읽어 그보다 짧게 머문 상태는 빠질 수 있고, 정확한 전이는 `circuit_state_changed` 로그로 본다. 서킷 지표가 없는 의존성은 "없음" | Prometheus, `lib/circuits.sh` |
-| degrade 비율 | 아직 없어 "없음". F-002가 채운다 |
+| 의존성별 degrade 비율과 "하나라도" 비율 = 그 영역이 `degradation.missing`이나 `degradation.stale`에 있던 200 응답 수 ÷ 측정 구간 200 응답 수. k6(`contract.js`)가 응답마다 세고 `lib/degrade.sh`가 계산한다. 200 응답이 없으면 "없음" | k6 요약, `lib/degrade.sh` |
 | 장애를 넣은 시각과 거둔 시각, 10초 구간 표(요청 수, `feed_latency` p99, 가용성), 복구 시간(S-08) | k6 원본, `lib/windows.sh` |
 | Grafana 링크(측정 구간을 붙인 `weave-feed` 대시보드, 7-4) | run.sh |
 

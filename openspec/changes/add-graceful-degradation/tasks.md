@@ -71,7 +71,7 @@
   - `redis` 서비스(태그는 `docker manifest inspect redis:8.2.2`로 있는지 확인한다. 없으면 같은 마이너의 있는 패치로 바꾸고 design에 적는다), `--save "" --appendonly no`, healthcheck, 자원 상한, feed-service의 `REDIS_HOST`와 `depends_on`. `chore(infra)`로 따로 커밋한다.
   - `docs/architecture.md` 9-1 표(Redis 줄), CLAUDE.md "로컬 인프라" 줄을 고친다.
   - 확인: `docker compose config`가 통과하고, `./gradlew bootJar` 뒤 `docker compose up -d --build --wait`에서 redis가 healthy이며 `GET /feed`가 200이다.
-- [ ] 3.2 부하 도구가 부분 응답을 읽고 리포트가 degrade 비율을 적는다(design 결정 12).
+- [x] 3.2 부하 도구가 부분 응답을 읽고 리포트가 degrade 비율을 적는다(design 결정 12).
   - `contract.js`(`PARTIAL_RESPONSE = true`, `missing` + `stale[].section`), `feed.js`(`degraded_responses`, 하위 지표 기준 `count>=0`), `run.sh`의 `degradeRatio`(의존성 5개와 `any`, 200 응답이 없으면 "없음"), `report.md` 줄. 1.3에서 정한 계산 스크립트를 쓴다.
   - `docs/architecture.md` 9-3 리포트 표의 degrade 줄을 고친다.
   - 확인: 1.3의 `ExperimentDegradeRatioScenarioTest`가 통과하고 바뀐 스크립트가 `/bin/bash -n`을 통과한다.
