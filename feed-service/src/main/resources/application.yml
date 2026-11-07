@@ -1,6 +1,10 @@
 spring:
   application:
     name: feed-service
+  data:
+    redis:
+      # post stale 캐시 저장소. Compose는 REDIS_HOST=redis를 준다 (add-graceful-degradation design 결정 14)
+      host: ${REDIS_HOST:localhost}
   http:
     # 연결·응답 타임아웃은 그 의존성의 호출 시간 상한(resilience4j.timelimiter)과 같다. 상한이 future를 끝내도 블로킹 I/O를 하던
     # 스레드는 풀리지 않아, 스레드와 커넥션을 놓는 시점을 HttpClient가 정한다 (add-call-isolation design 결정 3)

@@ -555,7 +555,8 @@ traceId는 스레드에 붙은 컨텍스트(MDC, 관찰 컨텍스트)에 있어�
 |---|---|---|
 | feed-service | CPU 2, 메모리 1GB | Tomcat 최대 스레드 200을 `application.yml`에 명시한다(Boot 기본값, 4-2). Actuator는 관리 포트 8090(`MANAGEMENT_SERVER_PORT`)이고 헬스 체크와 Prometheus가 이 포트를 본다. 호스트 변수 `FEED_SPRING_APPLICATION_JSON`을 `SPRING_APPLICATION_JSON`으로 넘긴다(없으면 `{}`, 아래) |
 | 하위 서비스 5개 | 각 CPU 1, 메모리 512MB | |
-| MySQL, Toxiproxy | 각 CPU 1 | Redis는 post stale 캐시와 함께 F-002에서 더한다 |
+| MySQL, Toxiproxy | 각 CPU 1 | |
+| Redis (`redis:8.2.2`) | CPU 0.5, 메모리 256MB | post stale 캐시(6-3). 캐시라 저장하지 않는다(`--save "" --appendonly no`). 값은 키 최대 50개 × 약 6KB이고 S-06의 읽기 400회/초는 한 코어 처리량에 비해 작다. 호스트 포트는 열지 않고 Toxiproxy 뒤에 두지 않는다. feed-service는 `REDIS_HOST=redis`로 부르고 Redis가 healthy가 된 뒤 뜬다(`add-graceful-degradation` design 결정 12) |
 | Alloy, Prometheus, Grafana | 각 CPU 0.5, 메모리 512MB | 실험 대상이 아니라 상한만 건다. OOM 재시작이 보이면 근거와 함께 올린다 |
 | Loki, Tempo | 각 CPU 0.5, 메모리 1GB | 부하 중 로그·스팬이 쌓인다 |
 | k6 (`grafana/k6:2.3.0`) | CPU 2, 메모리 2GB | `profiles: [experiment]`라 `up`으로는 뜨지 않고 `run.sh`가 `docker compose run`으로 부른다. `experiments/`를 마운트한다 |
