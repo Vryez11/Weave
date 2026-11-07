@@ -114,8 +114,11 @@ on_signal() {
 }
 trap on_signal INT TERM
 
+# 판정 표의 기대 열. 기준별 기대(객체)는 "가용성 miss · p99 meet"으로 적는다
+expectation_text='if type == "object" then "가용성 \(.availability) · p99 \(.p99)" else . end'
+
 expectation_of() {
-  jq -r --arg id "$1" '.scenarios[$id] // "-"' "$here/expectations.json" 2>/dev/null || echo "-"
+  jq -r --arg id "$1" ".scenarios[\$id] // \"-\" | $expectation_text" "$here/expectations.json" 2>/dev/null || echo "-"
 }
 
 add_row() { rows="$rows| $1 | $2 | $3 | $4 | $5 |"$'\n'; }
@@ -154,8 +157,8 @@ for id in "$@"; do
 
   fields=""
   if [ "$status" -le 1 ] && [ -n "$report" ] && [ -f "$root/$report/report.json" ]; then
-    fields="$(jq -r '[(if .sloMet then "충족" else "미충족" end), .expectation,
-                       (if .matchesExpectation then "기대와 같음" else "기대와 다름" end)] | join("|")' \
+    fields="$(jq -r "[(if .sloMet then \"충족\" else \"미충족\" end), (.expectation | $expectation_text),
+                       (if .matchesExpectation then \"기대와 같음\" else \"기대와 다름\" end)] | join(\"|\")" \
       "$root/$report/report.json" 2>/dev/null)" || fields=""
   fi
 

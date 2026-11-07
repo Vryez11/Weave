@@ -414,6 +414,8 @@ report="$(
         availability: (if $requests + $dropped == 0 then null else ($ok / ($requests + $dropped) | round_to(6)) end),
         sloMet: $verdict.sloMet,
         expectation: $verdict.expectation,
+        criteria: $verdict.criteria,
+        mismatchedCriteria: $verdict.mismatchedCriteria,
         matchesExpectation: $verdict.matchesExpectation,
         verdict: $verdict.verdict,
         failedThresholds: $verdict.failedThresholds,
@@ -478,10 +480,19 @@ jq -r '
   def seconds: if . == null then "값 없음" else "\(.)초" end;
   def utc: . / 1000 | floor | todate;
   def row(cells): "| " + (cells | map(show) | join(" | ")) + " |";
+  # label은 jq 예약어(label $name | ... break)라 함수 이름으로 쓰지 않는다
+  def criterion_name: {availability: "가용성", p99: "p99", other: "그 밖의 기준"}[.];
+  def expected: if type == "string" then (if . == "meet" then "SLO 충족(meet)" else "SLO 미충족(miss)" end)
+                else "가용성 \(.availability) · p99 \(.p99)" end;
   [
     "# 장애 실험 리포트: \(.scenario) \(.title // "")",
     "",
     "**판정: \(.verdict)**" + (if (.failedThresholds | length) > 0 then " (넘은 기준: \(.failedThresholds | join(", ")))" else "" end),
+    "",
+    "기준별: " + ([.criteria | to_entries[]
+                  | "\(.key | criterion_name) \(if .value.met then "충족" else "미충족" end)(기대 \(.value.expectation))"] | join(" · "))
+      + (if (.mismatchedCriteria | length) > 0
+         then ". 기대와 다른 기준: \(.mismatchedCriteria | map(criterion_name) | join(", "))" else "" end),
     "",
     "## 실행",
     "",
@@ -494,7 +505,7 @@ jq -r '
     row(["준비 시간", (.warmupSeconds | seconds)]),
     row(["측정 시간", (.durationSeconds | seconds)]),
     row(["측정 구간(UTC)", "\(.measure.startEpochMs | utc) ~ \(.measure.endEpochMs | utc)"]),
-    row(["기대 결과", (if .expectation == "meet" then "SLO 충족(meet)" else "SLO 미충족(miss)" end)]),
+    row(["기대 결과", (.expectation | expected)]),
     row(["Grafana", .grafanaUrl]),
     row(["feed-service 지표 수집 비율", .feedScrapeRatio]),
     "",

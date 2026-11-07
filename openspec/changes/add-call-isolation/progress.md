@@ -27,6 +27,7 @@
 - Semaphore 벌크헤드 인스턴스 다섯(`resilience4j.bulkhead.instances.<의존성>`)은 2.9에서 구조만 넣었다(Resilience4j 기본 최대 동시 25). 4.4에서 ThreadPool 40과 함께 Semaphore도 40을 넣어야 `IsolationSettingsTest`의 Semaphore 단언이 통과한다.
 
 ## 지금 실패하는 것이 정상인 테스트 (구현 전)
+- **3.1 뒤:** e2e `integrationTest` 실패 4개: `ExperimentCircuitStateScenarioTest` 3(3.2), `ExperimentVerdictScenarioTest` "고도화 3의 기대" 1(4.7). feed-service는 2.9 뒤와 같다.
 - **2.9 뒤:** feed-service `integrationTest` 실패 9개, 모두 4장 `IsolationSettingsTest`.
 - **2.8 뒤:** feed-service `integrationTest` 실패 10개: 2.9 `FeedTracePropagationOffTest` 1, 4장 `IsolationSettingsTest` 9.
 - **2.6 뒤:** feed-service `integrationTest` 실패 12개: 2.7 토글 1, 2.8 전이 로그 1, 2.9 `FeedTracePropagationOffTest` 1, 4장 `IsolationSettingsTest` 9.
@@ -179,4 +180,14 @@
 - 확인: 문서의 클래스·속성 이름을 `grep`으로 feed-service 소스에서 모두 찾았다. `ktlintCheck`, `compileKotlin compileTestKotlin`, `:feed-service:test`, `openspec validate` 통과.
 - 바꾼 파일: `docs/architecture.md`, `tasks.md`, `progress.md`.
 - 다음(3.1): 기준별 판정(`lib/verdict.sh`). 형식은 `ExperimentVerdictScenarioTest` KDoc(위 패턴). "고도화 3의 기대"는 4.7까지 실패하는 것이 정상이다.
+---
+
+## 2026-11-07 - 3.1 기준별 판정 (Ralph)
+- `lib/verdict.sh`: 기대를 문자열이나 `{availability, p99}` 객체로 읽고(그 밖의 형식은 2로 끝남), threshold 이름으로 기준을 갈라 `criteria`(`met`, `expectation`)와 `mismatchedCriteria`(`availability`, `p99`, 그 밖의 측정 구간 threshold가 넘으면 `other`)를 출력한다. `matchesExpectation`은 `mismatchedCriteria`가 빈지다. 문자열 기대는 두 기준 모두 그 값이다(스펙 "지키지 못하는 것이 기대인 기준을 지켜도 기대와 다르다").
+- `run.sh`: `report.json`에 `criteria`, `mismatchedCriteria`를 싣고, `report.md` 판정 줄 아래에 "기준별: 가용성 미충족(기대 miss) · p99 충족(기대 meet)" 줄, 기대 결과 칸은 객체면 `가용성 miss · p99 meet`. `run-all.sh` 판정 표의 기대 열도 같은 형식.
+- `docs/architecture.md` 9장(실험 세트) 판정 설명을 기준별로 고쳤다. `experiments/CLAUDE.md`에 jq 예약어 함정을 적었다(`def label`이 컴파일 오류였다).
+- 확인: `ExperimentVerdictScenarioTest` 9개 중 "고도화 3의 기대"만 실패(4.7). `:e2e:integrationTest` 실패 4 = 그것 + `ExperimentCircuitStateScenarioTest` 3(3.2). `ktlintCheck compileKotlin compileTestKotlin :e2e:test`, `openspec validate` 통과. report.md·판정 표의 jq 식은 따로 `jq`로 돌려 봤다. **`bash -n`은 이 세션의 권한에 없어 돌리지 못했다.** `run.sh`·`run-all.sh`가 실제로 도는지는 5.2 Compose 테스트에서 본다.
+- 주의: 지금 `experiments/expectations.json`(고도화 2)은 S-02~S-09가 문자열 `miss`라, 새 판정으로는 p99를 지키는 S-04~S-07·S-09가 기대와 다르다. 4.7에서 고도화 3 기대로 바꾸면 풀린다(그 전에 `run-all.sh`를 돌리지 않는다).
+- 바꾼 파일: `experiments/lib/verdict.sh`, `experiments/run.sh`, `experiments/run-all.sh`, `experiments/CLAUDE.md`, `docs/architecture.md`, `tasks.md`, `progress.md`.
+- 다음(3.2): 리포트의 벌크헤드·서킷 항목과 `lib/circuits.sh`(인자·출력은 `ExperimentCircuitStateScenarioTest` KDoc).
 ---

@@ -452,7 +452,7 @@ experiments/
 ├── run.sh  run-all.sh       # 명령 (아래)
 ├── config.json              # 기본 RPS, 준비·측정 시간, k6 요청 시간 초과 5초, 사용자 ID 범위
 ├── slo.json                 # PRD 2장 SLO(가용성 99.9%, p99 300ms). k6 threshold는 여기서만 읽는다
-├── expectations.json        # 단계별 기대 결과(시나리오마다 meet/miss)
+├── expectations.json        # 단계별 기대 결과(시나리오마다 meet/miss, 또는 기준마다 {availability, p99})
 ├── scenarios/S-01.json ...  # 설명, PRD 4장 문장, 장애 시간표(측정 시작부터 잰 초, 동작, 대상)
 ├── k6/                      # feed.js(부하·장애·판정), faults.js, contract.js, reset.js
 ├── lib/                     # verdict.sh(판정), windows.sh(10초 구간, 복구 시간)
@@ -481,7 +481,7 @@ experiments/run-all.sh --list                                 # 돌릴 목록
 ```
 
 - `run.sh`는 장애를 되돌리고 feed-service를 다시 띄워(앞 실행이 묶어 둔 스레드를 지운다) 같은 상태에서 시작한다. k6가 준비 구간 뒤 측정 구간 동안 같은 RPS로 `GET /feed`를 보내고, 시간표대로 장애를 넣고 거둔다. 끝나면(실패하거나 Ctrl-C로 멈춰도) 장애를 모두 되돌린다.
-- 판정: k6 threshold는 늘 `slo.json`이고 측정 구간 요청만 센다. 가용성은 k6가 보내지 못한 요청도 실패로 넣어 `lib/verdict.sh`가 다시 계산한다. SLO 충족 여부가 그 단계의 기대(`expectations.json`)와 같으면 0, 다르면 1, 실행하지 못하면 2로 끝난다. 고도화 2의 기대는 S-01만 `meet`이다. `miss`인데 SLO를 지키면 장애가 재현되지 않은 것이라 기대와 다르다.
+- 판정: k6 threshold는 늘 `slo.json`이고 측정 구간 요청만 센다. 가용성은 k6가 보내지 못한 요청도 실패로 넣어 `lib/verdict.sh`가 다시 계산한다. 기준(가용성, p99)마다의 충족 여부가 그 단계의 기대(`expectations.json`)와 모두 같으면 0, 하나라도 다르면 1, 실행하지 못하면 2로 끝난다. 기대는 시나리오마다 두 기준을 함께(`meet`, `miss`) 적거나 `{"availability": "miss", "p99": "meet"}`처럼 기준마다 적는다(add-call-isolation design 결정 10). 고도화 2의 기대는 S-01만 `meet`이다. `miss`인 기준을 지키면 장애가 재현되지 않은 것이라 기대와 다르다. 판정 출력의 `criteria`와 기대와 다른 기준 `mismatchedCriteria`가 `report.json`에, 기준별 결과가 `report.md` 판정 줄 아래에 들어간다.
 - `run-all.sh`는 시나리오마다 `run.sh`를 부르고, 기대와 다르거나 실행하지 못한 시나리오가 있어도 끝까지 돈 뒤 판정 표(마크다운)를 출력한다. 종료 코드는 가장 나쁜 것이다.
 - Compose 프로젝트나 env 파일을 바꿀 때는 `COMPOSE_PROJECT_NAME`, `COMPOSE_ENV_FILE`을 준다(`:e2e:composeTest`는 `weave-compose-test`와 `e2e/build/compose-test.env`를 쓴다).
 

@@ -83,7 +83,7 @@
 
 ## 3. 실험 세트
 
-- [ ] 3.1 기준별 판정을 넣는다(design 결정 10).
+- [x] 3.1 기준별 판정을 넣는다(design 결정 10).
   - `lib/verdict.sh`가 문자열과 객체 기대를 모두 읽고 `criteria`를 출력한다. `run-all.sh` 판정 표의 "기대" 열을 객체면 `가용성 miss · p99 meet`으로 적는다. `report.md`의 판정 줄에 기준별 충족 여부를 더한다.
   - `expectations.json`은 아직 바꾸지 않는다(4.7).
   - 확인: 1.3의 판정 테스트 중 "고도화 3의 기대"를 뺀 것이 `./gradlew :e2e:integrationTest`로 통과한다.
