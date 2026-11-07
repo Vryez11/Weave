@@ -172,3 +172,11 @@
 - 바꾼 파일: `IsolationProperties.kt`(새 파일), `IsolatedCalls.kt`, `application.yml`, `FeedSemaphoreIsolationScenarioTest.kt`(새 파일), `feed-service/CLAUDE.md`, `tasks.md`, `progress.md`.
 - 다음(2.10): 아키텍처 문서를 구현에 맞춘다. 클래스·속성 이름은 `IsolatedCalls`, `IsolationProperties`, `CircuitStateLog`, `TraceContextPropagator`, `CircuitFailurePredicate`, `RequestBudget`, `weave.isolation.bulkhead-type`.
 ---
+
+## 2026-11-07 - 2.10 아키텍처 문서를 구현에 맞춘다 (Ralph)
+- `docs/architecture.md`: 1장 장애 대응 줄(어노테이션 대신 레지스트리 + `IsolatedCalls`)과 호환 확인 문단(확인함, `ResilienceAutoConfigurationTest`), 4-2 고도화 3 줄, 5-2(제목 "격리를 씌우는 곳", 그림, 어노테이션을 쓰지 않는 이유, 토글 `callBlocking`, 실패 로그·전이 로그), 5-3(코드에 없던 `circuit-breaker-aspect-order`, `record-exceptions`를 실제 구조로: `record-failure-predicate`, `ignore-exceptions`, `queue-capacity: 0`, `context-propagators`, Semaphore `like-toggle`, `weave.isolation.bulkhead-type`, HTTP 클라이언트 속성), 5-4(순서는 `IsolatedCalls.call` 한 곳, Retry·RateLimiter는 고도화 5), 5-5(`cause` 열, 429 세지 않음, 예산 초과·벌크헤드 거절), 12장 F-001 줄, 13장(가상 스레드 비교 구성을 "정한 것"으로, fallback 둘 곳을 F-002로).
+- 값(4-3, 5-6)과 맨 위 상태 줄은 건드리지 않았다(4장, 5.4).
+- 확인: 문서의 클래스·속성 이름을 `grep`으로 feed-service 소스에서 모두 찾았다. `ktlintCheck`, `compileKotlin compileTestKotlin`, `:feed-service:test`, `openspec validate` 통과.
+- 바꾼 파일: `docs/architecture.md`, `tasks.md`, `progress.md`.
+- 다음(3.1): 기준별 판정(`lib/verdict.sh`). 형식은 `ExperimentVerdictScenarioTest` KDoc(위 패턴). "고도화 3의 기대"는 4.7까지 실패하는 것이 정상이다.
+---

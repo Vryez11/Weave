@@ -11,7 +11,7 @@
 | 언어·프레임워크 | Kotlin, Spring Boot(Spring MVC), JDK 25, Gradle Kotlin DSL 멀티 모듈 | Kotlin 2.3.21, Boot 4.1.2, Gradle 9.8.2 |
 | 동시성 | Tomcat은 플랫폼 스레드. 하위 서비스 병렬 호출은 `CompletableFuture`. 가상 스레드는 고도화 3을 마친 뒤 S-02에서 한 번 비교한다(PRD F-001) | — |
 | HTTP 클라이언트 | `RestClient` + Apache HttpClient 5, 그 위에 HTTP Interface(`@HttpExchange`) | HttpClient 5.6.5 (Boot BOM) |
-| 장애 대응 | Resilience4j Spring Boot 4 스타터, **어노테이션 방식**. 서킷 브레이커, 벌크헤드(Semaphore·ThreadPool), TimeLimiter, Retry, RateLimiter를 모두 설정으로 연다 | `resilience4j-spring-boot4` 2.4.0 |
+| 장애 대응 | Resilience4j Spring Boot 4 스타터. 어노테이션을 쓰지 않고, 스타터가 `resilience4j.*` 설정으로 만든 레지스트리에서 의존성 이름으로 인스턴스를 꺼내 `IsolatedCalls` 한 곳에서 감싼다(5-2). 서킷 브레이커, 벌크헤드(ThreadPool·Semaphore), TimeLimiter는 고도화 3, Retry, RateLimiter는 고도화 5에서 설정으로 연다 | `resilience4j-spring-boot4` 2.4.0 |
 | 좋아요 저장 | MySQL + Spring Data JPA + Flyway | MySQL 9, Hibernate 7.4, Flyway 12.4 (Boot BOM) |
 | 캐시 | post stale 캐시는 Redis(Spring Data Redis, Lettuce), user 프로필은 Caffeine 로컬 캐시 | Caffeine 3.2.4 (Boot BOM) |
 | 로그 | logback + logstash-logback-encoder로 JSON 로그. Grafana Alloy가 모아 Loki로 | encoder 9.0, logback 1.5 |
@@ -23,7 +23,7 @@
 | 테스트 | Kotest + MockK(springmockk), 하위 서비스는 WireMock, MySQL·Redis는 Testcontainers | Kotest 6.2.6, MockK 1.14.11, springmockk 5.0.1, WireMock 3.13, Testcontainers 2.0.5 |
 | 린트·CI | ktlint, GitHub Actions | 하네스 구성 때 정한다 |
 
-**호환 확인이 필요한 것:** `resilience4j-spring-boot4` 2.4.0은 Spring Boot 4.0.0으로 빌드됐다. 4.1.2에서 자동 설정과 Actuator 연동이 되는지 고도화 3의 첫 작업에서 확인한다. Spring Cloud CircuitBreaker는 Boot 4.1용 릴리스(2026.0)가 아직 RC라 쓰지 않는다.
+**호환 확인:** `resilience4j-spring-boot4` 2.4.0은 Spring Boot 4.0.0으로 빌드됐다. 4.1.2에서 레지스트리 자동 설정, Prometheus 지표, Boot 버전 검사가 되는 것을 고도화 3에서 확인했다(`ResilienceAutoConfigurationTest`, `add-call-isolation` design 결정 2). Spring Cloud CircuitBreaker는 Boot 4.1용 릴리스(2026.0)가 아직 RC라 쓰지 않는다.
 
 ## 2. 시스템 구성
 
@@ -114,7 +114,7 @@ sequenceDiagram
 | 단계 | 호출을 감싸는 것 |
 |---|---|
 | MVP | 없음. 타임아웃은 라이브러리 기본값, 병렬 호출은 공유 스레드 풀 하나(Boot의 기본 `applicationTaskExecutor`) |
-| 고도화 3 | 의존성별 타임아웃, 요청 시간 예산, ThreadPool 벌크헤드, 서킷 브레이커 |
+| 고도화 3 | 조회는 `IsolatedCalls`가 의존성마다 서킷 브레이커 → 호출 시간 상한(TimeLimiter) → ThreadPool 벌크헤드로 감싸고, HttpClient 그룹마다 연결·응답·커넥션 대기 타임아웃과 커넥션 풀 크기를 둔다. `FeedAssembler`가 요청 시간 예산(`RequestBudget`)으로 기다린다. 좋아요 토글은 요청 스레드에서 like 서킷과 Semaphore 벌크헤드 `like-toggle`을 거친다. 공유 풀(`applicationTaskExecutor`)은 비교 실험용 Semaphore 모드(`weave.isolation.bulkhead-type: semaphore`)에서만 조회를 돌린다 |
 | 고도화 4 | 등급별 fallback, 부분 응답 계약 |
 | 고도화 5 | 재시도(멱등한 호출만), ad의 RateLimiter와 Retry-After |
 
@@ -173,72 +173,97 @@ p99 300ms(PRD 2장) 안에 응답하기 위한 나눔이다. 하위 서비스의
 - 커넥션 풀 크기는 MVP에서도 평시 부하를 감당하도록 정한다. 보호 장치가 없다는 것은 장애 대응이 없다는 뜻이지, 평시 용량이 모자라도 된다는 뜻이 아니다. 크기는 리틀의 법칙(동시 요청 수 ≈ 초당 요청 수 × 응답시간)에 여유를 더해 정한다.
 - 하위 서비스 API는 HTTP Interface(`@HttpExchange`)로 선언한다.
 
-### 5-2. 어노테이션을 붙이는 곳
+### 5-2. 격리를 씌우는 곳
 
 ```mermaid
 flowchart LR
-    asm["FeedAssembler<br/>호출 순서 · 시간 예산 · 응답 구성"] --> gw["PostGateway 등<br/>의존성마다 하나의 Bean<br/>@CircuitBreaker @Bulkhead<br/>@TimeLimiter @Retry @RateLimiter"]
-    gw --> http["PostHttpClient<br/>@HttpExchange"]
+    asm["FeedAssembler<br/>호출 순서 · 시간 예산 · 응답 구성"] --> gw["PostGateway 등<br/>의존성마다 하나의 Bean"]
+    gw --> iso["IsolatedCalls<br/>서킷 → TimeLimiter → 벌크헤드<br/>실패 로그"]
+    iso --> http["PostClient 등<br/>@HttpExchange"]
     http --> rc["RestClient<br/>+ HttpClient 5 풀"]
 ```
 
-- **Resilience4j 어노테이션은 의존성별 Gateway Bean에 붙인다.** HTTP Interface 프록시에 바로 붙이지 않고, 같은 클래스 안에서 부르지 않는다(self-invocation이면 AOP가 걸리지 않는다).
-- ThreadPool 벌크헤드와 TimeLimiter를 쓰는 메서드는 `CompletableFuture`를 돌려준다.
-- fallback은 어노테이션의 `fallbackMethod`로 Gateway 안에 두고, 등급별 동작(6장)을 담은 결과 타입을 돌려준다.
+- **격리는 `IsolatedCalls`(`com.weave.feed.gateway`) 한 곳에서 씌운다**(`add-call-isolation` design 결정 1). Gateway는 `isolated.call("post") { client.getLatestPosts(size).posts }`처럼 의존성 이름과 호출 함수만 넘기고, 격리를 씌운 `CompletableFuture`를 받는다. 서킷 브레이커, TimeLimiter, 벌크헤드는 스타터가 만든 레지스트리에서 의존성 이름으로 꺼낸다.
+- **어노테이션을 쓰지 않는 이유:**
+  - 비교 실험(design 결정 11)은 같은 호출을 ThreadPool 벌크헤드와 Semaphore 벌크헤드로 바꿔 돌려야 한다. `@Bulkhead(type = ...)`는 컴파일 때 정해진다. 지금은 `weave.isolation.bulkhead-type`(`thread-pool` 기본 | `semaphore`, `IsolationProperties`) 하나로 바꾼다.
+  - 감싸는 순서(5-4)가 aspect 순서 속성에 흩어지지 않고, self-invocation처럼 프록시를 거치지 않는 호출이 조용히 빠지는 일이 없다. "격리를 거치지 않는 호출이 없다"를 Gateway가 `IsolatedCalls`만 쓰는지로 확인한다.
+  - AOP 의존성을 더하지 않는다.
+- 요청 스레드에서 동기로 부르는 좋아요 토글은 `isolated.callBlocking("like", IsolatedCalls.LIKE_TOGGLE) { ... }`로 부른다. 조회와 같은 `like` 서킷과 Semaphore 벌크헤드 `like-toggle`을 거치고 TimeLimiter는 쓰지 않는다(그룹의 응답 타임아웃이 같은 역할을 한다, design 결정 6).
+- 실패 로그(`downstream_call_failed`)도 `IsolatedCalls`가 감싼 future의 결과에서 한 번만 남긴다. 시간 상한이나 요청 시간 예산이 먼저 끝낸 호출의 뒤늦은 실패는 남기지 않는다.
+- 서킷 상태 전이 로그(`circuit_state_changed`)는 `CircuitStateLog`가 레지스트리의 서킷마다 건다(design 결정 9).
+- fallback(6장)을 어디에 둘지는 `add-graceful-degradation`에서 정한다.
 
 ### 5-3. 설정 구조
 
-모든 모듈을 설정으로 연다. 공통 기본값은 `configs.default`에, 의존성별 값은 `instances.<의존성>`에 둔다. 인스턴스 이름은 `post`, `user`, `like`, `recommendation`, `ad`이다.
+모든 모듈을 설정으로 연다. 공통 기본값은 `configs.default`에, 의존성별 값은 `instances.<의존성>`에 둔다. 인스턴스 이름은 `post`, `user`, `like`, `recommendation`, `ad`이고 HTTP 서비스 그룹 이름과 같다(`IsolatedCalls.DEPENDENCIES`). 설정은 feed-service `application.yml`에 있다.
 
 ```yaml
 resilience4j:
   circuitbreaker:
-    circuit-breaker-aspect-order: 3      # 순서는 5-4
     configs:
       default:
         sliding-window-type: COUNT_BASED
-        sliding-window-size: ...         # 기준선 뒤 채운다
+        sliding-window-size: ...         # 값은 5-6
         failure-rate-threshold: ...
         slow-call-duration-threshold: ...
         slow-call-rate-threshold: ...
         wait-duration-in-open-state: ...
         permitted-number-of-calls-in-half-open-state: ...
         automatic-transition-from-open-to-half-open-enabled: true
-        record-exceptions: [ ... ]       # 5-5
-        ignore-exceptions: [ ... ]
+        record-failure-predicate: com.weave.feed.gateway.CircuitFailurePredicate   # 5-5
+        ignore-exceptions: io.github.resilience4j.bulkhead.BulkheadFullException
     instances:
-      post: { base-config: default }
-      ad: { base-config: default, ... }
+      post: { base-config: default }     # user, like, recommendation, ad도 같다
+  timelimiter:
+    configs:
+      default:
+        cancel-running-future: true
+    instances: { ... }                   # 의존성마다 timeout-duration (4-3)
   thread-pool-bulkhead:
     configs:
       default:
-        context-propagators: [ ... ]     # traceId 전파 (7-3)
-  bulkhead: { ... }                      # Semaphore. 비교 실험과 가상 스레드용
-  timelimiter: { ... }
+        queue-capacity: 0                # 자리가 없으면 바로 거절한다
+        context-propagators: com.weave.feed.gateway.TraceContextPropagator   # traceId 전파 (7-3)
+    instances: { ... }                   # 의존성마다 core-thread-pool-size, max-thread-pool-size
+  bulkhead:                              # Semaphore. 좋아요 토글(like-toggle)과 비교 실험의 Semaphore 모드
+    configs:
+      default:
+        max-wait-duration: 0
+    instances: { like-toggle: ..., post: ..., ... }
   retry: { ... }                         # 고도화 5
   ratelimiter: { ... }                   # ad 쿼터 (고도화 5)
+
+weave:
+  isolation:
+    bulkhead-type: thread-pool           # thread-pool | semaphore (5-2)
 ```
+
+HTTP 클라이언트의 타임아웃과 풀 크기는 Boot 그룹 설정(`spring.http.serviceclient.<그룹>.connect-timeout`, `read-timeout`)과 `weave.http-client.*`(`HttpClientProperties`: `connection-request-timeout`, `max-connections-per-route`, `groups.<그룹>.max-connections`), 요청 시간 예산은 `weave.feed.time-budget`이다.
 
 ### 5-4. 적용 순서
 
-Resilience4j 어노테이션의 기본 순서는 바깥에서 안쪽으로 `Retry → CircuitBreaker → RateLimiter → TimeLimiter → Bulkhead → 호출`이다. 기본 순서를 쓰되 `*-aspect-order` 속성으로 명시해, 순서가 설정과 이 문서에 보이게 한다.
+순서는 바깥에서 안쪽으로 `Retry → CircuitBreaker → RateLimiter → TimeLimiter → Bulkhead → 호출`이다(Resilience4j aspect의 기본 순서와 같다). 순서는 코드 한 곳, `IsolatedCalls.call`에만 있다(5-2). 고도화 3에는 CircuitBreaker → TimeLimiter → Bulkhead가 있고, Retry와 RateLimiter는 고도화 5에서 같은 곳에 더한다. 좋아요 토글(`IsolatedCalls.callBlocking`)은 CircuitBreaker → Semaphore 벌크헤드 → 호출이다.
 
 | 순서 (바깥 → 안) | 이렇게 둔 이유 |
 |---|---|
-| Retry | 재시도 한 번 한 번이 서킷 브레이커를 거쳐, 실패가 서킷에 그대로 집계되고 서킷이 열리면 재시도가 바로 멈춘다 |
+| Retry (고도화 5) | 재시도 한 번 한 번이 서킷 브레이커를 거쳐, 실패가 서킷에 그대로 집계되고 서킷이 열리면 재시도가 바로 멈춘다 |
 | CircuitBreaker | 열려 있으면 RateLimiter, 벌크헤드 자원을 쓰기 전에 바로 실패한다 |
-| RateLimiter | 쿼터는 실제로 나가는 호출에만 쓴다 |
-| TimeLimiter | 벌크헤드 큐에서 기다린 시간까지 타임아웃에 포함한다. 시간 예산은 사용자가 기다리는 시간 기준이기 때문이다 |
-| Bulkhead | 실제 호출을 의존성별 스레드 풀에서 돌린다 |
+| RateLimiter (고도화 5) | 쿼터는 실제로 나가는 호출에만 쓴다 |
+| TimeLimiter | 벌크헤드에서 자리를 잡는 시간까지 호출 시간 상한에 포함한다. 시간 예산은 사용자가 기다리는 시간 기준이기 때문이다 |
+| Bulkhead | 실제 호출을 의존성별 스레드 풀에서 돌린다. Semaphore 모드면 의존성별 허가 수를 잡고 `applicationTaskExecutor`에서 돌린다 |
 
 ### 5-5. 실패 분류
 
-| 분류 | 예외·응답 | 서킷 | 재시도 |
-|---|---|---|---|
-| 하위 서비스 문제 | 연결 실패, 타임아웃, 5xx | 실패로 센다 | 멱등한 호출만 (고도화 5) |
-| 요청 문제 | 4xx(429 제외) | 세지 않는다 | 안 한다 |
-| 속도 조절 | 429 + Retry-After (ad) | F-005 설계에서 정한다 | 안 한다. Retry-After 동안 호출하지 않는다 |
-| 우리 쪽 거절 | 벌크헤드 가득 참, 서킷 열림 | 세지 않는다 | 안 한다 |
+| 분류 | 예외·응답 | 실패 로그 `cause` | 서킷 | 재시도 |
+|---|---|---|---|---|
+| 하위 서비스 문제 | 호출 시간 상한·응답 타임아웃, 연결 실패, 그 밖의 입출력 실패, 5xx | `timeout`, `connect_failure`, `io_failure`, `http_<상태 코드>` | 실패로 센다 | 멱등한 호출만 (고도화 5) |
+| 요청 문제 | 4xx(429 제외) | `http_<상태 코드>` | 세지 않는다 | 안 한다 |
+| 속도 조절 | 429 + Retry-After (ad) | `http_429` | 세지 않는다(4xx). F-005가 Retry-After 처리와 함께 다시 정한다 | 안 한다. Retry-After 동안 호출하지 않는다 |
+| 우리 쪽 거절 | 벌크헤드 가득 참, 서킷 열림, 요청 시간 예산 초과 | `bulkhead_full`, `circuit_open`, `budget_exhausted` | 세지 않는다 | 안 한다 |
+
+- 실패 로그의 `cause`와 서킷의 판정은 같은 분류를 쓴다(`DownstreamFailure.of`, `DownstreamFailure.countsAsCircuitFailure`). 서킷에는 `record-failure-predicate`로 `CircuitFailurePredicate`를 넘긴다(`add-call-isolation` design 결정 7).
+- Resilience4j는 실패 판정이 거짓인 예외를 성공으로 센다. 4xx는 하위 서비스가 응답한 것이라 성공으로 세도 되지만, 벌크헤드 거절(`BulkheadFullException`)은 부르지도 않은 호출이라 `ignore-exceptions`로 아예 세지 않는다. 성공으로 세면 절반이 거절되는 장애(S-02)에서 실패율이 묽어진다.
+- 서킷 열림(`CallNotPermittedException`)은 서킷이 막은 호출이라 서킷에 다시 기록되지 않는다. 예산 초과(`TimeBudgetExhaustedException`)는 `FeedAssembler`가 서킷 밖에서 끝내는 것이라 서킷에 닿지 않는다.
 
 Retry-After 동안 호출을 막는 방법(서킷을 그 시간만큼 열어 두기, 별도 대기 상태 등)은 `add-retry-policy`에서 정한다.
 
@@ -505,7 +530,7 @@ experiments/run-all.sh --list                                 # 돌릴 목록
 | `add-feed-aggregation` (F-006) | 4-1 호출 순서, 4-2 MVP 구성과 기본값 기록, 5-1 클라이언트 구성, 8장 토글 좋아요 |
 | `add-trace-logging` (F-004) | 7-1 ~ 7-3, Compose의 서비스 6개·MySQL·관찰 인프라 |
 | `add-fault-experiments` (F-007) | 9장, 7-4 대시보드, 기준선 기록, 4-3과 5-6을 채울 측정 |
-| `add-call-isolation` (F-001) | 5-2 ~ 5-6, 7-3의 벌크헤드 전파, Resilience4j 4.1.2 호환 확인, 가상 스레드 + Semaphore 벌크헤드 비교(S-02) |
+| `add-call-isolation` (F-001) | 5-2 ~ 5-6, 7-3의 벌크헤드 전파, Resilience4j 4.1.2 호환 확인, 가상 스레드 + Semaphore 벌크헤드 비교(S-02). 5-2의 어노테이션 방식은 `IsolatedCalls` 한 곳에서 감싸는 방식으로 바꿨다(design 결정 1) |
 | `add-graceful-degradation` (F-002) | 6장 |
 | `add-retry-policy` (F-005) | 5-5의 429 처리, Retry·RateLimiter 설정 |
 | `add-idempotent-like` (F-003) | 8장의 고도화 6 항목(카운터 방식 비교 포함), 10장의 속성 기반 테스트 |
@@ -513,8 +538,11 @@ experiments/run-all.sh --list                                 # 돌릴 목록
 ## 13. 남은 것
 
 - 4-3 시간 예산과 5-6 설정값: F-001에서 [MVP 기준선](experiments/baseline-mvp.md)을 근거로 정한다
-- user 로컬 캐시 TTL·크기, post 캐시 키 구조: `add-graceful-degradation`
+- user 로컬 캐시 TTL·크기, post 캐시 키 구조, fallback을 둘 곳(5-2): `add-graceful-degradation`
 - 429와 Retry-After 처리 방식: `add-retry-policy`
 - 좋아요 순서 판단 방법: `add-idempotent-like`
 - S-11의 몰림 부하 크기와 카운터 분할 수: `add-idempotent-like`
-- 가상 스레드 비교의 구성(풀 크기를 Semaphore 상한으로 어떻게 옮길지): `add-call-isolation`
+
+정한 것:
+
+- 가상 스레드 비교의 구성(F-001): `weave.isolation.bulkhead-type: semaphore`와 `spring.threads.virtual.enabled: true`로 바꾸고, Semaphore 벌크헤드 상한은 ThreadPool 벌크헤드 크기와 같게 둔다. 비교하려는 것이 크기가 아니라 격리 방식이어서다(`add-call-isolation` design 결정 11)

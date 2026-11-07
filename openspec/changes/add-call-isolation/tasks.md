@@ -77,7 +77,7 @@
   - `weave.isolation.bulkhead-type: semaphore`면 `applicationTaskExecutor`에서 돌리고 Semaphore 벌크헤드로 감싼다. 기본은 `thread-pool`.
   - Semaphore 모드에서는 공유 풀의 `propagate-context`만으로 문맥을 잇는다. `IsolatedCalls`가 호출 자체에 따로 문맥을 펼치지 않는다(그러면 `FeedTracePropagationOffTest`의 끊김 기록이 성립하지 않는다).
   - 확인: `spring.threads.virtual.enabled=true`와 `semaphore`를 준 `FeedSemaphoreIsolationScenarioTest`(`Integration`)에서 피드가 200이고, 다섯 호출의 traceId가 `X-Trace-Id`와 같으며, 동시 호출 상한을 넘은 호출이 `bulkhead_full`로 끝난다. `FeedTracePropagationOffTest`(Semaphore 모드의 끊김 기록)가 통과한다. `./gradlew :feed-service:test :feed-service:integrationTest`가 1.2의 값 단언 말고는 통과한다.
-- [ ] 2.10 아키텍처 문서를 구현에 맞춘다.
+- [x] 2.10 아키텍처 문서를 구현에 맞춘다.
   - 1장(장애 대응 줄: 레지스트리로 감싸는 방식), 4-2 표(고도화 3 줄), 5-2(어노테이션 대신 `IsolatedCalls`, design 결정 1), 5-4(순서가 코드 한 곳에 있다), 5-5(429는 세지 않음, 결정 7), 12·13장의 F-001 항목을 고친다. 값(4-3, 5-6)은 4장에서 채운다.
   - 확인: 문서의 클래스·속성 이름이 코드에 있다(`grep`으로 확인).
 
