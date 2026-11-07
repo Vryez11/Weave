@@ -78,10 +78,17 @@ class ExperimentRunAllComposeScenarioTest :
                 }
                 result.exitCode shouldBe 0
             }
-            // "준비 실행": 표에는 두 줄뿐이지만 S-01 결과 폴더는 준비 실행과 S-01 둘이다
+            // "준비 실행": 표에는 두 줄뿐이지만 S-01 결과 폴더는 준비 실행과 S-01 둘이다. 준비 실행은 표의 어느 시나리오보다 먼저
+            // 돌았고(폴더 이름이 UTC 시각으로 시작한다) 측정 시간이 1분이다
             withClue("run-all.sh 표준 오류: ${result.stderr}") {
                 result.stderr shouldContain "준비 실행"
-                (ExperimentRuns.resultFolders() - before).count { it.fileName.toString().endsWith("-S-01") } shouldBe 2
+                val created = (ExperimentRuns.resultFolders() - before).sortedBy { it.fileName.toString() }
+                created.count { it.fileName.toString().endsWith("-S-01") } shouldBe 2
+                val warmUp = created.first()
+                withClue("가장 먼저 생긴 결과 폴더 $warmUp 가 준비 실행이어야 한다(만든 폴더: $created)") {
+                    warmUp.fileName.toString().endsWith("-S-01") shouldBe true
+                    ExperimentRuns.report(warmUp)["durationSeconds"].let { (it as Number).toInt() } shouldBe 60
+                }
             }
         }
     })
