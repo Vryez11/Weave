@@ -133,6 +133,12 @@ sequenceDiagram
 - R이 30ms보다 길면 stale 경로에서 user·like가 남은 예산에 잘려 `budget_exhausted`로 빠진다(피드는 200이지만 degrade가 늘어난다). 짧을수록 좋지만, 평시 Redis 응답의 꼬리를 자르면 stale로 대체할 수 있었던 요청이 503이 된다.
 - **값은 Compose에서 잰 뒤 정한다(tasks 4.1).** S-06(post 다운, 400 RPS, 모든 요청이 캐시를 읽는다)을 명령 타임아웃 30ms로 한 번 돌려, feed-service에서 잰 Redis 읽기 지연 분포(Lettuce 명령 지연 지표, Micrometer `lettuce_command_completion_seconds`)를 본다. p99가 10ms(상한의 1/3) 이하면 30ms를 넣는다. 넘으면 값을 넣지 않고 멈춘다. 그때는 Redis 자원 상한이나 예산 배분을 다시 봐야 한다. 같은 로컬 Docker 네트워크라 p99는 1~2ms로 예상한다.
 - 연결 타임아웃도 같은 값이다(결정 4).
+- **측정 결과 (tasks 4.1, 2026-11-07, 이 브랜치 `5f3f3c5` 뒤 `e3f4819`, S-06 400 RPS, `20261107-130950-S-06`):** 캐시 값(타임아웃 30ms, stale 10분, 쓰기 간격 1초, user 캐시 1시간·10,000)은 `FEED_SPRING_APPLICATION_JSON`으로 주고, S-01 준비 실행(측정 1분)으로 데운 뒤 돌렸다.
+  - 피드: 가용성 1(200 120,002건, 503 0), p99 63ms, post degrade(stale) 1, 나머지 의존성 0. post 캐시 읽기는 모두 `hit`.
+  - Redis GET(feed-service에서 잰 `lettuce_seconds`, 측정 구간): 120,003건, p50 0.5ms, p99 1ms 미만(가장 낮은 버킷), 1.05ms 이하 99.90%, 2.10ms 이하 99.95%, 9.79ms 이하 100%. 취소(`CancellationException`)는 0건. `lettuce_seconds_max`의 201ms는 측정 구간 내내 같은 값이라 구간 밖(시작 직후 연결 수립)에서 남은 값으로 보고, 판단은 버킷으로 했다.
+  - Redis 컨테이너: 400 RPS 읽기에서 CPU가 한 코어의 약 2.5~3%(상한 0.5코어), 메모리 11MiB(상한 256MiB). 본 측정 때 `docker stats`를 남기지 않아 같은 구성의 짧은 S-06(측정 40초)에서 쟀다.
+  - p99가 기준(10ms) 아래라 **30ms를 넣었다.** 1ms 남짓의 평시 꼬리와 상한 사이가 30배라, 상한은 Redis가 실제로 멈췄을 때만 걸린다.
+  - Lettuce 지표는 design에 적은 `lettuce_command_completion_seconds`가 아니라 Micrometer 관찰 연동의 `lettuce_seconds`(`db_operation` 태그)였고 히스토그램이 꺼져 있었다. `management.metrics.distribution.percentiles-histogram.lettuce: true`를 main 설정에 더했다(07bd35e).
 
 ### 7. user 로컬 캐시 (Caffeine)
 

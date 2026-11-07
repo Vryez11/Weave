@@ -399,7 +399,7 @@ feed-service `application.yml`에 근거 주석과 함께 둔다. 값은 `add-gr
 |---|---|---|
 | `weave.post-cache.max-staleness` | 10m (tasks 4.3) | PRD 3장 |
 | `weave.post-cache.write-interval` | 1s (tasks 4.3) | 400 RPS에서 매번 쓰면 같은 값을 초당 400번 덮어쓴다. 1초면 `cachedAt`이 최대 1초 이르고, 허용 시간 10분의 0.17%다 |
-| `spring.data.redis.timeout`, `connect-timeout` | 30ms 안 (tasks 4.1에서 S-06으로 재 정한다) | 예산 250ms = post 상한 100 + 읽기 + user·like 상한 100 + 집계 20 → 읽기 ≤ 30ms |
+| `spring.data.redis.timeout`, `connect-timeout` | 30ms (tasks 4.1) | 예산 250ms = post 상한 100 + 읽기 + user·like 상한 100 + 집계 20 → 읽기 ≤ 30ms. S-06(400 RPS, `20261107-130950-S-06`)에서 GET 120,003건의 99.90%가 1.05ms 이하, 모두 9.79ms 이하(기준: p99 ≤ 상한의 1/3). Redis CPU 약 3%(상한 0.5코어) |
 | `weave.user-cache.expire-after-write` | 1h 안 (tasks 4.2) | post stale 허용 10분보다 충분히 길게. 측정이 아니라 판단이다 |
 | `weave.user-cache.maximum-size` | 10000 안 (tasks 4.2) | 항목 약 0.5KB × 1만 ≈ 5MB, 힙 최대 256MB의 2% 남짓 |
 | `management.health.redis.enabled` | false | 6-3 |

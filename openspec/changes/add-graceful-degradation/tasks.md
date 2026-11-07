@@ -91,7 +91,7 @@
 
 **Ralph 루프는 이 묶음을 하지 않는다.** 여기에 오면 progress.md에 "3번 묶음까지 끝남, 4번 묶음은 사람과 함께 `/opsx:apply`로 진행"이라고 적고 `<promise>BLOCKED</promise>`로 멈춘다. Compose 측정이 반복 세션의 명령 시간 제한을 넘을 수 있다. 값을 넣는 작업은 하나씩 커밋하고 본문에 근거를 적는다(커밋 컨벤션).
 
-- [ ] 4.1 Redis 읽기 지연을 재고 읽기 상한을 넣는다(design 결정 6).
+- [x] 4.1 Redis 읽기 지연을 재고 읽기 상한을 넣는다(design 결정 6).
   - 이 브랜치 구성에 `spring.data.redis.timeout`·`connect-timeout` 30ms를 `FEED_SPRING_APPLICATION_JSON`으로 주고 Compose를 띄워 S-01로 데운 뒤 `experiments/run.sh S-06`(400 RPS)을 돌린다. 측정 구간의 Lettuce 명령 지연 p99와 Redis 컨테이너 CPU(`docker stats`)를 본다.
   - p99가 10ms를 넘으면 값을 넣지 않고 멈춘다. 넘지 않으면 30ms를 `application.yml`에 근거 주석과 함께 넣는다.
   - 결과(결과 폴더 이름, p99, CPU)를 design 결정 6과 `docs/architecture.md` 6장에 적는다.
