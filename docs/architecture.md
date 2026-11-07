@@ -1,7 +1,7 @@
 # 아키텍처
 
 - 작성일: 2026-11-04
-- 상태: 초안. 장애 대응 설정값(타임아웃, 문턱, 풀 크기)은 고도화 2의 기준선을 잰 뒤 이 문서에 근거와 함께 채운다.
+- 상태: 초안. 고도화 3(`add-call-isolation`, F-001)까지 반영했다. 격리 설정값과 근거는 4-3과 5-6, 결과는 [고도화 3 결과](experiments/call-isolation.md)에 있다.
 - 근거: [PRD](prd.md)의 단계, SLO, 의존성 등급. 기능 ID별 세부 설계는 OpenSpec change에서 정한다.
 
 ## 1. 결정 요약
@@ -558,12 +558,15 @@ experiments/run-all.sh --list                                 # 돌릴 목록
 
 ## 13. 남은 것
 
-- 4-3 시간 예산과 5-6 설정값: F-001에서 [MVP 기준선](experiments/baseline-mvp.md)을 근거로 정한다
 - user 로컬 캐시 TTL·크기, post 캐시 키 구조, fallback을 둘 곳(5-2): `add-graceful-degradation`
 - 429와 Retry-After 처리 방식: `add-retry-policy`
 - 좋아요 순서 판단 방법: `add-idempotent-like`
 - S-11의 몰림 부하 크기와 카운터 분할 수: `add-idempotent-like`
+- 장애를 넣지 않은 like-service의 순간 막힘(고도화 3의 S-04·S-08·S-09)과 like-service 컨테이너 메모리(G1에서 512MiB 중 약 500MiB)의 원인: [고도화 3 결과](experiments/call-isolation.md) "남은 것"
 
 정한 것:
 
+- 4-3 시간 예산과 5-6 설정값(F-001): [MVP 기준선](experiments/baseline-mvp.md)과 값을 넣기 전의 평시 꼬리 지연 측정을 근거로 정했다
+- 서비스 JVM의 GC(F-001): G1(9-1, `add-call-isolation` design 결정 15)
 - 가상 스레드 비교의 구성(F-001): `weave.isolation.bulkhead-type: semaphore`와 `spring.threads.virtual.enabled: true`로 바꾸고, Semaphore 벌크헤드 상한은 ThreadPool 벌크헤드 크기와 같게 둔다. 비교하려는 것이 크기가 아니라 격리 방식이어서다(`add-call-isolation` design 결정 11)
+- 가상 스레드 비교 결과(F-001): 격리 효과가 같고 400 RPS에서 기본 구성이 스레드에 묶이지 않아 기본 구성(플랫폼 스레드 + ThreadPool 벌크헤드)을 유지한다([고도화 3 결과](experiments/call-isolation.md))
