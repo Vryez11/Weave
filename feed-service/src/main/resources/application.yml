@@ -34,8 +34,9 @@ resilience4j:
     configs:
       default:
         # 최근 10초로 판단한다. 호출 100개(400 RPS에서 0.25초) 창은 like-service의 1.05초 GC 멈춤만으로 차서 서킷이 5초 열렸다.
-        # 10초면 1초 멈춤은 창의 약 10%라 문턱에 못 미친다. 계속 실패하는 장애는 최소 호출 100개가 차는 0.25초 안에 지금처럼 연다.
-        # 창이 차기 전(시작 직후 JIT 준비 등)에는 열지 않는다 (design 결정 7, 16)
+        # 10초면 1초 멈춤은 창의 약 10%라 문턱에 못 미친다. 대신 계속 실패하는 장애도 창 전체의 실패율이 문턱을 넘어야 열려,
+        # 평시 뒤의 장애는 빨리 실패하면 약 5초, 무응답이면 약 6.7초 뒤에 연다(S-03 실측 7~12초). 최근 10초의 호출이 100개가 되기 전
+        # (시작 직후 JIT 준비 등)에는 열지 않는다 (design 결정 7, 16)
         sliding-window-type: TIME_BASED
         sliding-window-size: 10
         minimum-number-of-calls: 100
@@ -64,7 +65,8 @@ resilience4j:
   timelimiter:
     configs:
       default:
-        # 상한이 지나면 future를 취소해 벌크헤드 대기열에서 아직 시작하지 않은 일을 뺀다 (design 결정 3)
+        # Resilience4j 기본값과 같다. CompletionStage 경로는 상한이 지나면 future를 끝내기만 하고 취소하지 않아 효과가 없다.
+        # 상한이 지난 호출이 스레드·커넥션을 놓는 시점은 응답 타임아웃(read-timeout)이 정한다 (design 결정 3)
         cancel-running-future: true
     # 호출 시간 상한. 기준선 S-01의 평시 호출 p99(51.0~53.7ms)의 약 2배(아키텍처 4-3). 평시에 100ms 경계(89.48ms)를 넘는 비율은
     # post 0.0119%, user 0.0076%, like 0.0136%로 합 0.033%(가용성 예산의 절반 0.05% 아래), 200ms 경계(178.96ms)는 0 (design 결정 3)
