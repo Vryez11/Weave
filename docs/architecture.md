@@ -147,7 +147,7 @@ feed-service에 용량 설정(`weave.http-client.max-connections-per-route`, `sp
 - 확인 방법: feed-service의 `@SpringBootTest(webEnvironment = RANDOM_PORT)` 테스트 컨텍스트(위 속성 없음)에서 객체를 꺼내 읽었다. 스레드 풀은 `applicationTaskExecutor` Bean의 `corePoolSize`·`maxPoolSize`·`queueCapacity`와 `threadPoolExecutor.queue`, 커넥션 풀과 타임아웃은 클라이언트 Bean(`PostClient` 등)에서 객체 그래프를 따라가 찾은 `PoolingHttpClientConnectionManager`(`defaultMaxPerRoute`, `maxTotal`, 연결·소켓 설정)와 `InternalHttpClient`의 기본 `RequestConfig`, Tomcat은 `TomcatWebServer`의 커넥터 프로토콜 핸들러(`maxThreads` 등)다. 커넥션 풀을 찾는 코드는 feed-service 테스트 소스의 `HttpClientPools`에 있다. 타임아웃 3분 값들과 Tomcat 값은 `MvpTimeoutDefaultsTest`가 같은 방법으로 다시 확인했다. 고도화 3(`add-call-isolation`, F-001)에서 MVP 값을 단언하던 `MvpTimeoutDefaultsTest`, `HttpClientPoolCapacityTest`, `TaskExecutorCapacityTest`는 격리 값을 같은 방법으로 보는 `IsolationSettingsTest`로 바뀌었고, MVP 값의 기록은 이 표다. 코어 스레드 시간 초과와 keep-alive는 `TaskExecutorKeepAliveTest`가 `applicationTaskExecutor`의 `keepAliveSeconds`와 `threadPoolExecutor.allowsCoreThreadTimeOut()`로, 기본 재시도는 `HttpClientRetryDefaultsTest`가 `DefaultHttpRequestRetryStrategy.INSTANCE`의 `retryRequest`·`getRetryInterval`에 상태 코드 400~599를 넣어 본다. 재시도를 끈 결과(실패한 의존성에 요청 한 번)는 feed 시나리오 테스트가 본다.
 - design 결정 8 표의 예상(라우트당 5, 전체 25, 코어 8, Tomcat 200)과 같아 용량 계산 비교는 그대로다.
 
-### 4-3. 시간 예산 (초기안)
+### 4-3. 시간 예산
 
 p99 300ms(PRD 2장) 안에 응답하기 위한 나눔이다. 하위 서비스의 평시 p99는 약 50ms로 둔다(PRD F-007). 아래 예산은 출발점이고, F-001에서 "기준선 평시 p99" 열을 근거로 확정한다.
 
@@ -160,6 +160,8 @@ p99 300ms(PRD 2장) 안에 응답하기 위한 나눔이다. 하위 서비스의
 | recommendation, ad | recommendation 51.0ms, ad 51.2ms | 200ms | ①+② 안에 끝나면 된다. 선택 등급이라 더 기다리지 않는다 |
 | 집계·직렬화와 여유 | | 약 50ms | 남은 예산 |
 | **전체** | 피드 92ms | **250ms** | p99 300ms에 여유 50ms |
+
+**확정 (F-001, 2026-11-07).** 위 예산을 그대로 의존성별 호출 시간 상한(post·user·like 100ms, recommendation·ad 200ms)과 요청 시간 예산(250ms)으로 쓴다. 값을 넣기 전에 MVP 구성으로 S-01(400 RPS, `20261107-033746-S-01`)을 다시 재 평시 호출이 상한에 걸리는 비율을 봤다. 100ms 상한은 89.48ms 경계를 넘는 비율이 post 0.0119%, user 0.0076%, like 0.0136%, 200ms 상한은 178.96ms 경계를 넘는 호출이 없었다. 셋을 합쳐도 0.033%로, 평시 타임아웃으로 인한 피드 실패가 가용성 예산(0.1%)의 절반 아래다. 측정과 판단의 자세한 내용은 `add-call-isolation` design 결정 3이다.
 
 - ②는 남은 예산 안에서만 기다린다. ①이 80ms 걸렸으면 ②에 줄 수 있는 시간은 전체 예산에서 그만큼 줄어든다.
 - 하위 서비스에 남은 예산을 헤더로 넘기는 것(deadline 전파)은 다루지 않는다. 하위 서비스가 다시 다른 서비스를 부르지 않기 때문이다.
