@@ -6,7 +6,8 @@
 # 1. 시나리오 ID와 옵션을 확인한다. 없는 ID면 있는 ID 목록을 출력하고 2로 끝난다(아무것도 바꾸지 않는다).
 # 2. Compose 환경(feed-service, Toxiproxy, 하위 서비스 5개)이 healthy인지 본다. 아니면 띄우는 명령을 알려 주고 2로 끝난다.
 # 3. trap(EXIT, INT, TERM)을 건다. 어떻게 끝나도 장애를 모두 되돌린다(k6/reset.js). 되돌리지 못하면 2로 끝난다.
-# 4. 장애를 되돌리고 feed-service를 다시 띄워 healthy가 될 때까지 기다린다(앞 실행이 남긴 스레드를 지운다).
+# 4. 장애를 되돌리고 feed-service를 다시 띄워 healthy가 될 때까지 기다린다(앞 실행이 남긴 스레드와 user 캐시를 지운다).
+#    그 뒤 post 캐시(redis)를 비운다. redis가 떠 있지 않으면 표준 오류에 한 줄 적고 계속한다.
 # 5. results/<UTC yyyyMMdd-HHmmss>-<S-xx>/에 k6 요약(summary.json)과 원본(raw.json, 끝나면 raw.json.gz)을 쓴다.
 # 6. k6가 0이나 99(threshold 넘음)로 끝나면 판정(lib/verdict.sh), degrade 비율(lib/degrade.sh), 10초 구간(lib/windows.sh), Prometheus 질의로
 #    report.json과 report.md를 쓴다. report.json 형식은 e2e ExperimentRunComposeScenarioTest KDoc이 정한다.
@@ -239,6 +240,14 @@ while :; do
   waited=$((waited + 2))
 done
 log "feed-service가 healthy다(${waited}초 기다림)"
+
+# post 캐시는 준비 구간이 다시 채운다. 다시 띄운 뒤에 비워 앞 프로세스가 남긴 비동기 쓰기가 섞이지 않게 한다.
+# Redis가 떠 있지 않으면 그 실험의 조건일 수 있어 비우지 않고 계속한다. 캐시는 장애가 아니라 끝날 때는 비우지 않는다
+if flushed="$(compose exec -T redis redis-cli FLUSHDB 2>&1)" && [ "$flushed" = OK ]; then
+  log "post 캐시를 비웠다(redis FLUSHDB)"
+else
+  log "post 캐시를 비우지 못해 그대로 둔다(redis가 떠 있지 않다?): ${flushed//$'\n'/ }"
+fi
 
 # ---------- 5. 부하 ----------
 

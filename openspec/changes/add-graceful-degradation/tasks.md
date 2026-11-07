@@ -78,7 +78,7 @@
 - [x] 3.3 degrade 비율 판정 기준을 넣는다(design 결정 12).
   - `slo.json`의 `degradeRatio`, `lib/verdict.sh`가 기대 객체의 `degradeRatio` 키를 읽는다. `run-all.sh` 판정 표의 "기대" 열에 degrade 기준을 적는다. `expectations.json`은 아직 바꾸지 않는다(4.4).
   - 확인: 1.3의 판정 테스트 중 "지금 단계의 기대"를 뺀 것이 `./gradlew :e2e:integrationTest`로 통과한다.
-- [ ] 3.4 `run.sh`가 시작할 때 post 캐시를 비운다(design 결정 12).
+- [x] 3.4 `run.sh`가 시작할 때 post 캐시를 비운다(design 결정 12).
   - Redis가 떠 있지 않으면 비우지 않고 표준 오류에 한 줄 적고 계속한다. 끝날 때의 되돌리기에는 넣지 않는다(캐시는 장애가 아니다).
   - `docs/architecture.md` 9-3의 `run.sh` 설명을 고친다.
   - 확인: `/bin/bash -n experiments/run.sh`가 통과한다. 동작은 1.4의 "앞에 남은 post 캐시"(5.2).

@@ -200,3 +200,12 @@
 - 다음 반복이 알아 둘 것:
   - 다음은 3.4(`run.sh` 시작 때 post 캐시 비우기). Redis 서비스 이름은 `redis`, `docker compose exec -T redis redis-cli FLUSHDB`(design 결정 12). `run.sh`의 장애 되돌리기 위치를 찾아 그 뒤(시작 때만)에 둔다.
 ---
+
+## 2026-11-07 22:10 - 3.4 `run.sh`가 시작할 때 post 캐시를 비운다
+- `run.sh` 4단계: feed-service가 healthy가 된 뒤 `compose exec -T redis redis-cli FLUSHDB`. 출력이 `OK`가 아니면(Redis가 멈춤 등) 표준 오류에 한 줄(줄바꿈을 공백으로) 적고 계속한다. 다시 띄운 뒤에 비워 앞 프로세스의 비동기 쓰기가 섞이지 않게 했다. `cleanup`(끝날 때 되돌리기)에는 넣지 않았다. 머리 주석 4번도 고쳤다.
+- `docs/architecture.md` 9-3의 `run.sh` 설명에 post 캐시 비우기와 Redis가 없을 때를 적었다.
+- 확인: 컨테이너 bash로 `bash -n run.sh` 통과(호스트 `/bin/bash -n`은 권한에서 막혔다). Compose가 없을 때 `docker compose exec -T redis ...`가 1로 끝나는 것을 봤다(else 분기). `ktlintCheck`, `compileKotlin compileTestKotlin`, `:e2e:test`, `openspec validate` 통과. `:e2e:integrationTest` 45개 중 실패 1개("지금 단계의 기대", 4.4 몫). 동작은 5.2 Compose 테스트 "앞에 남은 post 캐시"가 본다.
+- 바꾼 파일: `experiments/run.sh`, `experiments/CLAUDE.md`(컨테이너 bash로 구문 검사), `docs/architecture.md`, tasks.md, progress.md
+- 다음 반복이 알아 둘 것:
+  - 다음은 3.5(대시보드 degrade 행). `jq . docker/grafana/dashboards/feed-experiments.json`으로 확인한다. 지표 이름은 "알아 둘 패턴"의 지표 줄, 대시보드 Compose 테스트(`ExperimentDashboardComposeScenarioTest`) KDoc을 먼저 본다.
+---
