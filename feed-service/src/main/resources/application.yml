@@ -91,6 +91,10 @@ resilience4j:
       ad: { base-config: default }
 
 weave:
+  feed:
+    # 피드 요청 하나의 시간 예산. p99 300ms(PRD 2장)에 여유 50ms. post 100ms + user·like 100ms = 200ms라 예산이 먼저 끝나는 것은
+    # 벌크헤드 대기나 스레드 전환 지연이 쌓일 때뿐이다 (아키텍처 4-3, design 결정 4)
+    time-budget: 250ms
   isolation:
     # thread-pool(기본) | semaphore. semaphore면 조회를 applicationTaskExecutor에서 돌리고 Semaphore 벌크헤드로 감싼다.
     # 가상 스레드 비교 실험에서만 spring.threads.virtual.enabled: true와 함께 바꾼다 (design 결정 11)
