@@ -71,3 +71,14 @@
   - 2.6의 영역 결과 카운터는 200 응답마다 의존성 5개에 하나씩이다. 테스트의 "대체를 센다"는 앞선 정상 요청의 user `fresh` +1이 보인 뒤 값을 기준으로 둔다. 응답 뒤에 세도 `eventually`(5초)로 기다린다.
   - 다음 작업은 2.1(응답 계약)이다. 1장은 모두 끝났다.
 ---
+
+## 2026-11-07 20:57 - 2.1 응답 계약을 바꾼다
+- `FeedResponse.degradation`(`Degradation(missing: List<String>, stale: List<StaleSection(section, cachedAt)>)`), `FeedAuthor.unknown`(기본값 false, `nickname`·`profileImageUrl` nullable), `FeedLike.count: Long?`, `MyLike.UNKNOWN`. 기존 `FeedAssemblerTest`가 `FeedAuthor(id, nickname, url)`로 만들어서 `unknown`에 기본값을 뒀다.
+- 응답 구성 함수 `com.weave.feed.degradation.FeedDegradation.compose(posts: PostSource, users, likes, recommendations, ads: Result<List<...>>): ComposedFeed(response, sections)`. `PostSource`는 `Fresh(posts)`·`Stale(posts, cachedAt)`, `sections`는 의존성 이름 → `SectionOutcome`(`FRESH`·`CACHED`·`STALE`·`MISSING`, `tag`가 지표 태그)이고 늘 5개가 `post, user, like, recommendation, ad` 순서다. `degradation`은 `sections`에서 만든다. 지금은 실패 `Result`면 `getOrThrow()`로 던진다.
+- `FeedAssembler`는 post future와 "post 뒤 user·like" future(`Pair`)를 따로 들고, 지금처럼 `budget.await`(던진다)로 받아 `Result.success`로 넘긴다. 게시글이 없으면 user·like는 빈 목록의 성공이다.
+- 확인: `FeedDegradationTest` 5개 통과, `FeedAggregationScenarioTest` 17개 통과. `:feed-service:integrationTest` 실패 42 → 38(빠진 것: aggregation 2, `FeedDegradationScenarioTest` "모든 하위 서비스가 정상", `FeedPostCacheOutageScenarioTest` "죽었고 post는 정상"). 새 실패 없음. `:feed-service:test`, `ktlintCheck`, `openspec validate` 통과.
+- 바꾼 파일: `FeedResponse.kt`, `FeedAssembler.kt`, `degradation/FeedDegradation.kt`(새 파일), `src/test/.../degradation/FeedDegradationTest.kt`(새 파일), tasks.md, progress.md
+- 다음 반복이 알아 둘 것:
+  - **`FeedDegradationTest`는 이제 커밋돼 Ralph가 고치지 못한다.** 2.2의 "등급별 단언"은 새 파일(예: `degradation/FeedDegradationGradeTest.kt`)에 둔다. `compose`의 지금 매개변수는 바꾸지 말고, 더할 것(user 캐시 조회 결과 등)은 기본값 있는 매개변수로, 출력은 `ComposedFeed`에 필드를 더한다(테스트는 읽기만 한다).
+  - **2.2·2.4 전에 사람이 봐야 할 수 있다(BLOCKED 후보):** 커밋된 단위 테스트 `FeedAssemblerBudgetTest`가 지금 동작(실패하면 던진다)을 단언한다. "마감이 지나면 끝나지 않은 의존성만 budget_exhausted …"(user·recommendation이 끝나지 않으면 `CompletionException`)와 "예산 안에 먼저 실패한 의존성이 있으면 … 그 실패로 끝난다"(ad 실패면 던진다)는 2.2 뒤 200이 되어야 하고, "post가 끝났을 때 남은 예산이 없으면 …"(post 뒤 user·like 예산 초과면 `CompletionException`)도 2.2 뒤에는 user·like가 빠진 200이다. 2.2에서 이 셋이 깨지면 테스트를 고쳐야 하므로 멈춘다. 로그 단언(`budget_exhausted` 줄)은 그대로 쓸 수 있다.
+---

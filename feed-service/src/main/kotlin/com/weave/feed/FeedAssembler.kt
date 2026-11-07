@@ -3,6 +3,8 @@ package com.weave.feed
 import com.weave.feed.client.like.LikeResponse
 import com.weave.feed.client.post.PostResponse
 import com.weave.feed.client.user.UserResponse
+import com.weave.feed.degradation.FeedDegradation
+import com.weave.feed.degradation.PostSource
 import com.weave.feed.gateway.AdGateway
 import com.weave.feed.gateway.DownstreamFailure
 import com.weave.feed.gateway.LikeGateway
@@ -24,8 +26,9 @@ import java.util.concurrent.TimeoutException
 /**
  * 하위 서비스를 불러 피드를 만든다 (design 결정 4, 아키텍처 4-1).
  *
- * post, recommendation, ad를 한꺼번에 시작하고, post가 끝나면 user와 like를 함께 시작한다.
- * 하나라도 실패하면 그 실패가 `CompletionException`으로 올라가 피드 전체가 실패한다.
+ * post, recommendation, ad를 한꺼번에 시작하고, post가 끝나면 user와 like를 함께 시작한다. 받은 결과로 응답을 만드는 것은
+ * [FeedDegradation.compose]다(add-graceful-degradation design 결정 3). 지금은 하나라도 실패하면 그 실패가 `CompletionException`으로
+ * 올라가 피드 전체가 실패한다. 등급별 대체는 add-graceful-degradation tasks 2.2부터다.
  *
  * 요청 시간 예산(add-call-isolation design 결정 4): 요청을 받은 시각에 [timeBudget]만큼 뒤를 마감으로 정하고(시계는 [clock]),
  * 의존성마다 마감까지 남은 시간만 기다린다. post가 끝났을 때 남은 시간이 없으면 user와 like를 부르지 않는다. 마감이 지나면
@@ -47,51 +50,34 @@ class FeedAssembler(
         size: Int,
     ): FeedResponse {
         val budget = RequestBudget(clock.instant() + timeBudget, clock)
-        val posts = budget.call("post") { postGateway.getLatestPosts(size) }.thenCompose { fillDetails(budget, userId, it) }
+        val posts = budget.call("post") { postGateway.getLatestPosts(size) }
+        val details = posts.thenCompose { fetchDetails(budget, userId, it) }
         val recommendations = budget.call("recommendation") { recommendationGateway.getRecommendations() }
         val ads = budget.call("ad") { adGateway.getAds() }
 
-        return FeedResponse(
-            posts = budget.await(posts),
-            recommendations = budget.await(recommendations).map { FeedRecommendation(it.postId, it.title, it.reason) },
-            ads = budget.await(ads).map { FeedAd(it.id, it.title, it.imageUrl, it.landingUrl) },
-        )
+        val postList = budget.await(posts)
+        val (users, likes) = budget.await(details)
+        return FeedDegradation
+            .compose(
+                posts = PostSource.Fresh(postList),
+                users = Result.success(users),
+                likes = Result.success(likes),
+                recommendations = Result.success(budget.await(recommendations)),
+                ads = Result.success(budget.await(ads)),
+            ).response
     }
 
-    private fun fillDetails(
+    /** 게시글의 작성자와 좋아요를 함께 부른다. 게시글이 없으면 부르지 않고 둘 다 빈 목록이다. */
+    private fun fetchDetails(
         budget: RequestBudget,
         userId: Long,
         posts: List<PostResponse>,
-    ): CompletableFuture<List<FeedPost>> {
-        if (posts.isEmpty()) return CompletableFuture.completedFuture(emptyList())
+    ): CompletableFuture<Pair<List<UserResponse>, List<LikeResponse>>> {
+        if (posts.isEmpty()) return CompletableFuture.completedFuture(emptyList<UserResponse>() to emptyList())
 
         val users = budget.call("user") { userGateway.getUsers(posts.map { it.authorId }.distinct()) }
         val likes = budget.call("like") { likeGateway.getLikes(userId, posts.map { it.id }) }
-        return users.thenCombine(likes) { userList, likeList -> toFeedPosts(posts, userList, likeList) }
-    }
-
-    private fun toFeedPosts(
-        posts: List<PostResponse>,
-        users: List<UserResponse>,
-        likes: List<LikeResponse>,
-    ): List<FeedPost> {
-        val usersById = users.associateBy { it.id }
-        val likesByPostId = likes.associateBy { it.postId }
-        return posts.map { post ->
-            val like = likesByPostId[post.id]
-            FeedPost(
-                id = post.id,
-                title = post.title,
-                content = post.content,
-                createdAt = post.createdAt,
-                author = usersById[post.authorId]?.let { FeedAuthor(it.id, it.nickname, it.profileImageUrl) },
-                like =
-                    FeedLike(
-                        count = like?.likeCount ?: 0,
-                        myLike = if (like?.liked == true) MyLike.LIKED else MyLike.NOT_LIKED,
-                    ),
-            )
-        }
+        return users.thenCombine(likes) { userList, likeList -> userList to likeList }
     }
 }
 

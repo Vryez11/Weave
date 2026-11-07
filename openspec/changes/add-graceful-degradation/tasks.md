@@ -40,7 +40,7 @@
 
 ## 2. 대체 구현
 
-- [ ] 2.1 응답 계약을 바꾼다(design 결정 2).
+- [x] 2.1 응답 계약을 바꾼다(design 결정 2).
   - `FeedResponse`에 `degradation`(`missing`, `stale`), `FeedAuthor`에 `unknown`, `FeedLike.count`를 nullable로, `MyLike`에 `UNKNOWN`. 정상 응답은 빈 목록과 `unknown` false다. 응답 구성 함수(design 결정 3)를 `com.weave.feed.degradation`에 두고 `FeedAssembler`가 쓴다. 아직 실패는 지금처럼 던진다.
   - 확인: `FeedDegradationTest`(정상 입력)와 1.2의 응답 구성 시나리오가 통과한다.
 - [ ] 2.2 의존성 결과를 값으로 받고 중요·선택 등급을 대체한다(design 결정 1, 3).
