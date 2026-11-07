@@ -82,7 +82,7 @@
   - Redis가 떠 있지 않으면 비우지 않고 표준 오류에 한 줄 적고 계속한다. 끝날 때의 되돌리기에는 넣지 않는다(캐시는 장애가 아니다).
   - `docs/architecture.md` 9-3의 `run.sh` 설명을 고친다.
   - 확인: `/bin/bash -n experiments/run.sh`가 통과한다. 동작은 1.4의 "앞에 남은 post 캐시"(5.2).
-- [ ] 3.5 대시보드에 degrade 행을 더한다(design 결정 12).
+- [x] 3.5 대시보드에 degrade 행을 더한다(design 결정 12).
   - 의존성별 degrade 비율(분모가 0이면 0), post 캐시 읽기 결과, user 캐시로 채운 응답, 피드 503. 대시보드 설명의 "degrade 패널은 F-002에서 더한다"를 지운다.
   - `docs/architecture.md` 7-4 표의 degrade 줄을 채운다.
   - 확인: `jq . docker/grafana/dashboards/feed-experiments.json`이 통과한다. Compose 확인은 5.2.

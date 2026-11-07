@@ -209,3 +209,14 @@
 - 다음 반복이 알아 둘 것:
   - 다음은 3.5(대시보드 degrade 행). `jq . docker/grafana/dashboards/feed-experiments.json`으로 확인한다. 지표 이름은 "알아 둘 패턴"의 지표 줄, 대시보드 Compose 테스트(`ExperimentDashboardComposeScenarioTest`) KDoc을 먼저 본다.
 ---
+
+## 2026-11-07 22:25 - 3.5 대시보드에 degrade 행을 더한다
+- `feed-experiments.json`에 "degrade (feed-service)" 행(id 21~25, y 44~61): 의존성별 degrade 비율(`(stale|missing 비율) / (전체 > 0) or 전체 * 0`로 분모 0이면 0, 1% 선), post 캐시 읽기 결과(`outcome`별 초당), user 캐시로 채운 응답(`section="user",outcome="cached"` 초당), 피드 503(`status="503"` 초당, `or vector(0)`). 대시보드 설명의 "degrade 패널은 F-002에서 더한다"를 지웠다.
+- `docs/architecture.md` 7-4 표의 degrade 줄을 채웠다.
+- 확인: `jq .` 통과. Prometheus만 띄워 네 질의 구문을 봤고, 전체 Compose를 띄워 피드 40번 부른 뒤 네 질의가 모두 시계열을 돌려주는 것을 봤다(degrade 비율 5개, post 캐시 읽기 4개). 환경은 `down -v`로 내렸다. `openspec validate` 통과. Compose 테스트는 5.2.
+- 바꾼 파일: `docker/grafana/dashboards/feed-experiments.json`, `docs/architecture.md`, tasks.md, progress.md
+- 다음 반복이 알아 둘 것:
+  - 콜드 JVM에서 첫 피드는 503(`cache_miss`), 그 뒤 40초 동안 like degrade가 약 2.6%였다. 평시 like degrade(4.4의 1% 미만 기준)는 S-01로 데운 뒤 재야 한다.
+  - Prometheus 질의는 `docker compose exec -T prometheus wget -qO- --post-data 'query=...' http://localhost:9090/api/v1/query`로 확인할 수 있다(URL 인코딩 없이 `&`·`+`만 피하면 된다).
+  - 3장이 끝났다. 다음은 4번 묶음이라 Ralph는 하지 않는다(사람과 `/opsx:apply`).
+---
