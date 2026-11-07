@@ -28,7 +28,7 @@
   - `FeedDegradationScenarioTest`: "부분 응답 표시"(둘), "중요·선택 등급의 실패는 피드를 실패시키지 않는다"(넷), "선택 영역 빼기"(둘), "좋아요 상태를 모름으로 내린다".
   - `FeedUserProfileCacheScenarioTest`: "작성자 프로필을 로컬 캐시로 채운다"(넷). 유효 기간은 시나리오에서 속성으로 1초를 준다.
   - 확인: `./gradlew :feed-service:integrationTest`에서 이 시나리오들이 실패하고(컴파일 오류가 아니다), `./gradlew :feed-service:test`는 통과한다.
-- [ ] 1.6 post stale 캐시와 Redis 장애 시나리오를 옮긴다.
+- [x] 1.6 post stale 캐시와 Redis 장애 시나리오를 옮긴다.
   - `FeedPostStaleCacheScenarioTest`: "게시글을 stale 캐시로 대체한다"(셋), "게시글을 대체할 수 없으면 503"(셋), "대체 설정값은 설정으로 바꾼다". Testcontainers `GenericContainer("redis:8.2.2")`를 클래스에서 공유하고, 시각은 테스트 `Clock` Bean으로 움직인다(design 결정 11). 시나리오 사이에 `FLUSHDB`한다.
   - `FeedPostCacheOutageScenarioTest`: "대체 수단의 장애는 피드를 막지 않는다"(넷). 응답하지 않는 Redis는 `CLIENT PAUSE 1000 ALL`, 죽은 Redis는 듣지 않는 포트.
   - 테스트에서 시계를 바꾸는 방법과 환경 변수 형식 속성(`WEAVE_POSTCACHE_MAXSTALENESS`)을 주는 방법을 KDoc에 적는다.

@@ -21,6 +21,8 @@
   - e2e `integrationTest` 실패 5개: `ExperimentDegradeRatioScenarioTest` 3(3.2), `ExperimentVerdictScenarioTest` "평시에 영역이 빠진다"(3.3), "지금 단계의 기대"(4.4).
   - Compose 테스트(5.2)는 3장과 4.4 뒤에 통과한다.
 - **1.5 뒤:** feed-service `integrationTest` 실패가 26개다. 위 11개에 더해 `FeedDegradationScenarioTest` 11개(2.1·2.2), `FeedUserProfileCacheScenarioTest` 4개(2.3).
+- **1.6 뒤:** 37개다. 위 26개에 더해 2.4에서 통과해야 할 11개: `FeedPostStaleCacheScenarioTest` 5, `FeedPostUnavailableDeadlineScenarioTest` 1, `FeedPostStaleCacheOverrideScenarioTest` 1, `FeedPostCacheOutageScenarioTest` 2("죽었고 post는 정상"은 2.1의 `degradation`만 있으면 통과할 수 있다), `FeedPostCacheReadPauseScenarioTest` 1, `FeedPostCacheWritePauseScenarioTest` 1.
+- **2.4가 지켜야 할 것(1.6 테스트 KDoc):** `cachedAt`, stale 판단, 쓰기 간격을 모두 `Clock` Bean으로 잰다(테스트가 시나리오마다 시계를 1시간 옮겨 같은 키를 다시 쓴다). 캐시 쓰기는 비동기이고 테스트는 키가 생길 때까지 기다린다. `weave.post-cache.*` 값이 없는 기존 테스트 컨텍스트도 떠야 한다(4.3 전까지, user 캐시와 같다).
 - user 캐시 속성(`weave.user-cache.*`)은 새 시나리오 클래스만 `@SpringBootTest(properties)`로 준다. 기존 테스트 컨텍스트와 test `config/application.yml`(커밋돼 Ralph가 고칠 수 없다)에는 값이 없다. 2.3은 값이 없어도 컨텍스트가 떠야 한다(4.2 전까지). 못 하면 멈춘다.
 
 ## 반복 기록
@@ -42,4 +44,17 @@
   - `FeedDegradationScenarioTest`는 user 캐시가 컨텍스트에 남는다. `user`가 빠졌다고 단언하는 "모두 실패"는 그 클래스에서 user-service가 돌려준 적 없는 작성자 7, 8을 쓴다.
   - 응답 계약 단언: like 실패면 `like`가 `{"count": null, "myLike": "UNKNOWN"}`(null 키가 있어야 한다), 모르는 작성자는 `{"id", "nickname": null, "profileImageUrl": null, "unknown": true}`다.
   - `-Pkotest.filter.specs='*A|*B'`는 거르지 않았다(151개가 다 돌았다). 결과는 XML에서 클래스별로 본다.
+---
+
+## 2026-11-07 20:45 - 1.6 post stale 캐시와 Redis 장애 시나리오를 테스트로 옮긴다
+- 컨텍스트 설정이 시나리오마다 달라 파일 두 개에 클래스 여섯 개를 뒀다.
+  - `FeedPostStaleCacheScenarioTest.kt`: `FeedPostStaleCacheScenarioTest`(stale 셋, 503 중 "캐시가 없다"·"10분을 넘었다"), `FeedPostUnavailableDeadlineScenarioTest`("503도 시간 안에", post 상한 100ms·예산 250ms), `FeedPostStaleCacheOverrideScenarioTest`(`WEAVE_POSTCACHE_MAXSTALENESS=1m`).
+  - `FeedPostCacheOutageScenarioTest.kt`: `FeedPostCacheOutageScenarioTest`(죽은 Redis `localhost:1`, 둘), `FeedPostCacheReadPauseScenarioTest`(`CLIENT PAUSE`, 읽기 상한 30ms), `FeedPostCacheWritePauseScenarioTest`(`CLIENT PAUSE`, 명령 타임아웃 2초. 30ms면 동기 쓰기도 300ms 안에 들어와 시나리오가 가르지 못한다).
+- 새 테스트 도구: `MovableClock.kt`(실제 시간 + 옮긴 거리, `MovableClockConfiguration`이 `@Primary`로 둔다), `PostCacheRedis.kt`(`redis:8.2.2` 컨테이너 하나, `redis-cli` exec, `warmUp`은 size 1~5로 쓰기가 남을 때까지 피드를 불러 연결을 맺는다).
+- "N분 전 캐시"는 앱이 정상 요청으로 쓰게 하고(값 형식을 테스트가 만들지 않는다) 키가 생길 때까지 기다린 뒤 시계를 옮긴다. `cachedAt`은 그 요청의 앞뒤 시각(앞쪽 1초 여유) 안이어야 한다.
+- 확인: `:feed-service:integrationTest` 실패 37개(기존 26 + 새 11), 새 실패는 모두 단언 실패(캐시 키 없음, 500≠503, `degradation` null)다. `:feed-service:test`, `ktlintCheck`, `openspec validate`는 통과.
+- 바꾼 파일: 위 테스트 네 파일(새 파일), `feed-service/CLAUDE.md`(테스트 도구 한 줄), tasks.md, progress.md
+- 다음 반복이 알아 둘 것:
+  - 2.4의 Redis 첫 연결: `warmUp`은 쓰기 다섯 번 중 하나만 남으면 된다. 읽기 상한 30ms 클래스도 연결 타임아웃은 2초로 준다.
+  - 시간을 재는 시나리오는 GIVEN 전에 같은 경로(503 경로는 `size=7`)를 한 번 지난다. 그래도 흔들리면 테스트가 아니라 구현의 첫 요청 비용을 본다.
 ---
