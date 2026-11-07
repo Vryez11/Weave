@@ -18,6 +18,7 @@ import java.time.Clock
 import java.time.Duration
 import java.time.Instant
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CompletableFuture.completedFuture
 import java.util.concurrent.CompletionException
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeUnit
@@ -27,13 +28,14 @@ import java.util.concurrent.TimeoutException
  * 하위 서비스를 불러 피드를 만든다 (design 결정 4, 아키텍처 4-1).
  *
  * post, recommendation, ad를 한꺼번에 시작하고, post가 끝나면 user와 like를 함께 시작한다. 받은 결과로 응답을 만드는 것은
- * [FeedDegradation.compose]다(add-graceful-degradation design 결정 3). 지금은 하나라도 실패하면 그 실패가 `CompletionException`으로
- * 올라가 피드 전체가 실패한다. 등급별 대체는 add-graceful-degradation tasks 2.2부터다.
+ * [FeedDegradation.compose]다(add-graceful-degradation design 결정 3). post 결과를 먼저 받고, user·like·recommendation·ad의 결과는
+ * 실패도 값([Result])으로 받아 넘겨 등급대로 대체한다. post가 실패하면 아직 그 실패가 `CompletionException`으로 올라가 피드 전체가
+ * 실패한다(stale 캐시와 503은 add-graceful-degradation tasks 2.4).
  *
  * 요청 시간 예산(add-call-isolation design 결정 4): 요청을 받은 시각에 [timeBudget]만큼 뒤를 마감으로 정하고(시계는 [clock]),
  * 의존성마다 마감까지 남은 시간만 기다린다. post가 끝났을 때 남은 시간이 없으면 user와 like를 부르지 않는다. 마감이 지나면
  * 끝나지 않은 의존성마다(부르지 않은 user·like 포함) `budget_exhausted` 실패 로그를 남기고 [TimeBudgetExhaustedException]으로
- * 끝낸 뒤 그 예외로 실패한다. 예산 값은 `weave.feed.time-budget`이다(아키텍처 4-3).
+ * 끝내며, 그 의존성은 다른 실패와 같이 등급대로 대체한다. 예산 값은 `weave.feed.time-budget`이다(아키텍처 4-3).
  */
 @Component
 class FeedAssembler(
@@ -51,19 +53,18 @@ class FeedAssembler(
     ): FeedResponse {
         val budget = RequestBudget(clock.instant() + timeBudget, clock)
         val posts = budget.call("post") { postGateway.getLatestPosts(size) }
-        val details = posts.thenCompose { fetchDetails(budget, userId, it) }
+        val details = posts.thenApply { fetchDetails(budget, userId, it) }
         val recommendations = budget.call("recommendation") { recommendationGateway.getRecommendations() }
         val ads = budget.call("ad") { adGateway.getAds() }
 
         val postList = budget.await(posts)
-        val (users, likes) = budget.await(details)
         return FeedDegradation
             .compose(
                 posts = PostSource.Fresh(postList),
-                users = Result.success(users),
-                likes = Result.success(likes),
-                recommendations = Result.success(budget.await(recommendations)),
-                ads = Result.success(budget.await(ads)),
+                users = budget.awaitResult(details.thenCompose { it.users }),
+                likes = budget.awaitResult(details.thenCompose { it.likes }),
+                recommendations = budget.awaitResult(recommendations),
+                ads = budget.awaitResult(ads),
             ).response
     }
 
@@ -72,13 +73,20 @@ class FeedAssembler(
         budget: RequestBudget,
         userId: Long,
         posts: List<PostResponse>,
-    ): CompletableFuture<Pair<List<UserResponse>, List<LikeResponse>>> {
-        if (posts.isEmpty()) return CompletableFuture.completedFuture(emptyList<UserResponse>() to emptyList())
+    ): Details {
+        if (posts.isEmpty()) return Details(completedFuture(emptyList()), completedFuture(emptyList()))
 
-        val users = budget.call("user") { userGateway.getUsers(posts.map { it.authorId }.distinct()) }
-        val likes = budget.call("like") { likeGateway.getLikes(userId, posts.map { it.id }) }
-        return users.thenCombine(likes) { userList, likeList -> userList to likeList }
+        return Details(
+            users = budget.call("user") { userGateway.getUsers(posts.map { it.authorId }.distinct()) },
+            likes = budget.call("like") { likeGateway.getLikes(userId, posts.map { it.id }) },
+        )
     }
+
+    /** 게시글 하나 목록으로 시작한 user·like 호출. 결과는 따로 받아 하나가 실패해도 다른 하나는 쓴다(design 결정 3). */
+    private class Details(
+        val users: CompletableFuture<List<UserResponse>>,
+        val likes: CompletableFuture<List<LikeResponse>>,
+    )
 }
 
 /**
@@ -134,6 +142,17 @@ internal class RequestBudget(
             return future.join()
         }
     }
+
+    /**
+     * [await]처럼 기다리되 실패를 던지지 않고 값으로 돌려준다(add-graceful-degradation design 결정 3). 실패의 종류(HTTP 오류, 시간 상한,
+     * 서킷 열림, 벌크헤드 거절, [TimeBudgetExhaustedException])는 가리지 않는다. 실패 로그는 이미 [IsolatedCalls]나 [expire]가 남겼다.
+     */
+    fun <T> awaitResult(future: CompletableFuture<T>): Result<T> =
+        try {
+            Result.success(await(future))
+        } catch (e: CompletionException) {
+            Result.failure(e.cause ?: e)
+        }
 
     /** 끝나지 않은 호출을 모두 [TimeBudgetExhaustedException]으로 끝내고 의존성마다 실패 로그를 남긴다. */
     fun expire() {

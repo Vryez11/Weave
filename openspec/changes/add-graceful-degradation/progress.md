@@ -100,3 +100,14 @@
 - design 결정 15와 tasks 2.2·2.4를 고쳤다: 등급별 단언은 새 `degradation/FeedDegradationGradeTest`, post 흐름 단언은 새 `FeedAssemblerPostFlowTest`에 둔다.
 - **`FeedAssembler`에 매개변수를 더할 때는 기본값을 둔다.** 커밋된 `FeedAssemblerTest`, `FeedAssemblerBudgetTest`가 Gateway 다섯, `timeBudget`, `clock`만으로 직접 만든다(design 결정 15). 기본값이 없으면 컴파일이 깨져 다시 멈춘다.
 ---
+
+## 2026-11-07 21:20 - 2.2 의존성 결과를 값으로 받고 중요·선택 등급을 대체한다
+- `RequestBudget.awaitResult(future): Result<T>`를 더했다(`await`를 감싸 `CompletionException`의 원인을 실패로 돌려준다). post는 아직 `await`로 받아 실패하면 던진다(2.4).
+- `FeedAssembler`: `posts.thenApply { fetchDetails(...) }`가 `Details(users, likes)`(future 둘)를 만들고, user·like를 `details.thenCompose { it.users }`처럼 따로 `awaitResult`로 받는다. 한 콜백에서 user → like 순서로 부른다(따로 `thenCompose`를 걸면 비동기 완료 때 LIFO라 순서가 뒤집힌다). 2.4의 stale 경로는 `fetchDetails(budget, userId, 캐시의 게시글)`을 요청 스레드에서 바로 부르면 된다.
+- `FeedDegradation.compose`: 실패한 `Result`면 user는 작성자마다 `FeedAuthor(authorId, null, null, unknown = true)`, like는 `FeedLike(null, UNKNOWN)`, recommendation·ad는 빈 목록이고 영역은 `MISSING`. 매개변수는 그대로다.
+- 확인: 새 `degradation/FeedDegradationGradeTest` 7개, `FeedAssemblerBudgetTest` 5개(빠진다 셋 포함), `FeedDegradationScenarioTest` 11개, `FeedCallIsolationBudgetScenarioTest`·`FeedCallIsolationScenarioTest` 통과. `:feed-service:integrationTest` 실패 38 → 20, 새 실패 없음. `:feed-service:test`, `ktlintCheck`, `compileKotlin compileTestKotlin`, `openspec validate` 통과.
+- 바꾼 파일: `FeedAssembler.kt`, `degradation/FeedDegradation.kt`, `src/test/.../degradation/FeedDegradationGradeTest.kt`(새 파일), `feed-service/CLAUDE.md`, tasks.md, progress.md
+- 다음 반복이 알아 둘 것:
+  - 남은 실패 20개: `FeedUserProfileCacheScenarioTest` 3(2.3. "유효 기간이 지났다"는 이제 통과한다), `FeedPostStaleCacheScenarioTest` 5·`FeedPostUnavailableDeadlineScenarioTest` 1·`FeedPostStaleCacheOverrideScenarioTest` 1·`FeedPostCacheOutageScenarioTest` 1·`FeedPostCacheReadPauseScenarioTest` 1·`FeedPostCacheWritePauseScenarioTest` 1·`FeedTraceLogScenarioTest` 2(2.4), `FeedFallbackLogScenarioTest` 3(2.5), `FeedDegradationMetricsScenarioTest` 2(2.6).
+  - 2.3의 user 캐시 채움은 `compose`에 기본값 있는 매개변수(예: 캐시에서 찾은 프로필 `Map<Long, UserResponse>`)로 넣고, 모두 채우면 `CACHED`로 가른다. `FeedDegradationGradeTest`의 "user 실패" 단언은 캐시 입력이 없을 때의 것이라 그대로 맞다.
+---

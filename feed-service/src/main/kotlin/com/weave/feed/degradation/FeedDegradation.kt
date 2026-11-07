@@ -23,7 +23,9 @@ import java.time.Instant
  * ([ComposedFeed.sections])로 바꾸기만 한다. 응답의 `degradation`은 영역 결과에서 만들어, 실제로 대체한 것과 어긋나지 않는다.
  *
  * 게시글이 없으면 user·like를 부르지 않으므로 `FeedAssembler`는 둘에 빈 목록의 성공을 넘긴다. 그 영역은 정상이다(design 결정 10).
- * 지금은 실패한 결과를 받으면 그 실패를 던진다. 등급표(PRD 3장)대로 대체하는 것은 tasks 2.2부터다.
+ *
+ * 실패한 결과는 실패의 종류와 관계없이 등급표(PRD 3장)대로 대체하고 그 영역을 `missing`으로 둔다: user는 작성자마다 `unknown`,
+ * like는 모든 게시글이 `count` null과 `UNKNOWN`, recommendation·ad는 빈 목록이다.
  */
 object FeedDegradation {
     fun compose(
@@ -36,16 +38,16 @@ object FeedDegradation {
         val sections =
             linkedMapOf(
                 POST to if (posts is PostSource.Stale) SectionOutcome.STALE else SectionOutcome.FRESH,
-                USER to SectionOutcome.FRESH,
-                LIKE to SectionOutcome.FRESH,
-                RECOMMENDATION to SectionOutcome.FRESH,
-                AD to SectionOutcome.FRESH,
+                USER to users.outcome(),
+                LIKE to likes.outcome(),
+                RECOMMENDATION to recommendations.outcome(),
+                AD to ads.outcome(),
             )
         val response =
             FeedResponse(
-                posts = toFeedPosts(posts.posts, users.getOrThrow(), likes.getOrThrow()),
-                recommendations = recommendations.getOrThrow().map { FeedRecommendation(it.postId, it.title, it.reason) },
-                ads = ads.getOrThrow().map { FeedAd(it.id, it.title, it.imageUrl, it.landingUrl) },
+                posts = toFeedPosts(posts.posts, users.getOrNull(), likes.getOrNull()),
+                recommendations = recommendations.getOrDefault(emptyList()).map { FeedRecommendation(it.postId, it.title, it.reason) },
+                ads = ads.getOrDefault(emptyList()).map { FeedAd(it.id, it.title, it.imageUrl, it.landingUrl) },
                 degradation =
                     Degradation(
                         missing = sections.filterValues { it == SectionOutcome.MISSING }.keys.toList(),
@@ -55,26 +57,39 @@ object FeedDegradation {
         return ComposedFeed(response, sections)
     }
 
+    /** 실패한 결과는 대체 방법과 관계없이 빠진 영역이다. user를 로컬 캐시로 채운 경우(`cached`)는 tasks 2.3에서 가른다. */
+    private fun Result<*>.outcome(): SectionOutcome = if (isSuccess) SectionOutcome.FRESH else SectionOutcome.MISSING
+
+    /** [users]가 null(user 실패)이면 작성자는 모두 `unknown`, [likes]가 null(like 실패)이면 좋아요는 모두 `UNKNOWN`이다. */
     private fun toFeedPosts(
         posts: List<PostResponse>,
-        users: List<UserResponse>,
-        likes: List<LikeResponse>,
+        users: List<UserResponse>?,
+        likes: List<LikeResponse>?,
     ): List<FeedPost> {
-        val usersById = users.associateBy { it.id }
-        val likesByPostId = likes.associateBy { it.postId }
+        val usersById = users?.associateBy { it.id }
+        val likesByPostId = likes?.associateBy { it.postId }
         return posts.map { post ->
-            val like = likesByPostId[post.id]
             FeedPost(
                 id = post.id,
                 title = post.title,
                 content = post.content,
                 createdAt = post.createdAt,
-                author = usersById[post.authorId]?.let { FeedAuthor(it.id, it.nickname, it.profileImageUrl) },
+                author =
+                    if (usersById == null) {
+                        FeedAuthor(id = post.authorId, nickname = null, profileImageUrl = null, unknown = true)
+                    } else {
+                        usersById[post.authorId]?.let { FeedAuthor(it.id, it.nickname, it.profileImageUrl) }
+                    },
                 like =
-                    FeedLike(
-                        count = like?.likeCount ?: 0,
-                        myLike = if (like?.liked == true) MyLike.LIKED else MyLike.NOT_LIKED,
-                    ),
+                    if (likesByPostId == null) {
+                        FeedLike(count = null, myLike = MyLike.UNKNOWN)
+                    } else {
+                        val like = likesByPostId[post.id]
+                        FeedLike(
+                            count = like?.likeCount ?: 0,
+                            myLike = if (like?.liked == true) MyLike.LIKED else MyLike.NOT_LIKED,
+                        )
+                    },
             )
         }
     }

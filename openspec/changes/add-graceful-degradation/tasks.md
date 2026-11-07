@@ -43,7 +43,7 @@
 - [x] 2.1 응답 계약을 바꾼다(design 결정 2).
   - `FeedResponse`에 `degradation`(`missing`, `stale`), `FeedAuthor`에 `unknown`, `FeedLike.count`를 nullable로, `MyLike`에 `UNKNOWN`. 정상 응답은 빈 목록과 `unknown` false다. 응답 구성 함수(design 결정 3)를 `com.weave.feed.degradation`에 두고 `FeedAssembler`가 쓴다. 아직 실패는 지금처럼 던진다.
   - 확인: `FeedDegradationTest`(정상 입력)와 1.2의 응답 구성 시나리오가 통과한다.
-- [ ] 2.2 의존성 결과를 값으로 받고 중요·선택 등급을 대체한다(design 결정 1, 3).
+- [x] 2.2 의존성 결과를 값으로 받고 중요·선택 등급을 대체한다(design 결정 1, 3).
   - `RequestBudget`에 결과를 값으로 돌려주는 기다리기를 더하고, post future와 "post 뒤 user·like" future를 따로 든다. user 실패는 아직 모두 `unknown`, like는 `UNKNOWN`, recommendation·ad는 빈 목록. post 실패는 아직 던진다(2.4).
   - 확인: 등급별 단언(`FeedDegradationTest`는 커밋돼 고칠 수 없으니 새 `degradation/FeedDegradationGradeTest`에 둔다), 1.5의 `FeedDegradationScenarioTest`, 1.2의 예산 시나리오, 대화형으로 고친 `FeedAssemblerBudgetTest`의 "빠진다" 세 테스트가 통과한다. `FeedAssembler`에 더하는 매개변수는 기본값을 둔다.
 - [ ] 2.3 user 로컬 캐시를 넣는다(design 결정 7).
