@@ -82,3 +82,15 @@
   - **`FeedDegradationTest`는 이제 커밋돼 Ralph가 고치지 못한다.** 2.2의 "등급별 단언"은 새 파일(예: `degradation/FeedDegradationGradeTest.kt`)에 둔다. `compose`의 지금 매개변수는 바꾸지 말고, 더할 것(user 캐시 조회 결과 등)은 기본값 있는 매개변수로, 출력은 `ComposedFeed`에 필드를 더한다(테스트는 읽기만 한다).
   - **2.2·2.4 전에 사람이 봐야 할 수 있다(BLOCKED 후보):** 커밋된 단위 테스트 `FeedAssemblerBudgetTest`가 지금 동작(실패하면 던진다)을 단언한다. "마감이 지나면 끝나지 않은 의존성만 budget_exhausted …"(user·recommendation이 끝나지 않으면 `CompletionException`)와 "예산 안에 먼저 실패한 의존성이 있으면 … 그 실패로 끝난다"(ad 실패면 던진다)는 2.2 뒤 200이 되어야 하고, "post가 끝났을 때 남은 예산이 없으면 …"(post 뒤 user·like 예산 초과면 `CompletionException`)도 2.2 뒤에는 user·like가 빠진 200이다. 2.2에서 이 셋이 깨지면 테스트를 고쳐야 하므로 멈춘다. 로그 단언(`budget_exhausted` 줄)은 그대로 쓸 수 있다.
 ---
+
+## 2026-11-07 20:58 - 2.2 의존성 결과를 값으로 받고 중요·선택 등급을 대체한다 (BLOCKED)
+- 구현하지 않고 멈췄다. 코드는 바꾸지 않았다.
+- 이유: 2.2를 구현하면 커밋된 단위 테스트 `feed-service/src/test/kotlin/com/weave/feed/FeedAssemblerBudgetTest.kt`의 세 테스트가 깨진다. 셋 다 `shouldThrow<CompletionException> { assembler.assemble(...) }`로 지금 동작(피드 실패)을 단언하는데, `graceful-degradation`·`call-isolation` 델타는 같은 상황에서 대체한 응답을 요구한다. 테스트를 고쳐야 통과하는 경우이고, Ralph 중에는 훅이 `src/test/` 수정을 막는다. design 결정 15의 표도 post 흐름 단언을 "`FeedAssemblerTest`, `FeedAssemblerBudgetTest`(기존)에 더한다"로 적어 커밋된 파일 수정을 전제한다(2.4도 같다). 1.2의 `grep "500\|INTERNAL_SERVER_ERROR\|is5xx"`에 이 단위 테스트가 걸리지 않아 빠진 것으로 보인다.
+  - 103행 "post가 끝났을 때 남은 예산이 없으면 user와 like를 부르지 않고, 둘 다 budget_exhausted로 실패한다": 2.2 뒤에는 던지지 않고 user·like(post Gateway가 시계를 250ms 옮기므로 recommendation·ad도)가 `missing`인 응답이다.
+  - 127행 "마감이 지나면 끝나지 않은 의존성만 budget_exhausted 실패 로그를 남기고 그 future를 끝낸다": 2.2 뒤에는 user·recommendation이 `missing`인 응답이다.
+  - 149행 "예산 안에 먼저 실패한 의존성이 있으면 예산 초과가 아니라 그 실패로 끝난다": 2.2 뒤에는 ad만 `missing`인 응답이다.
+- 사람에게 제안(대화형으로 고친 뒤 루프를 다시 돌린다):
+  - 세 테스트의 `shouldThrow`를 `val feed = assembler.assemble(...)`로 바꾸고 `feed.degradation.missing`을 단언한다(103행 `shouldContainAll listOf("user", "like")`, 127행 `shouldContainAll listOf("user", "recommendation")`, 149행 `shouldBe listOf("ad")`). 103행은 작성자 `unknown`·`myLike` `UNKNOWN`도 볼 수 있다. `verify`, `budget_exhausted` 로그 단언, 127행의 `users.join()`·`recommendations.join()` 단언은 그대로 둔다. 149행 이름은 "…먼저 실패한 의존성이 있으면 budget_exhausted가 아니라 그 의존성만 빠진다"처럼 바꾼다. 기능 ID는 `F-001, F-002`.
+  - 2.4가 더할 post 흐름 단언(실패면 캐시, 캐시 없으면 예외, 503이면 recommendation·ad를 기다리지 않음, stale 경로의 예산)도 같은 이유로 Ralph가 이 두 파일에 더할 수 없다. 사람이 같이 더해 두거나, design 결정 15를 "새 파일(예: `FeedAssemblerPostFlowTest`)"로 고쳐 Ralph가 새 파일에 두게 한다.
+- 바꾼 파일: progress.md
+---
