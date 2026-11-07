@@ -51,7 +51,7 @@
   - `Clock` Bean을 두고 `FeedAssembler`가 받게 한다(design 결정 11).
   - 확인: `UserProfileCacheTest`와 1.5의 `FeedUserProfileCacheScenarioTest`가 통과한다.
 - [ ] 2.4 post stale 캐시와 503을 넣는다(design 결정 4, 5, 8).
-  - `PostStaleCache`(키·값 형식, stale 판단, 비동기 쓰기와 키별 쓰기 간격, 대기열 50에서 버림), Lettuce `REJECT_COMMANDS` customizer, `management.health.redis.enabled: false`를 main 설정에. post 실패면 요청 스레드에서 읽고, 쓸 수 없으면 `PostsUnavailableException` → `FeedController`가 503(`{"error":"posts_unavailable"}`)이다. 503이면 recommendation·ad를 기다리지 않는다.
+  - `PostStaleCache`(키·값 형식, stale 판단, 비동기 쓰기와 키별 쓰기 간격, 대기열 50에서 버림), Lettuce `REJECT_COMMANDS` customizer(`management.health.redis.enabled: false`는 1.1 뒤에 main 설정에 넣었다. Redis 스타터가 Redis 헬스를 켜 bootJar의 헬스가 DOWN이 됐다). post 실패면 요청 스레드에서 읽고, 쓸 수 없으면 `PostsUnavailableException` → `FeedController`가 503(`{"error":"posts_unavailable"}`)이다. 503이면 recommendation·ad를 기다리지 않는다.
   - `weave.post-cache.*`와 Redis 타임아웃은 구조만 두고 값은 4장에서 넣는다(그때까지는 테스트 속성).
   - 확인: `PostStaleCacheTest`, `FeedAssemblerTest`의 post 흐름 단언, 1.6의 두 시나리오 테스트가 통과한다.
 - [ ] 2.5 대체 이벤트 로그를 남긴다(design 결정 9).

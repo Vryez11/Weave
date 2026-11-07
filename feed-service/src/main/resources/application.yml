@@ -142,6 +142,11 @@ server:
       enabled: true
 
 management:
+  health:
+    # post stale 캐시 저장소(Redis)는 선택적 대체 수단이라 feed-service 헬스(Compose healthcheck, run.sh의 대기)를 내리지 않는다.
+    # Redis가 죽어도 post-service가 정상이면 피드는 정상이다 (add-graceful-degradation design 결정 4)
+    redis:
+      enabled: false
   metrics:
     distribution:
       # 피드 요청과 의존성별 호출 지연의 p99를 Prometheus에서 계산한다 (add-fault-experiments design 결정 4)

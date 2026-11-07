@@ -33,9 +33,3 @@ weave:
     connection-request-timeout: 2s
   feed:
     time-budget: 5s
-
-management:
-  health:
-    # Redis는 선택적 대체 수단이라 헬스를 내리지 않는다 (design 결정 4). main 설정에는 2.4에서 넣는다
-    redis:
-      enabled: false
