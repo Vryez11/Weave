@@ -114,7 +114,7 @@
   - `docs/experiments/graceful-degradation.md`에 고도화 3과 같은 형식의 표를 만들고, 고도화 3·기준선과 나란히 가용성·p99·degrade 비율을 비교한다. S-04의 user `cached` 비율, S-06의 stale 비율과 Redis 읽기 지연, S-01의 like degrade(고도화 3 "남은 것"의 like 순간 막힘)를 적는다. 실험 데이터가 고정이라 user 캐시 적중률이 현실보다 높다는 한계를 적는다.
   - 확인: `experiments/run-all.sh`가 0으로 끝나고, 문서의 표가 그 실행의 리포트 값과 같다.
 - [ ] 5.2 Compose 테스트를 돌린다. 확인: `./gradlew :e2e:composeTest`가 통과한다(1.4에서 고친 시나리오 포함).
-- [ ] 5.3 PRD와 아키텍처를 마무리한다.
+- [x] 5.3 PRD와 아키텍처를 마무리한다.
   - PRD F-002 수용 기준을 체크하고, F-004의 "fallback" 부분 진행을 적는다(재시도는 F-005에 남는다). 10장 "남은 것"에서 user 캐시 TTL과 post 캐시 키 구조를 "정한 것"으로 옮긴다.
   - `docs/architecture.md` 맨 위 상태 줄과 13장을 고친다.
   - 확인: PRD와 아키텍처에 F-002의 남은 항목이 없다.
