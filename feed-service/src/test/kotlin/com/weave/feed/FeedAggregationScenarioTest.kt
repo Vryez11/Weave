@@ -10,7 +10,6 @@ import io.kotest.extensions.spring.testContextManager
 import io.kotest.matchers.collections.shouldBeEmpty
 import io.kotest.matchers.collections.shouldContainExactlyInAnyOrder
 import io.kotest.matchers.collections.shouldHaveSize
-import io.kotest.matchers.longs.shouldBeGreaterThanOrEqual
 import io.kotest.matchers.longs.shouldBeLessThan
 import io.kotest.matchers.shouldBe
 import org.springframework.boot.test.context.SpringBootTest
@@ -18,14 +17,32 @@ import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
 
 /**
- * `feed-aggregation` 스펙에서 "종단 간 동작"을 뺀 시나리오 (F-006).
+ * `feed-aggregation` 스펙에서 "종단 간 동작"을 뺀 시나리오 (F-006, F-001).
  *
  * 하위 서비스 다섯은 WireMock 하나로 흉내 내고([DownstreamWireMock]), 호출 여부와 파라미터는 WireMock의 요청 기록으로 본다.
- * 시간 기준은 스펙의 숫자(1,200ms 미만, 2초 이상)를 그대로 쓴다(design 결정 9).
- * "연결할 수 없다" 시나리오는 주소 설정이 달라 [FeedUnreachableScenarioTest]에 있다.
+ * 시간 기준은 스펙의 숫자(1,200ms 미만)를 그대로 쓴다(add-feed-aggregation design 결정 9).
+ * "서로 기다리지 않는다"의 GIVEN(의존성마다 호출 시간 상한 1초, 요청 시간 예산 2초)은 이 클래스의 속성으로 준다.
+ * 다른 시나리오는 지연 없이 응답하므로 이 값에 영향을 받지 않는다(add-call-isolation design 결정 13).
+ * "연결할 수 없다" 시나리오는 주소 설정이 달라 [FeedUnreachableScenarioTest]에, "하위 서비스 하나가 느리다"는
+ * recommendation의 상한이 달라 [FeedSlowDependencyScenarioTest]에 있다.
  */
 @Tags("Integration")
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(
+    webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+    properties = [
+        "resilience4j.timelimiter.instances.post.timeout-duration=1s",
+        "resilience4j.timelimiter.instances.user.timeout-duration=1s",
+        "resilience4j.timelimiter.instances.like.timeout-duration=1s",
+        "resilience4j.timelimiter.instances.recommendation.timeout-duration=1s",
+        "resilience4j.timelimiter.instances.ad.timeout-duration=1s",
+        "spring.http.serviceclient.post.read-timeout=1s",
+        "spring.http.serviceclient.user.read-timeout=1s",
+        "spring.http.serviceclient.like.read-timeout=1s",
+        "spring.http.serviceclient.recommendation.read-timeout=1s",
+        "spring.http.serviceclient.ad.read-timeout=1s",
+        "weave.feed.time-budget=2s",
+    ],
+)
 class FeedAggregationScenarioTest :
     FunSpec({
         extensions(SpringExtension())
@@ -183,7 +200,7 @@ class FeedAggregationScenarioTest :
                 likeRequests.single().getHeader("X-User-Id") shouldBe "1"
             }
 
-            test("F-006 서로 기다리지 않는다: 다섯 의존성이 각각 400ms 늦으면 피드가 1,200ms 안에 온다") {
+            test("F-006 서로 기다리지 않는다: 호출 시간 상한 1초·예산 2초에서 다섯 의존성이 각각 400ms 늦으면 피드가 1,200ms 안에 200으로 온다") {
                 // 첫 요청의 클래스 로딩과 연결 수립이 측정에 섞이지 않게 지연 없이 한 번 먼저 부른다.
                 stubAllHealthy()
                 feed().getFeed()
@@ -197,9 +214,9 @@ class FeedAggregationScenarioTest :
             }
         }
 
-        context("보호 장치 없는 실패 전파") {
+        context("하위 서비스 실패는 시간 안에 피드 실패로 끝난다") {
             DownstreamWireMock.dependencies.forEach { dependency ->
-                test("F-006 하위 서비스 하나가 5xx: $dependency 가 503을 주면 피드는 500이고 $dependency 에는 한 번만 요청한다") {
+                test("F-001 하위 서비스 하나가 5xx: $dependency 가 503을 주면 피드는 500이고 $dependency 에는 한 번만 요청한다") {
                     stubAllHealthy()
                     wireMock.stubFailure(dependency, 503)
 
@@ -210,7 +227,7 @@ class FeedAggregationScenarioTest :
                 }
             }
 
-            test("F-006 하위 서비스가 속도 조절 응답을 준다: ad가 429와 Retry-After 1을 주면 피드는 500이고 ad에는 한 번만 요청한다") {
+            test("F-001 하위 서비스가 속도 조절 응답을 준다: ad가 429와 Retry-After 1을 주면 피드는 500이고 ad에는 한 번만 요청한다") {
                 stubAllHealthy()
                 wireMock.stubFailure("ad", 429, retryAfterSeconds = 1)
 
@@ -218,17 +235,6 @@ class FeedAggregationScenarioTest :
 
                 response.status shouldBe 500
                 wireMock.requestsTo("/ads") shouldHaveSize 1
-            }
-
-            test("F-006 하위 서비스 하나가 느리다: recommendation이 2초 늦으면 2초 넘게 기다린 뒤 추천까지 채워진 200이 온다") {
-                stubAllHealthy()
-                wireMock.stubRecommendations(delayMs = 2_000)
-
-                val response = feed().getFeed()
-
-                response.status shouldBe 200
-                response.elapsedMs shouldBeGreaterThanOrEqual 2_000
-                response.json()["recommendations"] shouldBe wireMock.recommendations
             }
         }
 

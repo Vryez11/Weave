@@ -1,0 +1,223 @@
+package com.weave.feed.gateway
+
+import com.weave.feed.gateway.IsolationProperties.BulkheadType
+import io.github.resilience4j.bulkhead.Bulkhead
+import io.github.resilience4j.bulkhead.BulkheadRegistry
+import io.github.resilience4j.bulkhead.ThreadPoolBulkhead
+import io.github.resilience4j.bulkhead.ThreadPoolBulkheadRegistry
+import io.github.resilience4j.circuitbreaker.CircuitBreaker
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry
+import io.github.resilience4j.timelimiter.TimeLimiter
+import io.github.resilience4j.timelimiter.TimeLimiterRegistry
+import io.micrometer.context.ContextSnapshot
+import io.micrometer.core.instrument.Counter
+import io.micrometer.core.instrument.MeterRegistry
+import org.slf4j.MDC
+import org.springframework.beans.factory.DisposableBean
+import org.springframework.beans.factory.annotation.Qualifier
+import org.springframework.boot.context.properties.EnableConfigurationProperties
+import org.springframework.stereotype.Component
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CompletionStage
+import java.util.concurrent.Executor
+import java.util.concurrent.ScheduledThreadPoolExecutor
+import java.util.function.Predicate
+import java.util.function.Supplier
+
+/**
+ * 하위 서비스 조회를 격리해 부르는 유일한 경로 (add-call-isolation design 결정 1, 5, 7).
+ *
+ * 의존성마다 서킷 브레이커 → 호출 시간 상한(TimeLimiter) → ThreadPool 벌크헤드 → 호출 순서로 감싼다. 순서는 [call] 한 곳에만 있다.
+ * 시간 상한은 벌크헤드 대기까지 포함하고, 열린 서킷은 벌크헤드 자리를 쓰지 않는다. 인스턴스는 스타터가 `resilience4j.*` 설정으로
+ * 만든 레지스트리에서 의존성 이름으로 꺼낸다.
+ *
+ * 실패 로그(`downstream_call_failed`)는 감싼 future의 결과에서 한 번만 남긴다. 시간 상한이 먼저 끝낸 호출이 나중에 응답 타임아웃으로
+ * 실패해도 그 실패는 버린다. 시간 상한 초과는 [timeoutScheduler] 스레드에서 끝나므로, 호출한 스레드의 MDC(`traceId`)를 받아 두고
+ * 그 MDC로 로그를 남긴다.
+ *
+ * 벌크헤드 거절 수는 Resilience4j 지표에 없어 `weave.bulkhead.rejected.calls`(태그 `name`)로 센다. 대시보드 질의가 장애 없이도
+ * 시계열을 받게 의존성마다 0부터 등록한다(design Open Questions).
+ *
+ * 요청 스레드에서 동기로 부르는 호출(좋아요 토글)은 [callBlocking]으로 부른다(design 결정 6).
+ *
+ * `weave.isolation.bulkhead-type: semaphore`면 ThreadPool 벌크헤드 대신 같은 이름의 Semaphore 벌크헤드로 자리를 잡고
+ * [taskExecutor](`applicationTaskExecutor`)에서 부른다(design 결정 11). 감싸는 순서와 실패 로그는 같다. 이때 호출 스레드의 trace는
+ * 공유 풀의 `propagate-context`만으로 잇고, 호출 자체에는 따로 문맥을 펼치지 않는다(전파를 끄면 끊기는 것을 기록으로 남긴다).
+ * Semaphore 모드는 가상 스레드(`spring.threads.virtual.enabled: true`)와 함께 쓰는 비교 실험용이다. 가상 스레드 없이 켜면
+ * `applicationTaskExecutor`가 Boot 기본값(코어 8, 대기열 무제한)이라, 벌크헤드 자리를 잡은 호출이 그 대기열에서 기다리며 시간 상한을 쓴다.
+ *
+ * 시간 상한 초과는 [timeoutScheduler] 스레드 하나가 처리한다. 상한이 한꺼번에 몰리면(GC 뒤 등) 서킷 기록, 실패 로그, 이어 붙인 일이
+ * 그 스레드에서 차례로 돈다. 실험(400 RPS)에서는 문제가 보이지 않아 지켜볼 항목으로만 둔다.
+ */
+@Component
+@EnableConfigurationProperties(IsolationProperties::class)
+class IsolatedCalls(
+    circuitBreakers: CircuitBreakerRegistry,
+    timeLimiters: TimeLimiterRegistry,
+    bulkheads: ThreadPoolBulkheadRegistry,
+    semaphoreBulkheads: BulkheadRegistry,
+    meterRegistry: MeterRegistry,
+    properties: IsolationProperties,
+    @Qualifier("applicationTaskExecutor") private val taskExecutor: Executor,
+) : DisposableBean {
+    private val bulkheadType = properties.bulkheadType
+
+    private val timeoutScheduler =
+        ScheduledThreadPoolExecutor(1) { Thread(it, "isolation-timeout").apply { isDaemon = true } }
+            // 시간 안에 끝난 호출의 시간 초과 작업을 바로 지운다. 지우지 않으면 상한이 지날 때까지 대기열에 남는다
+            .apply { removeOnCancelPolicy = true }
+
+    private val isolations =
+        DEPENDENCIES.associateWith { dependency ->
+            Isolation(
+                circuitBreakers.circuitBreaker(dependency),
+                timeLimiters.timeLimiter(dependency),
+                bulkheads.bulkhead(dependency),
+                semaphoreBulkheads.bulkhead(dependency),
+            )
+        }
+
+    private val circuitBreakers = isolations.mapValues { (_, isolation) -> isolation.circuitBreaker }
+
+    private val blockingBulkheads = BLOCKING_BULKHEADS.associateWith { semaphoreBulkheads.bulkhead(it) }
+
+    init {
+        isolations.forEach { (dependency, isolation) ->
+            val rejected =
+                Counter
+                    .builder("weave.bulkhead.rejected.calls")
+                    .description("벌크헤드가 자리가 없어 거절한 하위 서비스 호출 수")
+                    .tag("name", dependency)
+                    .register(meterRegistry)
+            isolation.bulkhead.eventPublisher.onCallRejected { rejected.increment() }
+            isolation.semaphore.eventPublisher.onCallRejected { rejected.increment() }
+        }
+    }
+
+    /**
+     * [dependency]의 격리 안에서 [block]을 부른다. [block]은 벌크헤드 스레드(Semaphore 모드면 `applicationTaskExecutor`)에서 돈다.
+     *
+     * 실패하면 `cause`가 `timeout`, `circuit_open`, `bulkhead_full`, 또는 [block]의 예외를 [DownstreamFailure]가 분류한 값인
+     * 실패 로그를 한 줄 남기고 실패를 그대로 넘긴다. 돌려준 future를 먼저 끝내면(예: 요청 시간 예산) 그 뒤의 실패는 로그로 남기지 않는다.
+     * 로그는 future를 실제로 끝낸 쪽이 끝낸 뒤에 남긴다.
+     */
+    fun <T> call(
+        dependency: String,
+        block: () -> T,
+    ): CompletableFuture<T> {
+        val isolation = isolations.getValue(dependency)
+        val callerMdc: Map<String, String>? = MDC.getCopyOfContextMap()
+        val callerContext = traceContexts.captureAll()
+        val inBulkhead =
+            when (bulkheadType) {
+                BulkheadType.THREAD_POOL -> Supplier<CompletionStage<T>> { isolation.bulkhead.executeSupplier(block) }
+                // 자리는 부른 스레드에서 바로 잡고(없으면 기다리지 않고 거절), 호출이 실제로 끝날 때 놓는다. 시간 상한이 먼저 끝내도
+                // 스레드가 응답 타임아웃까지 묶여 있는 동안은 자리를 잡고 있어 ThreadPool 벌크헤드와 같다
+                BulkheadType.SEMAPHORE ->
+                    Supplier<CompletionStage<T>> {
+                        isolation.semaphore.executeCompletionStage { CompletableFuture.supplyAsync(block, taskExecutor) }
+                    }
+            }
+        // 서킷이 결과를 기록하고(상태 전이 로그), 결과에 이어 붙인 일(post 뒤의 user·like 호출)이 돌 때 부른 스레드의 trace를
+        // 잇게 한다. 시간 상한의 결과는 전파기의 문맥을 이미 닫은 벌크헤드 스레드나 시간 상한 스레드에서 끝난다 (design 결정 8, 9)
+        val limited =
+            Supplier<CompletionStage<T>> {
+                isolation.timeLimiter
+                    .executeCompletionStage(timeoutScheduler, inBulkhead)
+                    .completingIn(callerContext, callerMdc)
+            }
+        val result = CompletableFuture<T>()
+        isolation.circuitBreaker
+            .executeCompletionStage(limited)
+            .whenComplete { value, error ->
+                when {
+                    error == null -> result.complete(value)
+                    // 로그는 future를 실제로 끝낸 쪽만 남긴다. 요청 시간 예산(RequestBudget.exhaust)도 같은 규칙이라, 시간 상한과 예산 마감이
+                    // 거의 같은 순간에 와도 같은 호출의 실패 줄은 하나다. 그래서 실패 로그가 피드 응답보다 조금 늦을 수 있다
+                    result.completeExceptionally(error) -> withMdc(callerMdc) { DownstreamFailure.log(dependency, error) }
+                }
+            }
+        return result
+    }
+
+    /**
+     * [dependency]의 서킷 브레이커 → Semaphore 벌크헤드 [bulkhead] → [block] 순서로 부른 스레드에서 바로 부른다(design 결정 6).
+     *
+     * 호출 시간 상한은 걸지 않는다. 동기 호출에 상한을 걸려면 다른 스레드로 넘겨야 하고, 그룹의 응답 타임아웃이 같은 역할을 한다.
+     * 벌크헤드는 기다리지 않고 거절한다. 실패하면 [call]과 같은 실패 로그를 한 줄 남기고 실패를 그대로 던진다.
+     */
+    fun <T> callBlocking(
+        dependency: String,
+        bulkhead: String,
+        block: () -> T,
+    ): T =
+        try {
+            val semaphore = blockingBulkheads.getValue(bulkhead)
+            circuitBreakers.getValue(dependency).executeSupplier { semaphore.executeSupplier(block) }
+        } catch (e: Exception) {
+            DownstreamFailure.log(dependency, e)
+            throw e
+        }
+
+    override fun destroy() {
+        timeoutScheduler.shutdownNow()
+    }
+
+    private class Isolation(
+        val circuitBreaker: CircuitBreaker,
+        val timeLimiter: TimeLimiter,
+        val bulkhead: ThreadPoolBulkhead,
+        val semaphore: Bulkhead,
+    )
+
+    companion object {
+        /** 격리하는 의존성. HTTP 서비스 그룹 이름, Resilience4j 인스턴스 이름과 같다. */
+        val DEPENDENCIES = listOf("post", "user", "like", "recommendation", "ad")
+
+        /** 좋아요 토글의 Semaphore 벌크헤드 이름. 읽기 벌크헤드(`like`)와 자리를 나눈다(design 결정 6). */
+        const val LIKE_TOGGLE = "like-toggle"
+
+        /** [callBlocking]이 쓰는 Semaphore 벌크헤드. `resilience4j.bulkhead.instances`의 이름이다. */
+        val BLOCKING_BULKHEADS = listOf(LIKE_TOGGLE)
+    }
+}
+
+/**
+ * 서킷 브레이커의 실패 판정 (design 결정 7). `resilience4j.circuitbreaker.configs.default.record-failure-predicate`로 등록하고,
+ * Resilience4j가 인자 없는 생성자로 만든다. 실패 로그의 `cause`와 같은 분류([DownstreamFailure.countsAsCircuitFailure])를 쓴다.
+ */
+class CircuitFailurePredicate : Predicate<Throwable> {
+    override fun test(error: Throwable): Boolean = DownstreamFailure.countsAsCircuitFailure(error)
+}
+
+/**
+ * 이 stage가 끝나면 [context]와 [mdc]를 펼친 채로 끝나는 future를 돌려준다. 돌려준 future에 걸어 둔 일(서킷의 결과 기록, 그 뒤의
+ * 결과 전달)은 끝내는 스레드에서 바로 돌므로 같은 문맥을 본다.
+ */
+private fun <T> CompletionStage<T>.completingIn(
+    context: ContextSnapshot,
+    mdc: Map<String, String>?,
+): CompletionStage<T> {
+    val completed = CompletableFuture<T>()
+    whenComplete { value, error ->
+        context.setThreadLocals().use {
+            withMdc(mdc) {
+                if (error == null) completed.complete(value) else completed.completeExceptionally(error)
+            }
+        }
+    }
+    return completed
+}
+
+private inline fun withMdc(
+    context: Map<String, String>?,
+    block: () -> Unit,
+) {
+    val previous = MDC.getCopyOfContextMap()
+    if (context == null) MDC.clear() else MDC.setContextMap(context)
+    try {
+        block()
+    } finally {
+        if (previous == null) MDC.clear() else MDC.setContextMap(previous)
+    }
+}

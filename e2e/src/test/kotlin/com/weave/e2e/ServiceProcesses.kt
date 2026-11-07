@@ -90,9 +90,11 @@ class ServiceProcesses {
         return when (service) {
             "feed-service" ->
                 common +
-                    downstreams.map { (downstream, group) ->
-                        "--spring.http.serviceclient.$group.base-url=http://localhost:${port(downstream)}"
-                    }
+                    downstreams.flatMap { (downstream, group) ->
+                        listOf("--spring.http.serviceclient.$group.base-url=http://localhost:${port(downstream)}") +
+                            relaxedIsolation(group)
+                    } +
+                    "--weave.feed.time-budget=5s"
             "like-service" ->
                 common +
                     listOf(
@@ -103,6 +105,17 @@ class ServiceProcesses {
             else -> common
         }
     }
+
+    /**
+     * 막 뜬 JVM의 첫 호출(클래스 로딩, 연결 수립)이 하위 서비스 호출 시간 상한(100ms)에 걸리지 않게 넉넉한 값을 준다
+     * (add-call-isolation design 결정 13). 종단 간 테스트는 흐름을 보고, 실제 값은 장애 실험 세트가 확인한다.
+     */
+    private fun relaxedIsolation(group: String): List<String> =
+        listOf(
+            "--resilience4j.timelimiter.instances.$group.timeout-duration=2s",
+            "--spring.http.serviceclient.$group.connect-timeout=2s",
+            "--spring.http.serviceclient.$group.read-timeout=2s",
+        )
 
     private fun jarOf(service: String): File {
         val property = "weave.e2e.jar.$service"

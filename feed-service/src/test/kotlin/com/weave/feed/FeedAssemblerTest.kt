@@ -16,6 +16,8 @@ import io.mockk.clearAllMocks
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import java.time.Clock
+import java.time.Duration
 import java.time.Instant
 import java.util.concurrent.CompletableFuture.completedFuture
 
@@ -26,7 +28,17 @@ class FeedAssemblerTest :
         val likeGateway = mockk<LikeGateway>()
         val recommendationGateway = mockk<RecommendationGateway>()
         val adGateway = mockk<AdGateway>()
-        val assembler = FeedAssembler(postGateway, userGateway, likeGateway, recommendationGateway, adGateway)
+        // 시간 예산은 이 테스트의 관심이 아니라 넉넉히 준다. 예산 계산은 add-call-isolation tasks 2.6의 단위 테스트가 본다
+        val assembler =
+            FeedAssembler(
+                postGateway,
+                userGateway,
+                likeGateway,
+                recommendationGateway,
+                adGateway,
+                timeBudget = Duration.ofSeconds(5),
+                clock = Clock.systemUTC(),
+            )
 
         val createdAt = Instant.parse("2026-01-01T00:12:00Z")
 

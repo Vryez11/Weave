@@ -6,7 +6,6 @@ import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldBeEmpty
 import io.kotest.matchers.collections.shouldNotBeEmpty
-import io.kotest.matchers.comparables.shouldBeGreaterThanOrEqualTo
 import io.kotest.matchers.comparables.shouldBeLessThan
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
@@ -16,7 +15,10 @@ import kotlin.time.Duration.Companion.seconds
 import kotlin.time.measureTimedValue
 
 /**
- * `fault-experiments` 스펙의 "하위 서비스 호출은 프록시를 거친다" 시나리오 (F-007).
+ * `fault-experiments` 스펙의 "하위 서비스 호출은 프록시를 거친다" 시나리오 (F-007, F-001).
+ *
+ * 고도화 3부터 recommendation 호출에 시간 상한(200ms)이 있어, 프록시에 넣은 3초 지연은 피드를 늦추지 않고 시간 상한 실패로 드러난다.
+ * 테스트마다 앞에서 [ComposeEnvironment.warmUpFeed]로 첫 호출의 지연을 치운다.
  *
  * 주소와 Compose 프로젝트는 [ComposeEnvironment]의 시스템 속성으로 받는다.
  *
@@ -71,10 +73,15 @@ class ProxyPathComposeScenarioTest :
                 .toList()
         }
 
-        beforeTest { toxiproxy("POST", "/reset") }
+        beforeTest {
+            toxiproxy("POST", "/reset")
+            ComposeEnvironment.warmUpFeed()
+        }
         afterTest { toxiproxy("POST", "/reset") }
 
-        test("F-007 프록시에 지연을 넣는다: recommendation 프록시에 응답 지연 3,000ms를 넣으면 피드가 3,000ms 이상 걸리고, 거둔 뒤에는 1,000ms 안에 200이다") {
+        test(
+            "F-007 프록시에 지연을 넣는다: recommendation 프록시에 응답 지연 3,000ms를 넣으면 피드가 1,000ms 안에 오고 recommendation timeout 실패 로그가 있으며, 거둔 뒤에는 1,000ms 안에 200이다",
+        ) {
             toxiproxy(
                 "POST",
                 "/proxies/recommendation/toxics",
@@ -87,8 +94,16 @@ class ProxyPathComposeScenarioTest :
             )
 
             val (delayed, delayedTime) = measureTimedValue { feed() }
-            withClue("지연을 넣은 피드 응답(${delayed.statusCode()}): ${delayed.body()}") {
-                delayedTime shouldBeGreaterThanOrEqualTo 3000.milliseconds
+            withClue("지연을 넣은 피드 응답(${delayed.statusCode()}, ${delayedTime.inWholeMilliseconds}ms): ${delayed.body()}") {
+                delayedTime shouldBeLessThan 1000.milliseconds
+            }
+            // 빨리 온 것이 프록시를 거치지 않아서가 아니라 지연이 시간 상한에 걸려서임을 실패 로그로 본다
+            val traceId = delayed.traceId()
+            eventually(30.seconds) {
+                val failures = downstreamFailures(traceId)
+                withClue("traceId $traceId 의 downstream_call_failed 줄") {
+                    failures.filter { it["dependency"] == "recommendation" && it["cause"] == "timeout" }.shouldNotBeEmpty()
+                }
             }
 
             toxiproxy("DELETE", "/proxies/recommendation/toxics/$latencyToxic")

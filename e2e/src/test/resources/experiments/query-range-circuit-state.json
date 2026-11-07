@@ -1,0 +1,1298 @@
+{
+ "status": "success",
+ "data": {
+  "resultType": "matrix",
+  "result": [
+   {
+    "metric": {
+     "__name__": "resilience4j_circuitbreaker_state",
+     "instance": "feed-service:8090",
+     "job": "feed-service",
+     "name": "post",
+     "state": "closed"
+    },
+    "values": [
+     [
+      1793926810,
+      "1"
+     ],
+     [
+      1793926815,
+      "1"
+     ],
+     [
+      1793926820,
+      "1"
+     ],
+     [
+      1793926825,
+      "1"
+     ],
+     [
+      1793926830,
+      "1"
+     ],
+     [
+      1793926835,
+      "1"
+     ],
+     [
+      1793926840,
+      "1"
+     ],
+     [
+      1793926845,
+      "1"
+     ]
+    ]
+   },
+   {
+    "metric": {
+     "__name__": "resilience4j_circuitbreaker_state",
+     "instance": "feed-service:8090",
+     "job": "feed-service",
+     "name": "post",
+     "state": "open"
+    },
+    "values": [
+     [
+      1793926810,
+      "0"
+     ],
+     [
+      1793926815,
+      "0"
+     ],
+     [
+      1793926820,
+      "0"
+     ],
+     [
+      1793926825,
+      "0"
+     ],
+     [
+      1793926830,
+      "0"
+     ],
+     [
+      1793926835,
+      "0"
+     ],
+     [
+      1793926840,
+      "0"
+     ],
+     [
+      1793926845,
+      "0"
+     ]
+    ]
+   },
+   {
+    "metric": {
+     "__name__": "resilience4j_circuitbreaker_state",
+     "instance": "feed-service:8090",
+     "job": "feed-service",
+     "name": "post",
+     "state": "half_open"
+    },
+    "values": [
+     [
+      1793926810,
+      "0"
+     ],
+     [
+      1793926815,
+      "0"
+     ],
+     [
+      1793926820,
+      "0"
+     ],
+     [
+      1793926825,
+      "0"
+     ],
+     [
+      1793926830,
+      "0"
+     ],
+     [
+      1793926835,
+      "0"
+     ],
+     [
+      1793926840,
+      "0"
+     ],
+     [
+      1793926845,
+      "0"
+     ]
+    ]
+   },
+   {
+    "metric": {
+     "__name__": "resilience4j_circuitbreaker_state",
+     "instance": "feed-service:8090",
+     "job": "feed-service",
+     "name": "post",
+     "state": "disabled"
+    },
+    "values": [
+     [
+      1793926810,
+      "0"
+     ],
+     [
+      1793926815,
+      "0"
+     ],
+     [
+      1793926820,
+      "0"
+     ],
+     [
+      1793926825,
+      "0"
+     ],
+     [
+      1793926830,
+      "0"
+     ],
+     [
+      1793926835,
+      "0"
+     ],
+     [
+      1793926840,
+      "0"
+     ],
+     [
+      1793926845,
+      "0"
+     ]
+    ]
+   },
+   {
+    "metric": {
+     "__name__": "resilience4j_circuitbreaker_state",
+     "instance": "feed-service:8090",
+     "job": "feed-service",
+     "name": "post",
+     "state": "forced_open"
+    },
+    "values": [
+     [
+      1793926810,
+      "0"
+     ],
+     [
+      1793926815,
+      "0"
+     ],
+     [
+      1793926820,
+      "0"
+     ],
+     [
+      1793926825,
+      "0"
+     ],
+     [
+      1793926830,
+      "0"
+     ],
+     [
+      1793926835,
+      "0"
+     ],
+     [
+      1793926840,
+      "0"
+     ],
+     [
+      1793926845,
+      "0"
+     ]
+    ]
+   },
+   {
+    "metric": {
+     "__name__": "resilience4j_circuitbreaker_state",
+     "instance": "feed-service:8090",
+     "job": "feed-service",
+     "name": "post",
+     "state": "metrics_only"
+    },
+    "values": [
+     [
+      1793926810,
+      "0"
+     ],
+     [
+      1793926815,
+      "0"
+     ],
+     [
+      1793926820,
+      "0"
+     ],
+     [
+      1793926825,
+      "0"
+     ],
+     [
+      1793926830,
+      "0"
+     ],
+     [
+      1793926835,
+      "0"
+     ],
+     [
+      1793926840,
+      "0"
+     ],
+     [
+      1793926845,
+      "0"
+     ]
+    ]
+   },
+   {
+    "metric": {
+     "__name__": "resilience4j_circuitbreaker_state",
+     "instance": "feed-service:8090",
+     "job": "feed-service",
+     "name": "user",
+     "state": "closed"
+    },
+    "values": [
+     [
+      1793926810,
+      "1"
+     ],
+     [
+      1793926815,
+      "1"
+     ],
+     [
+      1793926820,
+      "1"
+     ],
+     [
+      1793926825,
+      "1"
+     ],
+     [
+      1793926830,
+      "1"
+     ],
+     [
+      1793926835,
+      "1"
+     ],
+     [
+      1793926840,
+      "1"
+     ],
+     [
+      1793926845,
+      "1"
+     ]
+    ]
+   },
+   {
+    "metric": {
+     "__name__": "resilience4j_circuitbreaker_state",
+     "instance": "feed-service:8090",
+     "job": "feed-service",
+     "name": "user",
+     "state": "open"
+    },
+    "values": [
+     [
+      1793926810,
+      "0"
+     ],
+     [
+      1793926815,
+      "0"
+     ],
+     [
+      1793926820,
+      "0"
+     ],
+     [
+      1793926825,
+      "0"
+     ],
+     [
+      1793926830,
+      "0"
+     ],
+     [
+      1793926835,
+      "0"
+     ],
+     [
+      1793926840,
+      "0"
+     ],
+     [
+      1793926845,
+      "0"
+     ]
+    ]
+   },
+   {
+    "metric": {
+     "__name__": "resilience4j_circuitbreaker_state",
+     "instance": "feed-service:8090",
+     "job": "feed-service",
+     "name": "user",
+     "state": "half_open"
+    },
+    "values": [
+     [
+      1793926810,
+      "0"
+     ],
+     [
+      1793926815,
+      "0"
+     ],
+     [
+      1793926820,
+      "0"
+     ],
+     [
+      1793926825,
+      "0"
+     ],
+     [
+      1793926830,
+      "0"
+     ],
+     [
+      1793926835,
+      "0"
+     ],
+     [
+      1793926840,
+      "0"
+     ],
+     [
+      1793926845,
+      "0"
+     ]
+    ]
+   },
+   {
+    "metric": {
+     "__name__": "resilience4j_circuitbreaker_state",
+     "instance": "feed-service:8090",
+     "job": "feed-service",
+     "name": "user",
+     "state": "disabled"
+    },
+    "values": [
+     [
+      1793926810,
+      "0"
+     ],
+     [
+      1793926815,
+      "0"
+     ],
+     [
+      1793926820,
+      "0"
+     ],
+     [
+      1793926825,
+      "0"
+     ],
+     [
+      1793926830,
+      "0"
+     ],
+     [
+      1793926835,
+      "0"
+     ],
+     [
+      1793926840,
+      "0"
+     ],
+     [
+      1793926845,
+      "0"
+     ]
+    ]
+   },
+   {
+    "metric": {
+     "__name__": "resilience4j_circuitbreaker_state",
+     "instance": "feed-service:8090",
+     "job": "feed-service",
+     "name": "user",
+     "state": "forced_open"
+    },
+    "values": [
+     [
+      1793926810,
+      "0"
+     ],
+     [
+      1793926815,
+      "0"
+     ],
+     [
+      1793926820,
+      "0"
+     ],
+     [
+      1793926825,
+      "0"
+     ],
+     [
+      1793926830,
+      "0"
+     ],
+     [
+      1793926835,
+      "0"
+     ],
+     [
+      1793926840,
+      "0"
+     ],
+     [
+      1793926845,
+      "0"
+     ]
+    ]
+   },
+   {
+    "metric": {
+     "__name__": "resilience4j_circuitbreaker_state",
+     "instance": "feed-service:8090",
+     "job": "feed-service",
+     "name": "user",
+     "state": "metrics_only"
+    },
+    "values": [
+     [
+      1793926810,
+      "0"
+     ],
+     [
+      1793926815,
+      "0"
+     ],
+     [
+      1793926820,
+      "0"
+     ],
+     [
+      1793926825,
+      "0"
+     ],
+     [
+      1793926830,
+      "0"
+     ],
+     [
+      1793926835,
+      "0"
+     ],
+     [
+      1793926840,
+      "0"
+     ],
+     [
+      1793926845,
+      "0"
+     ]
+    ]
+   },
+   {
+    "metric": {
+     "__name__": "resilience4j_circuitbreaker_state",
+     "instance": "feed-service:8090",
+     "job": "feed-service",
+     "name": "like",
+     "state": "closed"
+    },
+    "values": [
+     [
+      1793926810,
+      "1"
+     ],
+     [
+      1793926815,
+      "1"
+     ],
+     [
+      1793926820,
+      "1"
+     ],
+     [
+      1793926825,
+      "1"
+     ],
+     [
+      1793926830,
+      "1"
+     ],
+     [
+      1793926835,
+      "1"
+     ],
+     [
+      1793926840,
+      "1"
+     ],
+     [
+      1793926845,
+      "1"
+     ]
+    ]
+   },
+   {
+    "metric": {
+     "__name__": "resilience4j_circuitbreaker_state",
+     "instance": "feed-service:8090",
+     "job": "feed-service",
+     "name": "like",
+     "state": "open"
+    },
+    "values": [
+     [
+      1793926810,
+      "0"
+     ],
+     [
+      1793926815,
+      "0"
+     ],
+     [
+      1793926820,
+      "0"
+     ],
+     [
+      1793926825,
+      "0"
+     ],
+     [
+      1793926830,
+      "0"
+     ],
+     [
+      1793926835,
+      "0"
+     ],
+     [
+      1793926840,
+      "0"
+     ],
+     [
+      1793926845,
+      "0"
+     ]
+    ]
+   },
+   {
+    "metric": {
+     "__name__": "resilience4j_circuitbreaker_state",
+     "instance": "feed-service:8090",
+     "job": "feed-service",
+     "name": "like",
+     "state": "half_open"
+    },
+    "values": [
+     [
+      1793926810,
+      "0"
+     ],
+     [
+      1793926815,
+      "0"
+     ],
+     [
+      1793926820,
+      "0"
+     ],
+     [
+      1793926825,
+      "0"
+     ],
+     [
+      1793926830,
+      "0"
+     ],
+     [
+      1793926835,
+      "0"
+     ],
+     [
+      1793926840,
+      "0"
+     ],
+     [
+      1793926845,
+      "0"
+     ]
+    ]
+   },
+   {
+    "metric": {
+     "__name__": "resilience4j_circuitbreaker_state",
+     "instance": "feed-service:8090",
+     "job": "feed-service",
+     "name": "like",
+     "state": "disabled"
+    },
+    "values": [
+     [
+      1793926810,
+      "0"
+     ],
+     [
+      1793926815,
+      "0"
+     ],
+     [
+      1793926820,
+      "0"
+     ],
+     [
+      1793926825,
+      "0"
+     ],
+     [
+      1793926830,
+      "0"
+     ],
+     [
+      1793926835,
+      "0"
+     ],
+     [
+      1793926840,
+      "0"
+     ],
+     [
+      1793926845,
+      "0"
+     ]
+    ]
+   },
+   {
+    "metric": {
+     "__name__": "resilience4j_circuitbreaker_state",
+     "instance": "feed-service:8090",
+     "job": "feed-service",
+     "name": "like",
+     "state": "forced_open"
+    },
+    "values": [
+     [
+      1793926810,
+      "0"
+     ],
+     [
+      1793926815,
+      "0"
+     ],
+     [
+      1793926820,
+      "0"
+     ],
+     [
+      1793926825,
+      "0"
+     ],
+     [
+      1793926830,
+      "0"
+     ],
+     [
+      1793926835,
+      "0"
+     ],
+     [
+      1793926840,
+      "0"
+     ],
+     [
+      1793926845,
+      "0"
+     ]
+    ]
+   },
+   {
+    "metric": {
+     "__name__": "resilience4j_circuitbreaker_state",
+     "instance": "feed-service:8090",
+     "job": "feed-service",
+     "name": "like",
+     "state": "metrics_only"
+    },
+    "values": [
+     [
+      1793926810,
+      "0"
+     ],
+     [
+      1793926815,
+      "0"
+     ],
+     [
+      1793926820,
+      "0"
+     ],
+     [
+      1793926825,
+      "0"
+     ],
+     [
+      1793926830,
+      "0"
+     ],
+     [
+      1793926835,
+      "0"
+     ],
+     [
+      1793926840,
+      "0"
+     ],
+     [
+      1793926845,
+      "0"
+     ]
+    ]
+   },
+   {
+    "metric": {
+     "__name__": "resilience4j_circuitbreaker_state",
+     "instance": "feed-service:8090",
+     "job": "feed-service",
+     "name": "recommendation",
+     "state": "closed"
+    },
+    "values": [
+     [
+      1793926810,
+      "1"
+     ],
+     [
+      1793926815,
+      "1"
+     ],
+     [
+      1793926820,
+      "0"
+     ],
+     [
+      1793926825,
+      "0"
+     ],
+     [
+      1793926830,
+      "0"
+     ],
+     [
+      1793926835,
+      "0"
+     ],
+     [
+      1793926840,
+      "0"
+     ],
+     [
+      1793926845,
+      "0"
+     ]
+    ]
+   },
+   {
+    "metric": {
+     "__name__": "resilience4j_circuitbreaker_state",
+     "instance": "feed-service:8090",
+     "job": "feed-service",
+     "name": "recommendation",
+     "state": "open"
+    },
+    "values": [
+     [
+      1793926810,
+      "0"
+     ],
+     [
+      1793926815,
+      "0"
+     ],
+     [
+      1793926820,
+      "1"
+     ],
+     [
+      1793926825,
+      "1"
+     ],
+     [
+      1793926830,
+      "0"
+     ],
+     [
+      1793926835,
+      "1"
+     ],
+     [
+      1793926840,
+      "1"
+     ],
+     [
+      1793926845,
+      "1"
+     ]
+    ]
+   },
+   {
+    "metric": {
+     "__name__": "resilience4j_circuitbreaker_state",
+     "instance": "feed-service:8090",
+     "job": "feed-service",
+     "name": "recommendation",
+     "state": "half_open"
+    },
+    "values": [
+     [
+      1793926810,
+      "0"
+     ],
+     [
+      1793926815,
+      "0"
+     ],
+     [
+      1793926820,
+      "0"
+     ],
+     [
+      1793926825,
+      "0"
+     ],
+     [
+      1793926830,
+      "1"
+     ],
+     [
+      1793926835,
+      "0"
+     ],
+     [
+      1793926840,
+      "0"
+     ],
+     [
+      1793926845,
+      "0"
+     ]
+    ]
+   },
+   {
+    "metric": {
+     "__name__": "resilience4j_circuitbreaker_state",
+     "instance": "feed-service:8090",
+     "job": "feed-service",
+     "name": "recommendation",
+     "state": "disabled"
+    },
+    "values": [
+     [
+      1793926810,
+      "0"
+     ],
+     [
+      1793926815,
+      "0"
+     ],
+     [
+      1793926820,
+      "0"
+     ],
+     [
+      1793926825,
+      "0"
+     ],
+     [
+      1793926830,
+      "0"
+     ],
+     [
+      1793926835,
+      "0"
+     ],
+     [
+      1793926840,
+      "0"
+     ],
+     [
+      1793926845,
+      "0"
+     ]
+    ]
+   },
+   {
+    "metric": {
+     "__name__": "resilience4j_circuitbreaker_state",
+     "instance": "feed-service:8090",
+     "job": "feed-service",
+     "name": "recommendation",
+     "state": "forced_open"
+    },
+    "values": [
+     [
+      1793926810,
+      "0"
+     ],
+     [
+      1793926815,
+      "0"
+     ],
+     [
+      1793926820,
+      "0"
+     ],
+     [
+      1793926825,
+      "0"
+     ],
+     [
+      1793926830,
+      "0"
+     ],
+     [
+      1793926835,
+      "0"
+     ],
+     [
+      1793926840,
+      "0"
+     ],
+     [
+      1793926845,
+      "0"
+     ]
+    ]
+   },
+   {
+    "metric": {
+     "__name__": "resilience4j_circuitbreaker_state",
+     "instance": "feed-service:8090",
+     "job": "feed-service",
+     "name": "recommendation",
+     "state": "metrics_only"
+    },
+    "values": [
+     [
+      1793926810,
+      "0"
+     ],
+     [
+      1793926815,
+      "0"
+     ],
+     [
+      1793926820,
+      "0"
+     ],
+     [
+      1793926825,
+      "0"
+     ],
+     [
+      1793926830,
+      "0"
+     ],
+     [
+      1793926835,
+      "0"
+     ],
+     [
+      1793926840,
+      "0"
+     ],
+     [
+      1793926845,
+      "0"
+     ]
+    ]
+   },
+   {
+    "metric": {
+     "__name__": "resilience4j_circuitbreaker_state",
+     "instance": "feed-service:8090",
+     "job": "feed-service",
+     "name": "ad",
+     "state": "closed"
+    },
+    "values": [
+     [
+      1793926810,
+      "1"
+     ],
+     [
+      1793926815,
+      "1"
+     ],
+     [
+      1793926820,
+      "1"
+     ],
+     [
+      1793926825,
+      "1"
+     ],
+     [
+      1793926830,
+      "1"
+     ],
+     [
+      1793926835,
+      "1"
+     ],
+     [
+      1793926840,
+      "1"
+     ],
+     [
+      1793926845,
+      "1"
+     ]
+    ]
+   },
+   {
+    "metric": {
+     "__name__": "resilience4j_circuitbreaker_state",
+     "instance": "feed-service:8090",
+     "job": "feed-service",
+     "name": "ad",
+     "state": "open"
+    },
+    "values": [
+     [
+      1793926810,
+      "0"
+     ],
+     [
+      1793926815,
+      "0"
+     ],
+     [
+      1793926820,
+      "0"
+     ],
+     [
+      1793926825,
+      "0"
+     ],
+     [
+      1793926830,
+      "0"
+     ],
+     [
+      1793926835,
+      "0"
+     ],
+     [
+      1793926840,
+      "0"
+     ],
+     [
+      1793926845,
+      "0"
+     ]
+    ]
+   },
+   {
+    "metric": {
+     "__name__": "resilience4j_circuitbreaker_state",
+     "instance": "feed-service:8090",
+     "job": "feed-service",
+     "name": "ad",
+     "state": "half_open"
+    },
+    "values": [
+     [
+      1793926810,
+      "0"
+     ],
+     [
+      1793926815,
+      "0"
+     ],
+     [
+      1793926820,
+      "0"
+     ],
+     [
+      1793926825,
+      "0"
+     ],
+     [
+      1793926830,
+      "0"
+     ],
+     [
+      1793926835,
+      "0"
+     ],
+     [
+      1793926840,
+      "0"
+     ],
+     [
+      1793926845,
+      "0"
+     ]
+    ]
+   },
+   {
+    "metric": {
+     "__name__": "resilience4j_circuitbreaker_state",
+     "instance": "feed-service:8090",
+     "job": "feed-service",
+     "name": "ad",
+     "state": "disabled"
+    },
+    "values": [
+     [
+      1793926810,
+      "0"
+     ],
+     [
+      1793926815,
+      "0"
+     ],
+     [
+      1793926820,
+      "0"
+     ],
+     [
+      1793926825,
+      "0"
+     ],
+     [
+      1793926830,
+      "0"
+     ],
+     [
+      1793926835,
+      "0"
+     ],
+     [
+      1793926840,
+      "0"
+     ],
+     [
+      1793926845,
+      "0"
+     ]
+    ]
+   },
+   {
+    "metric": {
+     "__name__": "resilience4j_circuitbreaker_state",
+     "instance": "feed-service:8090",
+     "job": "feed-service",
+     "name": "ad",
+     "state": "forced_open"
+    },
+    "values": [
+     [
+      1793926810,
+      "0"
+     ],
+     [
+      1793926815,
+      "0"
+     ],
+     [
+      1793926820,
+      "0"
+     ],
+     [
+      1793926825,
+      "0"
+     ],
+     [
+      1793926830,
+      "0"
+     ],
+     [
+      1793926835,
+      "0"
+     ],
+     [
+      1793926840,
+      "0"
+     ],
+     [
+      1793926845,
+      "0"
+     ]
+    ]
+   },
+   {
+    "metric": {
+     "__name__": "resilience4j_circuitbreaker_state",
+     "instance": "feed-service:8090",
+     "job": "feed-service",
+     "name": "ad",
+     "state": "metrics_only"
+    },
+    "values": [
+     [
+      1793926810,
+      "0"
+     ],
+     [
+      1793926815,
+      "0"
+     ],
+     [
+      1793926820,
+      "0"
+     ],
+     [
+      1793926825,
+      "0"
+     ],
+     [
+      1793926830,
+      "0"
+     ],
+     [
+      1793926835,
+      "0"
+     ],
+     [
+      1793926840,
+      "0"
+     ],
+     [
+      1793926845,
+      "0"
+     ]
+    ]
+   }
+  ]
+ }
+}
