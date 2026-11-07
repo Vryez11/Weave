@@ -117,6 +117,7 @@ sequenceDiagram
   - `spring.data.redis.connect-timeout`을 명령 타임아웃과 같게 둔다. 연결이 없으면 다음 명령이 연결을 다시 맺으려 기다리는데, 패킷이 버려지는 장애에서는 이 시간이 그대로 지연이 된다.
   - `management.health.redis.enabled: false`. Redis는 선택적 대체 수단이라 feed-service 헬스(Compose healthcheck, `run.sh`의 대기)를 내리면 안 된다(스펙 "캐시 저장소가 죽었고 post는 정상").
   - 읽기·쓰기 실패는 로그 줄을 남기지 않고 지표만 센다(아키텍처 6장). 400 RPS에서 Redis가 죽으면 쓰기 실패가 초당 수백 줄이 된다. post를 대체하지 못한 요청은 `fallback_applied`(`reason` `cache_error`)가 한 줄씩 남는다.
+- **남는 위험 (독립 검토, tasks 6.1):** feed-service가 뜬 뒤 Redis에 한 번도 연결하지 못했고 그 장애가 연결 거부가 아니라 패킷 버림·연결 시간 초과이면, Spring Data Redis의 공유 연결(`SharedConnection.getConnection`)이 락 안에서 연결을 맺어 읽기 하나가 연결 30ms + 명령 30ms로 최대 60ms 걸리고 동시 읽기가 그 락에 줄을 선다. 한 번이라도 연결된 뒤에는 Lettuce가 다시 맺는 동안 `REJECT_COMMANDS`로 바로 실패하고, Compose는 Redis가 healthy가 된 뒤 feed-service를 띄워 실험에서는 생기지 않는다. 재현하지 않았고 테스트는 연결 거부(`localhost:1`)만 본다. 막으려면 시작할 때 연결을 미리 맺거나(`LettuceConnectionFactory.setEagerInitialization`) 읽기를 남은 예산으로 자른다. 운영으로 옮길 때 다시 본다.
 - Redis 앞에는 서킷 브레이커를 두지 않는다. 읽기는 post가 실패했을 때만 하고 상한이 짧으며, 끊긴 동안은 위 설정으로 바로 실패한다. 서킷을 더하면 "post도 Redis도 아프다"에서 얻는 것이 수 ms뿐인데 상태가 하나 더 생긴다.
 
 ### 5. post 캐시 쓰기: 비동기, 같은 키는 1초에 한 번
@@ -126,6 +127,7 @@ sequenceDiagram
   - 근거: 400 RPS에서 매번 쓰면 초당 400번, 값 하나가 약 6KB(게시글 20개)라 초당 2.4MB를 같은 내용으로 덮어쓴다. 1초 간격이면 키(실험에서는 1개, 최대 50개)마다 초당 한 번이다. 대신 `cachedAt`이 마지막 정상 응답보다 최대 1초 이르다. stale 허용 10분의 0.17%라 판단에 영향이 없다.
   - 대기열 50은 키 수의 최댓값이다. 간격 때문에 키마다 쓰기가 1초에 하나뿐이라 정상이면 대기열에 키 수보다 많이 쌓이지 않는다. 넘친다면 Redis가 1초 넘게 응답하지 않는 것이라 버려도 된다.
 - 쓰기 스레드의 실패는 `outcome` `error`로 센다.
+- 쓰기 스레드에는 trace 문맥을 넘기지 않는다. 쓰기는 응답과 상관없는 비동기 일이라 요청 trace에 붙이지 않는다. 그래서 Lettuce 관찰은 SET마다 부모 없는 trace를 만든다(독립 검토, tasks 6.1). 쓰기 스레드는 로그를 남기지 않아 로그의 traceId에는 영향이 없다.
 
 ### 6. 캐시 읽기 상한: 30ms 이하, Compose에서 재 정한다
 
@@ -226,7 +228,7 @@ feed-service `application.yml`에 근거 주석과 함께 둔다. 환경 변수�
 | post 결과 흐름(실패면 캐시, 캐시 없으면 예외, 503이면 recommendation·ad를 기다리지 않음, stale 경로의 예산) | 새 `FeedAssemblerPostFlowTest`. 기존 `FeedAssemblerBudgetTest`의 예산 초과·먼저 실패한 의존성 단언은 tasks 2.2 전에 대화형으로 "빠진다"로 바꿨다 | 단위. 가짜 Gateway와 가짜 캐시, 움직이는 시계 |
 | stale 판단, 쓰기 간격·대기열 | `PostStaleCacheTest` | 단위. Redis 템플릿은 MockK |
 | user 캐시 채움(전부·일부·유효 기간) | `UserProfileCacheTest` | 단위. `Ticker` |
-| `graceful-degradation`의 중요·선택 등급 시나리오, 로그, 지표, 설정 덮어쓰기 | `FeedDegradationScenarioTest`, `FeedFallbackLogScenarioTest`, `FeedDegradationMetricsScenarioTest`, `FeedDegradationOverrideScenarioTest` | `Integration`. WireMock |
+| `graceful-degradation`의 중요·선택 등급 시나리오, 로그, 지표, 설정 덮어쓰기 | `FeedDegradationScenarioTest`, `FeedFallbackLogScenarioTest`, `FeedDegradationMetricsScenarioTest`, 설정 덮어쓰기는 `FeedPostStaleCacheScenarioTest.kt`의 `FeedPostStaleCacheOverrideScenarioTest` | `Integration`. WireMock |
 | post stale 캐시와 Redis 장애 | `FeedPostStaleCacheScenarioTest`, `FeedPostCacheOutageScenarioTest` | `Integration`. Testcontainers `GenericContainer("redis:8.2.2")`. 응답하지 않는 Redis는 `CLIENT PAUSE 1000 ALL`, 죽은 Redis는 듣지 않는 포트 |
 | `feed-aggregation`·`call-isolation` 델타 | 기존 시나리오 테스트를 고친다 | `Integration` |
 | 판정·degrade 비율 계산 | e2e `ExperimentVerdictScenarioTest`, 새 `ExperimentDegradeRatioScenarioTest` | `Integration`, 픽스처(k6 요약) |

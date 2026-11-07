@@ -225,3 +225,23 @@
 - 3번 묶음까지 끝남, 4번 묶음은 사람과 함께 `/opsx:apply`로 진행(tasks 4장 머리말). Compose 측정이 반복 세션의 명령 시간 제한을 넘을 수 있고, 값마다 측정 근거가 필요하다. 5번 묶음도 Ralph가 하지 않는다.
 - 바꾼 파일: progress.md
 ---
+
+## 2026-11-07 대화형 - 4~6장
+- 4.1~4.4, 5.1, 5.3은 대화형으로 했다. 값과 측정은 design 결정 6·7·16, 결과는 `docs/experiments/graceful-degradation.md`.
+- 6.1 독립 검토(구현에 참여하지 않은 리뷰어 에이전트, 읽기만): 막는 지적 없음. 제안 6개 중 문서로 반영한 것은 셋이다.
+  - 처음 연결 전 패킷 버림 장애의 위험: design 결정 4
+  - 쓰기 스레드의 끊긴 span: design 결정 5
+  - design 결정 15 표의 클래스 이름
+  - 나머지: 읽기 오류의 원인별 지표는 결과 문서와 아키텍처 13장 "남은 것"에 있고, 5.2는 Compose 테스트로 확인한다.
+  - `experiments/CLAUDE.md` 두 줄(컨테이너 bash로 구문 검사, k6 inspect)은 Ralph 지시문 9번(다음 작업에 쓸 지식은 근처 CLAUDE.md에)대로 더한 것이라 두었다.
+- 6.1의 사람 Grafana 확인은 하지 않았다(tasks 6.1에 이유와 대신 맞춰 본 Prometheus 값).
+---
+
+## 2026-11-07 14:40 UTC - 여기서 멈춤, 다음에 이어 할 것
+- 5.2 Compose 테스트(`./gradlew :e2e:composeTest`)를 돌리다 사용자 요청으로 중간에 멈췄다(결과 없음). 테스트 환경 `weave-compose-test`는 `down -v`로 치웠다.
+- 남은 일:
+  1. 5.2: 손으로 띄운 로컬 환경이 없는 상태에서 `./gradlew :e2e:composeTest`(10분 남짓). 통과하면 체크한다.
+  2. 6.1 체크: 독립 검토는 끝났다(막는 지적 없음, 위 기록). 사람 Grafana 확인 대신 Prometheus로 맞춰 본 것은 tasks 6.1에 적었다.
+  3. 6.2: 하네스 4장 완료 조건 확인(`./gradlew ktlintCheck build :e2e:composeTest`, `openspec validate --all --strict`).
+  4. 그 뒤 사용자에게 물어 `/opsx:archive`, push, develop PR(설명에 판정 표와 고도화 3 비교 요약).
+---
