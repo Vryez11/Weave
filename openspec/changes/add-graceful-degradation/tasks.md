@@ -6,7 +6,7 @@
 
 **1.1~1.4는 이미 커밋된 테스트를 고치거나 의존성을 더하므로 Ralph 루프가 아니라 대화형(`/opsx:apply`)으로 먼저 끝낸다**(하네스 규칙 2-2의 훅과 "확인" 항목). Ralph가 이 넷 중 체크되지 않은 작업을 만나면 구현하지 말고 progress.md에 적은 뒤 `<promise>BLOCKED</promise>`로 멈춘다.
 
-- [ ] 1.1 (대화형) feed-service에 의존성을 더한다(design 결정 4, 7, 15).
+- [x] 1.1 (대화형) feed-service에 의존성을 더한다(design 결정 4, 7, 15).
   - `spring-boot-starter-data-redis`, `com.github.ben-manes.caffeine:caffeine`(Boot BOM), 테스트에 `org.testcontainers:testcontainers`. 의존성만 따로 커밋한다(`chore(build)`).
   - `feed-service/src/test/resources/config/application.yml`에 Redis 주소를 듣지 않는 포트(`localhost:1`)로, `management.health.redis.enabled: false`를 둔다(design 결정 15). 기존 통합 테스트의 컨텍스트가 뜨는지 본다.
   - 확인: `./gradlew :feed-service:test :feed-service:integrationTest`가 지금과 같은 결과다(새로 실패하는 테스트가 없다).
