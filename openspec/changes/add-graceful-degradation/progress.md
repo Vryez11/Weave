@@ -12,7 +12,7 @@
 - e2e에서 Redis를 부르는 도우미는 `ExperimentRuns.redis(...)`(`docker compose exec -T redis redis-cli ...`)다. Compose 서비스 이름은 `redis`로 둔다(3.1).
 - Ralph 중에는 이미 커밋된 `src/test/` 파일을 훅이 막는다. 1.5~1.7에서 새 테스트 파일을 커밋하면 그 뒤로는 고칠 수 없다. 2장 구현이 따라야 할 이름(시계 Bean, 속성, 지표)을 테스트를 쓸 때 KDoc에 정해 둔다. 테스트 도구가 더 필요하면 새 파일에 둔다.
 - 시계: design 결정 11대로 `Clock` Bean을 두고 `FeedAssembler`·`PostStaleCache`·`UserProfileCache`(Caffeine `Ticker`)가 받는다. Boot는 Bean 덮어쓰기가 꺼져 있으니, 테스트는 `@TestConfiguration`에 다른 이름의 `@Primary` 움직이는 시계를 둔다.
-- Ralph 세션 권한에서는 `/bin/bash -n`, 실험 스크립트 직접 실행, `jq -f`, 중괄호·따옴표가 든 인라인 jq, `VAR=값 명령`·`env VAR=값 명령`·`bash 스크립트`가 막힌다(고도화 3 progress.md). 스크립트는 e2e `integrationTest`(`ExperimentScripts.run`)로 확인한다.
+- Ralph 세션 권한에서는 셸 변수가 든 명령(`for n in ...; do ... $n`)도 막힌다. 여러 이름은 `grep -e A -e B ...` 한 번으로 찾는다. 또 `/bin/bash -n`, 실험 스크립트 직접 실행, `jq -f`, 중괄호·따옴표가 든 인라인 jq, `VAR=값 명령`·`env VAR=값 명령`·`bash 스크립트`가 막힌다(고도화 3 progress.md). 스크립트는 e2e `integrationTest`(`ExperimentScripts.run`)로 확인한다.
 - 결과는 `<모듈>/build/test-results/<태스크>/TEST-*.xml`에서 본다. `-Pkotest.filter.tests='*이름*'`는 다른 테스트를 skipped로 거르지만 Spring 컨텍스트는 클래스마다 다 뜬다. 클래스 몇 개만 돌리려면 Gradle `--tests 'com.weave.feed.<클래스>'`(여러 번 줄 수 있다)가 된다. `-Pkotest.filter.specs`는 거르지 않는다.
 - 전체 `:feed-service:integrationTest`에서 `ResilienceAutoConfigurationTest`가 `parsing HTTP/1.1 status line`으로 5개 실패할 때가 있다(임의 포트가 다른 프로세스와 겹친 것으로 보인다). 혼자 돌리면 통과한다. 실패 수를 셀 때 빼고 본다.
 
@@ -156,4 +156,14 @@
 - 바꾼 파일: `FeedAssembler.kt`, `degradation/PostStaleCache.kt`, `degradation/DegradationMetrics.kt`(새 파일), `src/test/.../degradation/DegradationMetricsTest.kt`(새 파일), `feed-service/CLAUDE.md`, tasks.md, progress.md
 - 다음 반복이 알아 둘 것:
   - 2장 구현이 끝났다. feed-service `integrationTest`에 남은 실패가 없다. 다음은 2.7(아키텍처 문서). 지표 이름·클래스는 `DegradationMetrics` KDoc 표에 있다.
+---
+
+## 2026-11-07 21:43 - 2.7 아키텍처 문서를 구현에 맞춘다
+- `docs/architecture.md`: 4-2 표의 고도화 4 줄, 5-2(다이어그램의 "등급별 대체", fallback은 `FeedAssembler` 한 곳), 6장을 6-1 응답 계약(등급표와 `SectionOutcome`), 6-2 요청 흐름, 6-3 캐시 구조(post Redis·user Caffeine, Redis 장애 설정), 6-4 설정값(값은 "tasks 4.x" 표시, 그 전엔 `DISABLED`), 6-5 대체 로그·지표로 나눴다. 11장 표에 대체 설정값 줄, 12장 F-002 줄, 13장(남은 것은 값만, 정한 것에 fallback 위치·키 구조·응답 계약).
+- 확인: 문서의 클래스·속성·지표·로그 값 이름을 `grep -rhoF -e ... feed-service/src/main | sort -u`로 모두 찾았다. `openspec validate` 통과. 코드는 바꾸지 않았다.
+- 바꾼 파일: `docs/architecture.md`, tasks.md, progress.md
+- 다음 반복이 알아 둘 것:
+  - 4장에서 값을 넣으면 6-4 표의 "(tasks 4.x)"·"안"을 확정값과 측정 결과로 바꾼다. 9-1(Redis 줄)은 3.1, 9-3은 3.2·3.4, 7-4는 3.5에서 고친다. 맨 위 상태 줄은 5.3이다.
+  - Ralph 권한에서 `for` 루프 변수(`$n`)가 든 Bash는 막힌다. 여러 이름은 `grep -e A -e B ...` 한 번으로 찾는다.
+  - 다음 작업은 3.1(Compose에 Redis). `docker manifest inspect redis:8.2.2`로 태그를 먼저 확인한다.
 ---

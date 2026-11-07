@@ -61,7 +61,7 @@
 - [x] 2.6 대체 지표를 낸다(design 결정 10).
   - `weave.feed.sections`(20개 시계열 0부터), `weave.post.cache.reads`, `weave.post.cache.writes`. user 캐시는 2.3의 Caffeine 지표.
   - 확인: 1.7의 `FeedDegradationMetricsScenarioTest`가 통과하고 `./gradlew :feed-service:test :feed-service:integrationTest`가 모두 통과한다.
-- [ ] 2.7 아키텍처 문서를 구현에 맞춘다.
+- [x] 2.7 아키텍처 문서를 구현에 맞춘다.
   - 5-2(fallback은 `FeedAssembler`, design 결정 1), 6장(응답 계약, 흐름, 캐시 구조, 지표·로그, design 결정 2~10), 4-2 표의 고도화 4 줄, 11장 표(대체 설정값 위치), 12·13장의 F-002 항목. 값은 4장에서 채운다.
   - 확인: 문서의 클래스·속성·지표 이름이 코드에 있다(`grep`으로 확인).
 
