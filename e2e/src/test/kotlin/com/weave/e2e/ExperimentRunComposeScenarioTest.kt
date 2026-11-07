@@ -8,6 +8,7 @@ import io.kotest.matchers.collections.shouldBeEmpty
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.comparables.shouldBeGreaterThan
 import io.kotest.matchers.comparables.shouldBeGreaterThanOrEqualTo
+import io.kotest.matchers.comparables.shouldBeLessThan
 import io.kotest.matchers.comparables.shouldBeLessThanOrEqualTo
 import io.kotest.matchers.doubles.plusOrMinus
 import io.kotest.matchers.ints.shouldBeInRange
@@ -25,12 +26,15 @@ import kotlin.io.path.writeText
 import kotlin.time.Duration.Companion.minutes
 
 /**
- * `fault-experiments` 스펙 중 `experiments/run.sh`의 시나리오 (F-007).
+ * `fault-experiments` 스펙 중 `experiments/run.sh`의 시나리오 (F-007, F-001).
  * "짧게 돌린다", "없는 시나리오", "환경이 떠 있지 않다", "앞에 남은 장애", "정상 종료 뒤", "중간에 멈춘다",
  * "준비 구간은 세지 않는다", "모든 요청이 실패한다", "시간 초과된 요청", "리포트 항목", "부하 도구가 실패한다",
  * "Tomcat 스레드가 모두 묶여도 긁힌다"(feed-service의 실험 지표).
  *
- * `:e2e:composeTest`가 띄운 환경에서 `run.sh`를 프로세스로 돌린다(design 결정 13). 결과 폴더와 장애 상태를 보는 법은 [ExperimentRuns] KDoc.
+ * `:e2e:composeTest`가 띄운 환경에서 `run.sh`를 프로세스로 돌린다(add-fault-experiments design 결정 13).
+ * 고도화 3(add-call-isolation)부터 하위 서비스 호출에 격리가 있어, MVP를 전제로 했던 "짧게 돌린다", "시간 초과된 요청",
+ * "Tomcat 스레드가 모두 묶여도 긁힌다"는 스펙 델타대로 바뀌었다. 뒤의 둘은 feed-service를 다른 설정으로 다시 만든다
+ * ([ComposeEnvironment.recreateFeedService]). 끝나면 기본 설정으로 되돌린다. 결과 폴더와 장애 상태를 보는 법은 [ExperimentRuns] KDoc.
  *
  * **명령:** `experiments/run.sh <S-xx> [--rps N] [--warmup 1m] [--duration 5m]` (design 결정 6)
  * - 종료 코드: 0 기대와 같음, 1 기대와 다름, 2 실행하지 못함(없는 시나리오, 환경 없음, 되돌리기 실패, k6가 요약을 남기지 못함)
@@ -51,21 +55,24 @@ import kotlin.time.Duration.Companion.minutes
  *   "dropped": 0,                        // measure의 dropped_iterations
  *   "latencyMs": { "p50": 3012.1, "p95": 3020.4, "p99": 3031.0 },  // measure의 feed_latency(요청 앞뒤 경과 시간). 실패한 요청 포함
  *   "availability": 0.0,                 // 200 수 ÷ (requests + dropped)
- *   "sloMet": false, "expectation": "miss", "matchesExpectation": true,
- *   "verdict": "SLO 미충족, 기대와 같음",  // lib/verdict.sh의 출력 그대로(ExperimentVerdictScenarioTest)
- *   "failedThresholds": ["feed_latency{scenario:measure}: p(99)<300"],
+ *   "sloMet": false, "expectation": { "availability": "miss", "p99": "meet" }, "matchesExpectation": true,
+ *   "criteria": { "availability": { "met": false, "expectation": "miss" }, "p99": { "met": true, "expectation": "meet" } },
+ *   "mismatchedCriteria": [],
+ *   "verdict": "SLO 미충족, 기대와 같음",  // 판정 값(expectation부터 failedThresholds까지)은 lib/verdict.sh의 출력 그대로(ExperimentVerdictScenarioTest)
+ *   "failedThresholds": ["availability{scenario:measure}: rate>=0.999"],
  *   "dependencies": {                    // 의존성 5개 모두
  *     "post": { "p99Ms": 48.2, "failureRate": 0.0, "requestRatio": 1.0 }, ...
  *   },
  *   "resources": {                       // 측정 구간의 최댓값·평균
  *     "tomcatBusyThreads": { "max": 16, "avg": 15.2 },
- *     "sharedPoolActiveThreads": { "max": .., "avg": .. },
- *     "sharedPoolQueuedTasks": { "max": .., "avg": .. },
  *     "feedCpuUsage": { "max": .., "avg": .. },
+ *     "bulkheads": { "post": { "activeThreads": { "max": .., "avg": .. }, "queueDepth": { "max": .., "avg": .. } }, ... },
  *     "connectionPools": { "post": { "leased": { "max": .., "avg": .. }, "pending": { "max": .., "avg": .. } }, ... }
  *   },
  *   "degradeRatio": "없음",              // 이후 단계(F-002)가 값을 채운다
- *   "circuitState": "없음",              // 이후 단계(F-001)가 값을 채운다
+ *   "circuitState": {                    // 의존성마다 측정 구간에 거친 상태. lib/circuits.sh의 출력 그대로(ExperimentCircuitStateScenarioTest)
+ *     "post": "CLOSED", "recommendation": "CLOSED → OPEN → HALF_OPEN → OPEN", ...
+ *   },
  *   "grafanaUrl": "http://localhost:3000/d/weave-feed?from=1793926810000&to=1793926830000",
  *   "feedScrapeRatio": 1.0,              // 측정 구간 up{feed-service} 표본 중 1인 비율. 질의가 실패하면 null
  *   "faults": [                          // 시나리오 JSON의 장애 중 clear가 아닌 항목마다
@@ -118,13 +125,17 @@ class ExperimentRunComposeScenarioTest :
 
         afterSpec { ExperimentRuns.resetQuietly() }
 
-        test("F-007 짧게 돌린다: S-02를 5 RPS·준비 5초·측정 20초로 돌리면 results/ 아래 리포트가 생기고 측정 요청 수는 95~105, p50은 3,000ms 이상이다") {
+        test(
+            "F-001 짧게 돌린다: S-02를 5 RPS·준비 5초·측정 20초로 돌리면 results/ 아래 리포트가 생기고 측정 요청 수는 95~105, recommendation 호출 실패율은 0.9 이상, p99는 1,000ms 미만이다",
+        ) {
             val (result, folder) = shortS02
             val report = ExperimentRuns.report(folder)
             withClue("$result\nreport.json: $report") {
                 folder.resolve("report.md").exists() shouldBe true
                 (report["requests"] as Number).toInt() shouldBeInRange 95..105
-                report["latencyMs"].asMap()["p50"].asDouble() shouldBeGreaterThanOrEqualTo 3000.0
+                // 3초 지연이 피드를 늦추지 않고 recommendation 호출의 시간 상한 실패로 드러난다
+                report["dependencies"].asMap()["recommendation"].asMap()["failureRate"].asDouble() shouldBeGreaterThanOrEqualTo 0.9
+                report["latencyMs"].asMap()["p99"].asDouble() shouldBeLessThan 1000.0
                 // "기대대로 SLO를 못 지킨다"의 WHEN과 같은 명령이다. 판정 계산은 ExperimentVerdictScenarioTest가 본다
                 report["verdict"] shouldBe "SLO 미충족, 기대와 같음"
                 result.exitCode shouldBe 0
@@ -136,7 +147,7 @@ class ExperimentRunComposeScenarioTest :
             ExperimentRuns.shouldBeClean()
         }
 
-        test("F-007 리포트 항목: S-02 짧은 실행의 리포트에 실행 정보, 지연·가용성·판정, 의존성별 값, 자원 사용량, 없음 항목, Grafana 링크, 장애 시각이 있다") {
+        test("F-001 리포트 항목: S-02 짧은 실행의 리포트에 실행 정보, 지연·가용성·기준별 판정, 의존성별 값, 자원 사용량(벌크헤드 포함), 서킷 상태, 없음 항목, Grafana 링크, 장애 시각이 있다") {
             val (_, folder) = shortS02
             val report = ExperimentRuns.report(folder)
             withClue("report.json: $report") {
@@ -152,8 +163,16 @@ class ExperimentRunComposeScenarioTest :
                 listOf("p50", "p95", "p99").forEach { latency[it].asDouble() shouldBeGreaterThan 0.0 }
                 report["availability"].asDouble() shouldBeInRangeOf 0.0..1.0
                 report["sloMet"] shouldBe false
-                report["expectation"] shouldBe "miss"
+                report["expectation"] shouldBe mapOf("availability" to "miss", "p99" to "meet")
                 report["matchesExpectation"] shouldBe true
+                val criteria = report["criteria"].asMap()
+                listOf("availability", "p99").forEach { name ->
+                    val criterion = criteria[name].asMap()
+                    withClue("기준 $name: $criterion") {
+                        (criterion["met"] is Boolean) shouldBe true
+                        criterion["expectation"] shouldBe (if (name == "availability") "miss" else "meet")
+                    }
+                }
 
                 val dependencies = report["dependencies"].asMap()
                 ExperimentRuns.dependencies.keys.forEach { name ->
@@ -166,8 +185,14 @@ class ExperimentRunComposeScenarioTest :
                 }
 
                 val resources = report["resources"].asMap()
-                listOf("tomcatBusyThreads", "sharedPoolActiveThreads", "sharedPoolQueuedTasks", "feedCpuUsage").forEach {
+                listOf("tomcatBusyThreads", "feedCpuUsage").forEach {
                     resources[it].asMap().shouldHaveMaxAndAverage(it)
+                }
+                val bulkheads = resources["bulkheads"].asMap()
+                ExperimentRuns.dependencies.keys.forEach { name ->
+                    val bulkhead = bulkheads[name].asMap()
+                    bulkhead["activeThreads"].asMap().shouldHaveMaxAndAverage("$name 벌크헤드 사용 중 스레드")
+                    bulkhead["queueDepth"].asMap().shouldHaveMaxAndAverage("$name 벌크헤드 대기열")
                 }
                 val pools = resources["connectionPools"].asMap()
                 ExperimentRuns.dependencies.keys.forEach { name ->
@@ -177,7 +202,12 @@ class ExperimentRunComposeScenarioTest :
                 }
 
                 report["degradeRatio"] shouldBe "없음"
-                report["circuitState"] shouldBe "없음"
+                val circuits = report["circuitState"].asMap()
+                ExperimentRuns.dependencies.keys.forEach { name ->
+                    withClue("$name 서킷 상태: ${circuits[name]}") {
+                        (circuits[name] as String) shouldMatch Regex("(CLOSED|OPEN|HALF_OPEN)( → (CLOSED|OPEN|HALF_OPEN))*")
+                    }
+                }
 
                 val measure = report["measure"].asMap()
                 val start = (measure["startEpochMs"] as Number).toLong()
@@ -208,6 +238,7 @@ class ExperimentRunComposeScenarioTest :
                 markdown shouldContain "S-02"
                 markdown shouldContain "SLO 미충족, 기대와 같음"
                 markdown shouldContain "없음"
+                markdown shouldContain "CLOSED"
             }
         }
 
@@ -297,26 +328,55 @@ class ExperimentRunComposeScenarioTest :
             ExperimentRuns.shouldBeClean()
         }
 
-        // S-03 60 RPS 실행 하나를 "시간 초과된 요청"과 "Tomcat 스레드가 모두 묶여도 긁힌다"가 함께 본다.
-        // 동시 요청 60 × 5초 = 300개가 Tomcat 최대 스레드 200을 넘는다
-        val saturatedS03 by lazy { run("S-03", "--rps", "60", "--warmup", "5s", "--duration", "20s") }
-
-        test("F-007 시간 초과된 요청: recommendation이 응답하지 않는 S-03을 60 RPS로 돌리면 지연 p50은 4,500ms 이상이다") {
-            val (result, folder) = saturatedS03
-            val report = ExperimentRuns.report(folder)
-            withClue("$result\nreport.json: $report") {
-                report["latencyMs"].asMap()["p50"].asDouble() shouldBeGreaterThanOrEqualTo 4500.0
+        test("F-001 시간 초과된 요청: S-01을 20 RPS·측정 30초로 돌리며 측정 구간 5초 뒤 feed-service를 10초 멈추면 지연 p99는 4,500ms 이상이다") {
+            val before = ExperimentRuns.resultFolders()
+            val started = ExperimentRuns.startRun("S-01", "--rps", "20", "--warmup", "5s", "--duration", "30s")
+            try {
+                eventually(3.minutes) {
+                    withClue("run.sh 가 아직 돌고 있어야 한다: $started") { started.process.isAlive shouldBe true }
+                    val folder = ExperimentRuns.newResultFolder(before, "S-01")
+                    withClue("${folder.resolve("raw.json")} 에 측정 구간 요청이 있어야 한다") {
+                        ExperimentRuns.hasMeasureRequest(folder.resolve("raw.json")) shouldBe true
+                    }
+                }
+                Thread.sleep(5_000)
+                // 멈춘 동안 보낸 요청은 응답을 받지 못해 k6 요청 시간 초과(5초)로 끝난다
+                val paused = ComposeEnvironment.dockerCompose("pause", "feed-service")
+                withClue("docker compose pause feed-service: $paused") { paused.exitCode shouldBe 0 }
+                try {
+                    Thread.sleep(10_000)
+                } finally {
+                    val unpaused = ComposeEnvironment.dockerCompose("unpause", "feed-service")
+                    withClue("docker compose unpause feed-service: $unpaused") { unpaused.exitCode shouldBe 0 }
+                }
+                started.await(runTimeout)
+            } finally {
+                if (started.process.isAlive) started.process.destroyForcibly().waitFor()
+                runCatching { ComposeEnvironment.dockerCompose("unpause", "feed-service") }
+            }
+            val report = ExperimentRuns.report(ExperimentRuns.newResultFolder(before, "S-01"))
+            withClue("report.json: $report") {
+                report["latencyMs"].asMap()["p99"].asDouble() shouldBeGreaterThanOrEqualTo 4500.0
             }
         }
 
-        test("F-007 Tomcat 스레드가 모두 묶여도 긁힌다: S-03 60 RPS 실행의 feed-service 지표 수집 비율은 1이고 Tomcat 사용 중 스레드 최댓값은 200이다") {
-            val (result, folder) = saturatedS03
-            val report = ExperimentRuns.report(folder)
-            withClue("$result\nreport.json: $report") {
-                report["feedScrapeRatio"].asDouble() shouldBe (1.0 plusOrMinus 1e-9)
-                report["resources"].asMap()["tomcatBusyThreads"].asMap()["max"].asDouble() shouldBe 200.0
+        test(
+            "F-001 Tomcat 스레드가 모두 묶여도 긁힌다: recommendation 격리를 넓혀 S-03을 60 RPS로 돌리면 feed-service 지표 수집 비율은 1이고 Tomcat 사용 중 스레드 최댓값은 200이다",
+        ) {
+            // 동시 요청 60 × 5초 = 300개가 Tomcat 최대 스레드 200을 넘도록 recommendation 호출이 10초까지 기다리게 한다.
+            // 서킷은 최근 호출 수와 최소 호출 수를 이 실행의 호출 수(약 1,500)보다 크게 둬 열리지 않게 한다
+            ComposeEnvironment.recreateFeedService(widenedRecommendationIsolation)
+            try {
+                val (result, folder) = run("S-03", "--rps", "60", "--warmup", "5s", "--duration", "20s")
+                val report = ExperimentRuns.report(folder)
+                withClue("$result\nreport.json: $report") {
+                    report["feedScrapeRatio"].asDouble() shouldBe (1.0 plusOrMinus 1e-9)
+                    report["resources"].asMap()["tomcatBusyThreads"].asMap()["max"].asDouble() shouldBe 200.0
+                }
+                ExperimentRuns.shouldBeClean()
+            } finally {
+                ComposeEnvironment.recreateFeedService()
             }
-            ExperimentRuns.shouldBeClean()
         }
 
         test("F-007 중간에 멈춘다: S-05를 측정 60초로 돌리다 측정 구간이 시작된 뒤 SIGTERM을 보내면, 끝난 뒤 프록시와 하위 서비스, ad 한도가 기본 상태다") {
@@ -353,6 +413,22 @@ class ExperimentRunComposeScenarioTest :
             }
         }
     })
+
+/** "Tomcat 스레드가 모두 묶여도 긁힌다"가 feed-service에 주는 `SPRING_APPLICATION_JSON` (add-call-isolation design 결정 10). */
+private val widenedRecommendationIsolation =
+    """
+    {
+      "resilience4j.timelimiter.instances.recommendation.timeout-duration": "10s",
+      "spring.http.serviceclient.recommendation.connect-timeout": "10s",
+      "spring.http.serviceclient.recommendation.read-timeout": "10s",
+      "weave.feed.time-budget": "10s",
+      "resilience4j.thread-pool-bulkhead.instances.recommendation.core-thread-pool-size": 300,
+      "resilience4j.thread-pool-bulkhead.instances.recommendation.max-thread-pool-size": 300,
+      "weave.http-client.groups.recommendation.max-connections": 300,
+      "resilience4j.circuitbreaker.instances.recommendation.sliding-window-size": 100000,
+      "resilience4j.circuitbreaker.instances.recommendation.minimum-number-of-calls": 100000
+    }
+    """.trimIndent()
 
 private infix fun Double.shouldBeInRangeOf(range: ClosedFloatingPointRange<Double>) {
     withClue("$this 가 $range 안이어야 한다") { (this in range) shouldBe true }

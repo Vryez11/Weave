@@ -1,21 +1,25 @@
 package com.weave.feed.gateway
 
+import io.github.resilience4j.bulkhead.BulkheadFullException
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException
 import org.apache.hc.client5.http.ConnectTimeoutException
 import org.slf4j.LoggerFactory
 import org.springframework.web.client.ResourceAccessException
 import org.springframework.web.client.RestClientResponseException
 import java.net.ConnectException
 import java.net.NoRouteToHostException
+import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 import java.util.concurrent.CompletionException
+import java.util.concurrent.TimeoutException
 
 /**
- * 하위 서비스 호출 실패의 분류 (design 결정 6).
+ * 하위 서비스 호출 실패의 분류 (add-trace-logging design 결정 6, add-call-isolation design 결정 7).
  *
  * 실패 로그에는 예외 객체와 메시지 대신 이 두 값만 남긴다. `RestClientResponseException`의 메시지에 하위 서비스의 응답 본문이 들어가기 때문이다.
- * F-001에서 타임아웃, 서킷 열림, 벌크헤드 거절이 `cause`의 새 값으로 더해진다.
+ * 서킷 브레이커가 실패로 세는지도 같은 분류로 정한다([countsAsCircuitFailure]). 로그의 `cause`와 서킷이 센 것이 어긋나지 않게 한다.
  *
- * @property cause `http_<상태 코드>`, `connect_failure`, `io_failure`, `other` 중 하나
+ * @property cause `http_<상태 코드>`, `connect_failure`, `timeout`, `circuit_open`, `bulkhead_full`, `budget_exhausted`, `io_failure`, `other` 중 하나
  * @property exception 원인 사슬에서 가장 안쪽 예외의 클래스 이름. `other`일 때 원인을 찾을 단서다
  */
 data class DownstreamFailure(
@@ -41,17 +45,38 @@ data class DownstreamFailure(
         }
 
         fun of(error: Throwable): DownstreamFailure {
-            val unwrapped = if (error is CompletionException && error.cause != null) error.cause!! else error
+            val unwrapped = unwrap(error)
             val chain = causeChain(unwrapped)
             val cause =
                 when {
                     unwrapped is RestClientResponseException -> "http_${unwrapped.statusCode.value()}"
+                    unwrapped is CallNotPermittedException -> "circuit_open"
+                    unwrapped is BulkheadFullException -> "bulkhead_full"
+                    unwrapped is TimeBudgetExhaustedException -> "budget_exhausted"
+                    unwrapped is TimeoutException -> "timeout"
                     unwrapped is ResourceAccessException && chain.any(::isConnectFailure) -> "connect_failure"
+                    // 연결 시간 초과(ConnectTimeoutException)도 SocketTimeoutException이라 위의 connect_failure가 먼저 잡는다.
+                    // 커넥션 풀 대기 시간 초과(ConnectionRequestTimeoutException)는 SocketTimeoutException이 아니라 io_failure로 남는다
+                    unwrapped is ResourceAccessException && chain.any { it is SocketTimeoutException } -> "timeout"
                     unwrapped is ResourceAccessException -> "io_failure"
                     else -> "other"
                 }
             return DownstreamFailure(cause, chain.last().javaClass.name)
         }
+
+        /**
+         * 서킷 브레이커가 [error]를 실패로 세는지 (design 결정 7). 하위 서비스 문제(시간 상한·응답 타임아웃, 연결 실패, 입출력 실패, 5xx)만 센다.
+         * 4xx(429 포함), 벌크헤드 거절, 열린 서킷이 막은 호출, 요청 시간 예산 초과, 분류되지 않은 예외는 세지 않는다.
+         */
+        fun countsAsCircuitFailure(error: Throwable): Boolean {
+            val unwrapped = unwrap(error)
+            if (unwrapped is RestClientResponseException) return unwrapped.statusCode.is5xxServerError
+            return of(unwrapped).cause in CIRCUIT_FAILURE_CAUSES
+        }
+
+        private val CIRCUIT_FAILURE_CAUSES = setOf("timeout", "connect_failure", "io_failure")
+
+        private fun unwrap(error: Throwable): Throwable = if (error is CompletionException && error.cause != null) error.cause!! else error
 
         /**
          * 하위 서비스와 연결을 맺지 못했다. 커넥션 풀에서 연결을 얻지 못한 `ConnectionRequestTimeoutException`은 feed 쪽 자원 문제라 넣지 않는다.
@@ -74,3 +99,11 @@ data class DownstreamFailure(
         }
     }
 }
+
+/**
+ * 요청 시간 예산이 다 돼 그 의존성을 더 기다리지 않았다 (add-call-isolation design 결정 4). `cause`는 `budget_exhausted`이고 서킷에 세지 않는다.
+ * 하위 서비스 실패가 아니라 피드 쪽 사정이라서다.
+ */
+class TimeBudgetExhaustedException(
+    dependency: String,
+) : RuntimeException("요청 시간 예산이 다 돼 $dependency 응답을 기다리지 않았다")

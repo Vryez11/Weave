@@ -14,6 +14,10 @@ x-service: &service
   environment: &service-environment
     # 스팬을 Alloy로 보낸다. 이 값이 없으면 스팬을 내보내지 않는다(라이브러리 기본값에 두지 않음, design 결정 2)
     MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://alloy:4318/v1/traces
+    # GC를 G1로 고정한다. CPU 1개·메모리 512MB 컨테이너에서는 JVM이 Serial GC를 골라, like-service에 1.05초 Full GC가 생겨
+    # 100ms 상한의 호출이 모두 실패하고 서킷이 열렸다. G1은 S-01(400 RPS)에서 최대 멈춤 80ms(feed)·68ms(like), 가용성 0.9999였다.
+    # ZGC는 이 메모리 상한에서 feed-service가 응답하지 못했다 (add-call-isolation design 결정 15)
+    JAVA_TOOL_OPTIONS: -XX:+UseG1GC
   depends_on: &service-depends-on
     # 시작 로그와 첫 스팬부터 모이도록 Alloy를 먼저 띄운다
     alloy:
@@ -72,6 +76,10 @@ services:
       # Actuator(지표, 헬스 체크)를 업무 포트와 다른 Tomcat 커넥터에 연다. 업무 요청이 Tomcat 스레드 200개를 모두 묶어도
       # Prometheus가 긁을 수 있게 한다 (add-fault-experiments design 결정 10)
       MANAGEMENT_SERVER_PORT: "8090"
+      # 실험마다 feed-service 설정을 덮어쓴다(격리를 넓힌 Compose 시나리오, 가상 스레드 비교). 변수는 컨테이너를 새로 만들 때만
+      # 들어간다: FEED_SPRING_APPLICATION_JSON='{...}' docker compose up -d --force-recreate --no-deps --wait feed-service
+      # (add-call-isolation design 결정 10, 11)
+      SPRING_APPLICATION_JSON: ${FEED_SPRING_APPLICATION_JSON:-{}}
     depends_on:
       <<: *service-depends-on
       toxiproxy:

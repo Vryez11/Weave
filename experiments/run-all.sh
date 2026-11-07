@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 # 장애 실험 시나리오를 차례로 돌리고 판정 표를 출력한다 (F-007, design 결정 8).
 #
-#   experiments/run-all.sh [--rps N] [--warmup 1m] [--duration 5m] [S-xx ...]
+#   experiments/run-all.sh [--rps N] [--warmup 1m] [--duration 5m] [--skip-warm-up] [S-xx ...]
 #   experiments/run-all.sh --list
 #
 # - 시나리오 ID가 없으면 scenarios/의 시나리오(S-01~S-09)를 모두 돌린다. 시나리오마다 run.sh를 부르고 옵션은 그대로 넘긴다.
+# - 첫 시나리오 전에 하위 서비스를 데우는 준비 실행을 한 번 한다: run.sh S-01을 같은 --rps·--warmup과 측정 1분으로 돌리고 판정은 보지 않는다.
+#   막 띄운 하위 서비스는 느려 서킷이 열리고, 열린 동안 트래픽이 가지 않아 데워지지 못한 채 열림·닫힘을 되풀이한다(400 RPS에서
+#   약 100초, add-call-isolation design 결정 10). run.sh는 feed-service만 다시 띄우므로 데운 하위 서비스는 그대로 남는다.
+#   준비 실행은 판정 표에 넣지 않고 결과 폴더만 남는다. 이미 데운 환경이면 --skip-warm-up으로 건너뛴다.
 # - 기대와 다르거나 실행하지 못한 시나리오가 있어도 끝까지 돌린 뒤, 표준 출력에 판정 표(마크다운)를 쓴다.
 #   형식은 e2e ExperimentRunAllComposeScenarioTest KDoc이 정한다. 표준 출력에는 표만 쓰고, 진행 상황과 run.sh 출력은 표준 오류로 간다.
 # - --list는 돌릴 목록을 한 줄에 하나씩 출력하고 0으로 끝난다. 환경을 확인하거나 부하를 보내지 않는다.
@@ -27,9 +31,10 @@ fail() {
 
 usage() {
   cat >&2 <<'EOF'
-사용법: experiments/run-all.sh [--rps N] [--warmup 1m] [--duration 5m] [S-xx ...]
+사용법: experiments/run-all.sh [--rps N] [--warmup 1m] [--duration 5m] [--skip-warm-up] [S-xx ...]
        experiments/run-all.sh --list
   시나리오 ID가 없으면 experiments/scenarios/의 시나리오를 모두 돌린다. 옵션은 시나리오마다 run.sh에 넘긴다.
+  첫 시나리오 전에 S-01을 측정 1분으로 한 번 돌려 하위 서비스를 데운다(판정 표에 넣지 않는다). --skip-warm-up이면 건너뛴다.
   환경 변수 COMPOSE_PROJECT_NAME, COMPOSE_ENV_FILE로 Compose 프로젝트와 env 파일을 바꾼다.
 EOF
 }
@@ -44,6 +49,8 @@ list_scenarios() {
 # ---------- 인자 ----------
 
 list_only=0
+skip_warm_up=0
+warm_up_options=()
 options=()
 ids=""
 while [ $# -gt 0 ]; do
@@ -56,9 +63,15 @@ while [ $# -gt 0 ]; do
       list_only=1
       shift
       ;;
+    --skip-warm-up)
+      skip_warm_up=1
+      shift
+      ;;
     --rps | --warmup | --duration)
       [ $# -ge 2 ] || fail "$1 에 값이 없다"
       options+=("$1" "$2")
+      # 준비 실행은 같은 부하와 준비 시간에 측정 1분이다
+      [ "$1" = "--duration" ] || warm_up_options+=("$1" "$2")
       shift 2
       ;;
     -*)
@@ -114,11 +127,38 @@ on_signal() {
 }
 trap on_signal INT TERM
 
+# 판정 표의 기대 열. 기준별 기대(객체)는 "가용성 miss · p99 meet"으로 적는다
+expectation_text='if type == "object" then "가용성 \(.availability) · p99 \(.p99)" else . end'
+
 expectation_of() {
-  jq -r --arg id "$1" '.scenarios[$id] // "-"' "$here/expectations.json" 2>/dev/null || echo "-"
+  jq -r --arg id "$1" ".scenarios[\$id] // \"-\" | $expectation_text" "$here/expectations.json" 2>/dev/null || echo "-"
 }
 
 add_row() { rows="$rows| $1 | $2 | $3 | $4 | $5 |"$'\n'; }
+
+# ---------- 준비 실행 ----------
+
+if [ "$skip_warm_up" = 0 ]; then
+  log "준비 실행: run.sh S-01 ${warm_up_options[*]+${warm_up_options[*]}} --duration 1m 로 하위 서비스를 데운다(판정 표에 넣지 않는다)"
+  "$here/run.sh" S-01 ${warm_up_options[@]+"${warm_up_options[@]}"} --duration 1m >"$out" &
+  child=$!
+  wait "$child"
+  status=$?
+  while kill -0 "$child" 2>/dev/null; do
+    wait "$child"
+    status=$?
+  done
+  child=""
+  while IFS= read -r line; do echo "  준비 실행: $line" >&2; done <"$out"
+  # 판정(0, 1)은 보지 않는다. 실행하지 못했으면(2) 환경이 없거나 되돌리기에 실패한 것이라 시나리오도 돌 수 없다
+  if [ "$interrupted" = 1 ]; then
+    log "준비 실행 중에 중단됐다"
+    echo "| 시나리오 | SLO | 기대 | 판정 | 리포트 |"
+    echo "|---|---|---|---|---|"
+    exit 2
+  fi
+  [ "$status" -le 1 ] || fail "준비 실행을 하지 못했다(run.sh 종료 코드 $status). 위의 run.sh 출력을 본다"
+fi
 
 index=0
 for id in "$@"; do
@@ -154,8 +194,8 @@ for id in "$@"; do
 
   fields=""
   if [ "$status" -le 1 ] && [ -n "$report" ] && [ -f "$root/$report/report.json" ]; then
-    fields="$(jq -r '[(if .sloMet then "충족" else "미충족" end), .expectation,
-                       (if .matchesExpectation then "기대와 같음" else "기대와 다름" end)] | join("|")' \
+    fields="$(jq -r "[(if .sloMet then \"충족\" else \"미충족\" end), (.expectation | $expectation_text),
+                       (if .matchesExpectation then \"기대와 같음\" else \"기대와 다름\" end)] | join(\"|\")" \
       "$root/$report/report.json" 2>/dev/null)" || fields=""
   fi
 

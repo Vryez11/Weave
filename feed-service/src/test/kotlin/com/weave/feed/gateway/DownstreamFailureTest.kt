@@ -1,5 +1,10 @@
 package com.weave.feed.gateway
 
+import io.github.resilience4j.bulkhead.Bulkhead
+import io.github.resilience4j.bulkhead.BulkheadFullException
+import io.github.resilience4j.bulkhead.ThreadPoolBulkhead
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException
+import io.github.resilience4j.circuitbreaker.CircuitBreaker
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import org.apache.hc.client5.http.HttpHostConnectException
@@ -13,6 +18,7 @@ import java.io.IOException
 import java.net.ConnectException
 import java.net.SocketTimeoutException
 import java.util.concurrent.CompletionException
+import java.util.concurrent.TimeoutException
 
 class DownstreamFailureTest :
     FunSpec({
@@ -40,11 +46,76 @@ class DownstreamFailureTest :
         }
 
         test("F-004 그 밖의 ResourceAccessException은 io_failure다") {
-            val error = ResourceAccessException("I/O error", SocketTimeoutException("Read timed out"))
+            // 응답 타임아웃(SocketTimeoutException)은 F-001부터 timeout이다. 아래 "F-001 응답 타임아웃" 테스트가 본다
+            val error = ResourceAccessException("I/O error", IOException("Connection reset"))
 
-            DownstreamFailure.of(error) shouldBe DownstreamFailure("io_failure", SocketTimeoutException::class.java.name)
+            DownstreamFailure.of(error) shouldBe DownstreamFailure("io_failure", IOException::class.java.name)
             DownstreamFailure.of(ResourceAccessException("I/O error")) shouldBe
                 DownstreamFailure("io_failure", ResourceAccessException::class.java.name)
+        }
+
+        test("F-001 응답 타임아웃: 원인이 SocketTimeoutException인 ResourceAccessException은 timeout이다") {
+            val error = ResourceAccessException("I/O error", SocketTimeoutException("Read timed out"))
+
+            DownstreamFailure.of(CompletionException(error)) shouldBe
+                DownstreamFailure("timeout", SocketTimeoutException::class.java.name)
+        }
+
+        test("F-001 호출 시간 상한: TimeLimiter의 TimeoutException은 timeout이다") {
+            val error = TimeoutException("TimeLimiter 'recommendation' recorded a timeout exception.")
+
+            DownstreamFailure.of(CompletionException(error)) shouldBe DownstreamFailure("timeout", TimeoutException::class.java.name)
+        }
+
+        test("F-001 서킷이 막은 호출: CallNotPermittedException은 circuit_open이다") {
+            val circuitBreaker = CircuitBreaker.ofDefaults("recommendation").apply { transitionToOpenState() }
+            val error = CallNotPermittedException.createCallNotPermittedException(circuitBreaker)
+
+            DownstreamFailure.of(CompletionException(error)) shouldBe
+                DownstreamFailure("circuit_open", CallNotPermittedException::class.java.name)
+        }
+
+        test("F-001 벌크헤드가 거절한 호출: BulkheadFullException은 ThreadPool·Semaphore 벌크헤드 모두 bulkhead_full이다") {
+            val threadPool = BulkheadFullException.createBulkheadFullException(ThreadPoolBulkhead.ofDefaults("recommendation"))
+            val semaphore = BulkheadFullException.createBulkheadFullException(Bulkhead.ofDefaults("like-toggle"))
+
+            DownstreamFailure.of(CompletionException(threadPool)) shouldBe
+                DownstreamFailure("bulkhead_full", BulkheadFullException::class.java.name)
+            DownstreamFailure.of(semaphore).cause shouldBe "bulkhead_full"
+        }
+
+        test("F-001 요청 시간 예산 초과: TimeBudgetExhaustedException은 budget_exhausted다") {
+            DownstreamFailure.of(TimeBudgetExhaustedException("user")) shouldBe
+                DownstreamFailure("budget_exhausted", TimeBudgetExhaustedException::class.java.name)
+        }
+
+        context("F-001 서킷이 실패로 세는 것 (design 결정 7)") {
+            val counted =
+                mapOf(
+                    "시간 상한(TimeoutException)" to CompletionException(TimeoutException("timeout")),
+                    "응답 타임아웃" to ResourceAccessException("I/O error", SocketTimeoutException("Read timed out")),
+                    "연결 실패" to ResourceAccessException("I/O error", ConnectException("refused")),
+                    "그 밖의 입출력 실패" to ResourceAccessException("I/O error", IOException("Connection reset")),
+                    "5xx" to HttpServerErrorException(HttpStatus.SERVICE_UNAVAILABLE),
+                )
+            val notCounted =
+                mapOf(
+                    "4xx" to HttpClientErrorException(HttpStatus.NOT_FOUND),
+                    "429" to HttpClientErrorException(HttpStatus.TOO_MANY_REQUESTS),
+                    "벌크헤드 거절" to BulkheadFullException.createBulkheadFullException(ThreadPoolBulkhead.ofDefaults("recommendation")),
+                    "열린 서킷이 막은 호출" to
+                        CallNotPermittedException.createCallNotPermittedException(
+                            CircuitBreaker.ofDefaults("recommendation").apply { transitionToOpenState() },
+                        ),
+                    "요청 시간 예산 초과" to TimeBudgetExhaustedException("user"),
+                    "분류되지 않은 예외" to RestClientException("no converter"),
+                )
+            counted.forEach { (name, error) ->
+                test("F-001 $name 은 센다") { DownstreamFailure.countsAsCircuitFailure(error) shouldBe true }
+            }
+            notCounted.forEach { (name, error) ->
+                test("F-001 $name 은 세지 않는다") { DownstreamFailure.countsAsCircuitFailure(error) shouldBe false }
+            }
         }
 
         test("F-004 그 밖의 예외는 other다") {

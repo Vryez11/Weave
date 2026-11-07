@@ -14,7 +14,8 @@ Compose 환경의 feed-service는 하위 서비스 5개를 의존성마다 하�
 
 - **GIVEN** Compose 환경이 떠 있고 장애가 없다
 - **WHEN** recommendation 프록시에 응답 지연 3,000ms를 넣고 `GET /feed`를 부른다
-- **THEN** 응답이 3,000ms 이상 걸린다
+- **THEN** 응답이 1,000ms 안에 온다
+- **AND** feed-service의 하위 서비스 호출 실패 로그에 `dependency` `recommendation`, `cause` `timeout`인 줄이 있다
 - **AND** 지연을 거둔 뒤 `GET /feed`는 1,000ms 안에 200으로 온다
 
 #### Scenario: 한 의존성의 프록시를 끊는다
@@ -51,7 +52,7 @@ Compose 환경의 feed-service는 하위 서비스 5개를 의존성마다 하�
 - **WHEN** `experiments/run.sh S-02 --rps 5 --warmup 5s --duration 20s`를 돌린다
 - **THEN** 명령이 끝나고 `experiments/results/` 아래에 이번 실행의 리포트가 생긴다
 - **AND** 리포트의 측정 요청 수는 95 이상 105 이하다(5 RPS × 20초)
-- **AND** 리포트의 p50이 3,000ms 이상이다
+- **AND** 리포트의 recommendation 호출 실패율이 0.9 이상이고, 피드 p99는 1,000ms 미만이다
 
 #### Scenario: 없는 시나리오
 
@@ -107,7 +108,7 @@ Compose 환경의 feed-service는 하위 서비스 5개를 의존성마다 하�
 
 #### Scenario: 모든 요청이 실패한다
 
-- **WHEN** `experiments/run.sh S-06 --rps 5 --warmup 5s --duration 20s`를 돌린다(MVP에서 post가 꺼지면 피드가 500이다)
+- **WHEN** `experiments/run.sh S-06 --rps 5 --warmup 5s --duration 20s`를 돌린다(post가 꺼지면 피드가 실패한다)
 - **THEN** 리포트의 가용성이 0이다
 - **AND** 리포트에 지연 p50·p95·p99가 있다
 
@@ -120,24 +121,32 @@ Compose 환경의 feed-service는 하위 서비스 5개를 의존성마다 하�
 
 #### Scenario: 시간 초과된 요청
 
-- **WHEN** `experiments/run.sh S-03 --rps 60 --warmup 5s --duration 20s`를 돌린다(MVP에서 recommendation이 응답하지 않으면 피드 요청이 요청 시간 초과 5초까지 끝나지 않는다)
-- **THEN** 리포트의 지연 p50은 4,500ms 이상이다
+- **GIVEN** `experiments/run.sh S-01 --rps 20 --warmup 5s --duration 30s`의 측정 구간이 시작되고 5초 뒤 feed-service 컨테이너를 10초 동안 멈춘다(`docker compose pause`, 멈춘 동안 보낸 요청은 응답을 받지 못한다)
+- **WHEN** 명령이 끝난다
+- **THEN** 리포트의 지연 p99는 4,500ms 이상이다
 
 ### Requirement: 리포트 (F-007)
 
-실행마다 `experiments/results/` 아래 새 폴더에 사람이 읽는 리포트와 원본 결과를 남겨야 한다(SHALL). 리포트 항목은 design 결정 7의 표를 따르고, 지금 단계에 없는 값(degrade 비율, 서킷 상태)은 빈칸이 아니라 "없음"으로 적는다. S-08은 장애를 거둔 뒤 SLO를 다시 지키기까지 걸린 시간을 적는다.
+실행마다 `experiments/results/` 아래 새 폴더에 사람이 읽는 리포트와 원본 결과를 남겨야 한다(SHALL). 리포트 항목은 아키텍처 9-3의 표를 따르고, 지금 단계에 없는 값(degrade 비율)은 빈칸이 아니라 "없음"으로 적는다. 서킷 상태는 의존성마다 측정 구간에 거친 상태를 순서대로 적는다. S-08은 장애를 거둔 뒤 SLO를 다시 지키기까지 걸린 시간을 적는다.
 
 리포트는 측정 구간에 Prometheus가 feed-service 지표를 긁은 비율을 적고, 1보다 작으면 자원 사용량이 긁힌 구간만의 값이라고 함께 적는다.
 
 #### Scenario: 리포트 항목
 
 - **WHEN** `experiments/run.sh S-02 --rps 5 --warmup 5s --duration 20s`가 끝난다
-- **THEN** 리포트에 시나리오 ID, 커밋, 실행 시각, RPS·준비·측정 시간, 측정 요청 수, 보내지 못한 요청 수, p50·p95·p99, 가용성, SLO 충족 여부, 기대 결과가 있다
+- **THEN** 리포트에 시나리오 ID, 커밋, 실행 시각, RPS·준비·측정 시간, 측정 요청 수, 보내지 못한 요청 수, p50·p95·p99, 가용성, 기준(가용성, p99)마다의 충족 여부와 기대 결과가 있다
 - **AND** 의존성 5개마다 호출 p99, 호출 실패율, 요청 배율(하위 서비스가 받은 요청 수 ÷ 피드 요청 수)이 있다
-- **AND** Tomcat 사용 중 스레드, 공유 호출 스레드 풀의 활성 스레드와 대기열, 의존성별 커넥션 풀의 사용 중·대기 수, feed-service CPU 사용률의 최댓값과 평균이 있다
-- **AND** degrade 비율과 서킷 상태는 "없음"이고, 측정 구간으로 시간 범위를 맞춘 Grafana 대시보드 링크가 있다
+- **AND** Tomcat 사용 중 스레드, 의존성 5개마다 벌크헤드의 사용 중 스레드와 대기열, 의존성별 커넥션 풀의 사용 중·대기 수, feed-service CPU 사용률의 최댓값과 평균이 있다
+- **AND** 의존성 5개마다 측정 구간에 거친 서킷 상태가 있고, degrade 비율은 "없음"이다
+- **AND** 측정 구간으로 시간 범위를 맞춘 Grafana 대시보드 링크가 있다
 - **AND** 넣은 장애마다 실제로 넣은 시각과 거둔 시각이 있다
 - **AND** feed-service 지표 수집 비율(0 이상 1 이하)이 있다
+
+#### Scenario: 서킷이 열린 시나리오
+
+- **GIVEN** 측정 구간에 recommendation 서킷이 닫힘에서 열림, 반열림을 거쳐 다시 열렸다
+- **WHEN** 그 실행의 리포트를 만든다
+- **THEN** recommendation의 서킷 상태는 `CLOSED → OPEN → HALF_OPEN → OPEN`이고, 상태가 바뀌지 않은 의존성은 `CLOSED`다
 
 #### Scenario: 복구 시간
 
@@ -153,19 +162,39 @@ Compose 환경의 feed-service는 하위 서비스 5개를 의존성마다 하�
 
 ### Requirement: 기대 결과로 판정한다 (F-007)
 
-실험 세트는 단계마다 시나리오별로 SLO를 지켜야 하는지(기대 결과)를 한 파일에 적고, `experiments/run.sh`는 실제 결과가 기대와 같으면 0, 다르면 1, 실행하지 못했으면 2로 끝나야 한다(SHALL). SLO를 못 지키는 것이 기대인 시나리오가 SLO를 지켜도 기대와 다른 것이다. 고도화 2의 기대는 S-01만 SLO를 지키는 것이다.
+실험 세트는 단계마다 시나리오별로 SLO의 기준(가용성, p99)을 지켜야 하는지(기대 결과)를 한 파일에 적고, `experiments/run.sh`는 기준마다의 실제 결과가 모두 기대와 같으면 0, 하나라도 다르면 1, 실행하지 못했으면 2로 끝나야 한다(SHALL). 기대는 시나리오마다 두 기준을 함께(`meet`, `miss`) 적거나 기준마다 따로 적는다. 지키지 못하는 것이 기대인 기준을 지켜도 기대와 다른 것이다. 고도화 3의 기대는 S-01은 두 기준 모두 지키고, S-02~S-09는 p99만 지키고 가용성은 지키지 못하는 것이다.
 
 #### Scenario: 기대대로 SLO를 못 지킨다
 
-- **GIVEN** 기대 결과에서 S-02는 SLO를 지키지 못한다
-- **WHEN** `experiments/run.sh S-02 --rps 5 --warmup 5s --duration 20s`가 p99 기준을 넘는다
-- **THEN** 리포트에 "SLO 미충족, 기대와 같음"이 있고 명령은 0으로 끝난다
+- **GIVEN** 기대 결과에서 S-02는 두 기준 모두 지키지 못한다(`miss`)
+- **WHEN** 가용성과 p99 기준을 모두 넘은 S-02의 부하 결과로 판정한다
+- **THEN** 판정은 "SLO 미충족, 기대와 같음"이고 판정 코드는 0이다
 
 #### Scenario: 기대와 다르다
 
 - **GIVEN** 기대 결과에서 S-01은 SLO를 지킨다
 - **WHEN** p99가 SLO를 넘은 S-01의 부하 결과로 판정한다
-- **THEN** 리포트에 "SLO 미충족, 기대와 다름"이 있고 판정 코드는 1이다
+- **THEN** 판정은 "SLO 미충족, 기대와 다름"이고 판정 코드는 1이다
+
+#### Scenario: 기준별 기대와 같다
+
+- **GIVEN** 기대 결과에서 S-02는 가용성 `miss`, p99 `meet`이다
+- **WHEN** p99는 지키고 가용성은 넘은 S-02의 부하 결과로 판정한다
+- **THEN** 판정은 "SLO 미충족, 기대와 같음"이고 판정 코드는 0이다
+- **AND** 판정 결과에 기준마다의 충족 여부와 기대가 있다
+
+#### Scenario: 기준별 기대와 다르다
+
+- **GIVEN** 기대 결과에서 S-02는 가용성 `miss`, p99 `meet`이다
+- **WHEN** 가용성과 p99를 모두 넘은 S-02의 부하 결과로 판정한다
+- **THEN** 판정은 "SLO 미충족, 기대와 다름"이고 판정 코드는 1이다
+- **AND** 기대와 다른 기준으로 p99가 있다
+
+#### Scenario: 고도화 3의 기대
+
+- **WHEN** 실험 세트의 기대 결과를 읽는다
+- **THEN** 단계는 고도화 3이다
+- **AND** S-01은 가용성과 p99 모두 `meet`이고, S-02~S-09는 가용성 `miss`, p99 `meet`이다
 
 #### Scenario: 부하 도구가 실패한다
 
@@ -175,6 +204,8 @@ Compose 환경의 feed-service는 하위 서비스 5개를 의존성마다 하�
 ### Requirement: 실험 세트 전체를 돌린다 (F-007)
 
 `experiments/run-all.sh`는 S-01~S-09(시나리오 ID를 주면 그것만)를 차례로 돌리고, 기대와 다른 시나리오가 있어도 끝까지 돌린 뒤 시나리오마다의 판정을 한 표로 출력해야 한다(SHALL). 모두 기대와 같으면 0, 하나라도 다르거나 실행하지 못했으면 0이 아닌 코드로 끝난다. 시나리오 ID 없이 돌려 0으로 끝나는 것을 "장애 실험 세트 통과"로 본다.
+
+첫 시나리오 전에는 하위 서비스를 데우는 준비 실행(S-01, 같은 부하, 측정 1분)을 한 번 해야 하고(SHALL), 그 결과는 판정 표와 종료 코드에 넣지 않는다. 막 띄운 하위 서비스가 느려 서킷이 열리면 트래픽이 가지 않아 데워지지 못하기 때문이다. `--skip-warm-up`이면 건너뛴다.
 
 #### Scenario: 판정 표
 
@@ -186,9 +217,15 @@ Compose 환경의 feed-service는 하위 서비스 5개를 의존성마다 하�
 - **WHEN** 시나리오 ID 없이 돌릴 목록을 본다
 - **THEN** S-01부터 S-09까지 아홉 개다
 
+#### Scenario: 준비 실행
+
+- **WHEN** `experiments/run-all.sh --rps 5 --warmup 5s --duration 20s S-02`를 돌린다
+- **THEN** S-02보다 먼저 S-01을 측정 1분으로 돌린 결과 폴더가 생긴다
+- **AND** 판정 표에는 S-02 한 줄만 있다
+
 ### Requirement: feed-service의 실험 지표 (F-007)
 
-feed-service는 `/actuator/prometheus`에 Tomcat 사용 중 스레드 수, 공유 호출 스레드 풀의 활성 스레드 수와 대기열 길이, 의존성 5개마다 커넥션 풀의 사용 중·대기 연결 수, 의존성마다 호출 지연 히스토그램, 피드 요청 지연 히스토그램을 내보내야 한다(SHALL). 의존성은 이름(`post`, `user`, `like`, `recommendation`, `ad`)으로 구분된다.
+feed-service는 `/actuator/prometheus`에 Tomcat 사용 중 스레드 수, 의존성 5개마다 벌크헤드의 사용 중 스레드 수와 대기열 길이, 의존성 5개마다 커넥션 풀의 사용 중·대기 연결 수, 의존성마다 호출 지연 히스토그램, 피드 요청 지연 히스토그램을 내보내야 한다(SHALL). 의존성은 이름(`post`, `user`, `like`, `recommendation`, `ad`)으로 구분된다. 서킷 지표는 `call-isolation`의 "격리 지표"를 따른다.
 
 Compose 환경에서는 Actuator(지표, 헬스 체크)를 업무 요청과 다른 관리 포트로 열어, 업무 요청이 Tomcat 스레드를 모두 묶어도 Prometheus가 지표를 긁을 수 있어야 한다(SHALL).
 
@@ -196,20 +233,21 @@ Compose 환경에서는 Actuator(지표, 헬스 체크)를 업무 요청과 다�
 
 - **GIVEN** 하위 서비스 5개가 정상 응답한다
 - **WHEN** `GET /feed`를 한 번 부른 뒤 `GET /actuator/prometheus`를 부른다
-- **THEN** Tomcat 사용 중 스레드, 공유 호출 스레드 풀의 활성 스레드와 대기열 값이 있다
-- **AND** 의존성 이름 5개마다 커넥션 풀의 사용 중·대기 값과 호출 지연 히스토그램 버킷이 있다
+- **THEN** Tomcat 사용 중 스레드 값이 있다
+- **AND** 의존성 이름 5개마다 벌크헤드의 사용 중 스레드와 대기열, 커넥션 풀의 사용 중·대기 값과 호출 지연 히스토그램 버킷이 있다
 - **AND** `/feed` 요청 지연 히스토그램 버킷이 있다
 
 #### Scenario: Tomcat 스레드가 모두 묶여도 긁힌다
 
 - **GIVEN** Compose 환경의 feed-service는 지표와 헬스 체크를 업무 요청과 다른 관리 포트로 내보낸다
+- **AND** feed-service를 recommendation의 격리를 넓힌 설정(호출 시간 상한·응답 타임아웃·요청 시간 예산 10초, 벌크헤드와 커넥션 풀 300, 서킷이 열리지 않는 실패 문턱)으로 띄웠다. 격리가 있는 기본 설정에서는 Tomcat 스레드가 묶이지 않아 이 상황을 만들 수 없다
 - **WHEN** `experiments/run.sh S-03 --rps 60 --warmup 5s --duration 20s`를 돌린다(동시 요청이 60 × 5초 = 300개로 Tomcat 최대 스레드 200을 넘는다)
 - **THEN** 리포트의 feed-service 지표 수집 비율은 1이다
 - **AND** 리포트의 Tomcat 사용 중 스레드 최댓값은 200이다
 
 ### Requirement: 실험 대시보드 (F-007)
 
-Compose 환경의 Grafana는 띄울 때 파일로 둔 피드 실험 대시보드를 불러와야 한다(SHALL). 대시보드에는 피드 가용성과 p50·p95·p99, 의존성별 호출 지연·실패율, 자원 사용량(리포트의 자원 항목)이 있다.
+Compose 환경의 Grafana는 띄울 때 파일로 둔 피드 실험 대시보드를 불러와야 한다(SHALL). 대시보드에는 피드 가용성과 p50·p95·p99, 의존성별 호출 지연·실패율, 자원 사용량(리포트의 자원 항목), 의존성별 서킷 상태와 벌크헤드 사용량·거절이 있다.
 
 #### Scenario: 대시보드를 불러온다
 
@@ -217,3 +255,4 @@ Compose 환경의 Grafana는 띄울 때 파일로 둔 피드 실험 대시보드
 - **WHEN** Grafana에서 피드 실험 대시보드를 찾는다
 - **THEN** 대시보드가 있다
 - **AND** 대시보드 패널의 Prometheus 질의는 모두 오류 없이 하나 이상의 시계열을 돌려준다
+- **AND** 서킷 상태와 벌크헤드 사용량 패널이 있다

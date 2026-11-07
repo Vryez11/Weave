@@ -6,6 +6,7 @@ import org.apache.hc.client5.http.impl.io.PoolingHttpClientConnectionManager
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder
 import org.springframework.boot.http.client.HttpClientSettings
+import org.springframework.boot.http.client.HttpComponentsClientHttpRequestFactoryBuilder
 import org.springframework.boot.http.client.autoconfigure.HttpClientSettingsPropertyMapper
 import org.springframework.boot.http.client.autoconfigure.service.HttpServiceClientProperties
 import org.springframework.boot.ssl.SslBundles
@@ -22,14 +23,17 @@ import org.springframework.web.service.registry.HttpServiceGroupConfigurer
  * Boot와 같은 방법(그룹 속성 → [HttpClientSettingsPropertyMapper] → [ClientHttpRequestFactoryBuilder] Bean)으로 요청 팩토리를
  * 다시 만들어 넣고, 그 HttpClient의 내부 필드 `InternalHttpClient.connManager`에서 매니저를 읽어 바인더를 묶는다.
  * 재시도 끔, 풀 크기, 타임아웃은 Bean과 Boot 설정 그대로다. Boot가 먼저 만든 팩토리는 연결을 연 적이 없어 버려도 남는 자원이 없다.
+ * 그룹 요청 팩토리를 마지막으로 만드는 곳이 여기라, 그룹별 풀 크기 덮어쓰기(`weave.http-client.groups.<그룹>.max-connections`,
+ * add-call-isolation design 결정 5)도 여기서 Bean에 더한다.
  *
  * 매니저를 못 읽으면 시작할 때 예외로 멈춘다. 지표 없이 조용히 뜨지 않게, httpclient5를 올려 내부가 바뀌면 바로 드러나게 한다.
  */
 class ConnectionPoolMetrics(
     private val properties: HttpServiceClientProperties,
+    private val httpClientProperties: HttpClientProperties,
     sslBundles: ObjectProvider<SslBundles>,
     httpClientSettings: ObjectProvider<HttpClientSettings>,
-    private val requestFactoryBuilder: ClientHttpRequestFactoryBuilder<*>,
+    private val requestFactoryBuilder: HttpComponentsClientHttpRequestFactoryBuilder,
     private val meterRegistry: ObjectProvider<MeterRegistry>,
 ) : RestClientHttpServiceGroupConfigurer {
     private val settingsMapper = HttpClientSettingsPropertyMapper(sslBundles.getIfAvailable(), httpClientSettings.getIfAvailable())
@@ -39,12 +43,17 @@ class ConnectionPoolMetrics(
     override fun configureGroups(groups: HttpServiceGroupConfigurer.Groups<RestClient.Builder>) {
         groups.forEachClient { group, builder ->
             val settings = settingsMapper.map(properties.get(group.name()))
-            val requestFactory = requestFactoryBuilder.build(settings)
+            val requestFactory = requestFactoryBuilderOf(group.name()).build(settings)
             builder.requestFactory(requestFactory)
             val manager = connectionManagerOf(group.name(), requestFactory)
             meterRegistry.ifAvailable { PoolingHttpClientConnectionManagerMetricsBinder(manager, group.name()).bindTo(it) }
         }
     }
+
+    /** Bean의 커스터마이저 뒤에 그룹의 풀 크기를 더해, 모든 그룹의 값을 그룹 값이 덮는다. */
+    private fun requestFactoryBuilderOf(group: String): HttpComponentsClientHttpRequestFactoryBuilder =
+        httpClientProperties.maxConnectionsOverrideOf(group)?.let { requestFactoryBuilder.withMaxConnections(it) }
+            ?: requestFactoryBuilder
 
     private fun connectionManagerOf(
         group: String,

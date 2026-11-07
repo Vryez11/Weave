@@ -16,6 +16,7 @@ import kotlin.io.path.absolutePathString
 import kotlin.io.path.createTempDirectory
 import kotlin.io.path.readText
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.toJavaDuration
 
@@ -82,10 +83,14 @@ object ComposeEnvironment {
 
     fun readJsonList(body: String): List<Any?> = mapper.readValue(body)
 
-    /** `docker compose -p <프로젝트> -f <compose.yaml> --env-file <파일> <args>`를 레포 루트에서 돌린다. */
+    /**
+     * `docker compose -p <프로젝트> -f <compose.yaml> --env-file <파일> <args>`를 레포 루트에서 돌린다.
+     * [environment]는 compose의 변수 치환에 쓰인다(셸 환경이 env 파일보다 우선한다).
+     */
     fun dockerCompose(
         vararg args: String,
         timeout: Duration = 60.seconds,
+        environment: Map<String, String> = emptyMap(),
     ): ScriptResult =
         execute(
             listOf(
@@ -98,9 +103,42 @@ object ComposeEnvironment {
                 "--env-file",
                 envFile.absolutePathString(),
             ) + args,
-            emptyMap(),
+            environment,
             timeout,
         )
+
+    /**
+     * feed-service 컨테이너를 새로 만들어 healthy가 될 때까지 기다린다(add-call-isolation design 결정 10).
+     *
+     * [springApplicationJson]을 주면 compose.yaml이 feed-service에 넘기는 `SPRING_APPLICATION_JSON`(변수 `FEED_SPRING_APPLICATION_JSON`)이
+     * 그 값이 되고, 주지 않으면 기본값 `{}`이다. `run.sh`는 feed-service를 `docker compose restart`로 다시 띄워 컨테이너의 환경을 그대로
+     * 두므로, 설정을 바꿔 `run.sh`를 돌리려면 이것으로 먼저 만든다. 끝나면 인자 없이 다시 불러 기본 설정으로 되돌린다.
+     */
+    fun recreateFeedService(springApplicationJson: String? = null) {
+        val environment = springApplicationJson?.let { mapOf("FEED_SPRING_APPLICATION_JSON" to it) } ?: emptyMap()
+        val result =
+            dockerCompose(
+                "up",
+                "-d",
+                "--force-recreate",
+                "--no-deps",
+                "--wait",
+                "feed-service",
+                timeout = 3.minutes,
+                environment = environment,
+            )
+        withClue("feed-service 다시 만들기: $result") { result.exitCode shouldBe 0 }
+    }
+
+    /**
+     * 막 뜬 feed-service에 `GET /feed`를 [requests]번 보내고 결과는 보지 않는다(add-call-isolation design 결정 10).
+     * 첫 호출은 연결 수립과 클래스 로딩으로 하위 서비스 호출 시간 상한(100ms)에 걸릴 수 있어, 첫 응답을 단언하는 시나리오 전에 부른다.
+     */
+    fun warmUpFeed(requests: Int = 20) {
+        repeat(requests) {
+            runCatching { get("$feedUrl/feed", headers = mapOf("X-User-Id" to "1"), timeout = 10.seconds) }
+        }
+    }
 
     /**
      * `experiments/<script>`를 이 Compose 환경을 대상으로 돌린다.

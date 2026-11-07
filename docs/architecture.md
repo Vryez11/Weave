@@ -1,7 +1,7 @@
 # 아키텍처
 
 - 작성일: 2026-11-04
-- 상태: 초안. 장애 대응 설정값(타임아웃, 문턱, 풀 크기)은 고도화 2의 기준선을 잰 뒤 이 문서에 근거와 함께 채운다.
+- 상태: 초안. 고도화 3(`add-call-isolation`, F-001)까지 반영했다. 격리 설정값과 근거는 4-3과 5-6, 결과는 [고도화 3 결과](experiments/call-isolation.md)에 있다.
 - 근거: [PRD](prd.md)의 단계, SLO, 의존성 등급. 기능 ID별 세부 설계는 OpenSpec change에서 정한다.
 
 ## 1. 결정 요약
@@ -11,7 +11,7 @@
 | 언어·프레임워크 | Kotlin, Spring Boot(Spring MVC), JDK 25, Gradle Kotlin DSL 멀티 모듈 | Kotlin 2.3.21, Boot 4.1.2, Gradle 9.8.2 |
 | 동시성 | Tomcat은 플랫폼 스레드. 하위 서비스 병렬 호출은 `CompletableFuture`. 가상 스레드는 고도화 3을 마친 뒤 S-02에서 한 번 비교한다(PRD F-001) | — |
 | HTTP 클라이언트 | `RestClient` + Apache HttpClient 5, 그 위에 HTTP Interface(`@HttpExchange`) | HttpClient 5.6.5 (Boot BOM) |
-| 장애 대응 | Resilience4j Spring Boot 4 스타터, **어노테이션 방식**. 서킷 브레이커, 벌크헤드(Semaphore·ThreadPool), TimeLimiter, Retry, RateLimiter를 모두 설정으로 연다 | `resilience4j-spring-boot4` 2.4.0 |
+| 장애 대응 | Resilience4j Spring Boot 4 스타터. 어노테이션을 쓰지 않고, 스타터가 `resilience4j.*` 설정으로 만든 레지스트리에서 의존성 이름으로 인스턴스를 꺼내 `IsolatedCalls` 한 곳에서 감싼다(5-2). 서킷 브레이커, 벌크헤드(ThreadPool·Semaphore), TimeLimiter는 고도화 3, Retry, RateLimiter는 고도화 5에서 설정으로 연다 | `resilience4j-spring-boot4` 2.4.0 |
 | 좋아요 저장 | MySQL + Spring Data JPA + Flyway | MySQL 9, Hibernate 7.4, Flyway 12.4 (Boot BOM) |
 | 캐시 | post stale 캐시는 Redis(Spring Data Redis, Lettuce), user 프로필은 Caffeine 로컬 캐시 | Caffeine 3.2.4 (Boot BOM) |
 | 로그 | logback + logstash-logback-encoder로 JSON 로그. Grafana Alloy가 모아 Loki로 | encoder 9.0, logback 1.5 |
@@ -23,7 +23,7 @@
 | 테스트 | Kotest + MockK(springmockk), 하위 서비스는 WireMock, MySQL·Redis는 Testcontainers | Kotest 6.2.6, MockK 1.14.11, springmockk 5.0.1, WireMock 3.13, Testcontainers 2.0.5 |
 | 린트·CI | ktlint, GitHub Actions | 하네스 구성 때 정한다 |
 
-**호환 확인이 필요한 것:** `resilience4j-spring-boot4` 2.4.0은 Spring Boot 4.0.0으로 빌드됐다. 4.1.2에서 자동 설정과 Actuator 연동이 되는지 고도화 3의 첫 작업에서 확인한다. Spring Cloud CircuitBreaker는 Boot 4.1용 릴리스(2026.0)가 아직 RC라 쓰지 않는다.
+**호환 확인:** `resilience4j-spring-boot4` 2.4.0은 Spring Boot 4.0.0으로 빌드됐다. 4.1.2에서 레지스트리 자동 설정, Prometheus 지표, Boot 버전 검사가 되는 것을 고도화 3에서 확인했다(`ResilienceAutoConfigurationTest`, `add-call-isolation` design 결정 2). Spring Cloud CircuitBreaker는 Boot 4.1용 릴리스(2026.0)가 아직 RC라 쓰지 않는다.
 
 ## 2. 시스템 구성
 
@@ -114,7 +114,7 @@ sequenceDiagram
 | 단계 | 호출을 감싸는 것 |
 |---|---|
 | MVP | 없음. 타임아웃은 라이브러리 기본값, 병렬 호출은 공유 스레드 풀 하나(Boot의 기본 `applicationTaskExecutor`) |
-| 고도화 3 | 의존성별 타임아웃, 요청 시간 예산, ThreadPool 벌크헤드, 서킷 브레이커 |
+| 고도화 3 | 조회는 `IsolatedCalls`가 의존성마다 서킷 브레이커 → 호출 시간 상한(TimeLimiter) → ThreadPool 벌크헤드로 감싸고, HttpClient 그룹마다 연결·응답·커넥션 대기 타임아웃과 커넥션 풀 크기를 둔다. `FeedAssembler`가 요청 시간 예산(`RequestBudget`)으로 기다린다. 좋아요 토글은 요청 스레드에서 like 서킷과 Semaphore 벌크헤드 `like-toggle`을 거친다. 공유 풀(`applicationTaskExecutor`)은 비교 실험용 Semaphore 모드(`weave.isolation.bulkhead-type: semaphore`)에서만 조회를 돌린다 |
 | 고도화 4 | 등급별 fallback, 부분 응답 계약 |
 | 고도화 5 | 재시도(멱등한 호출만), ad의 RateLimiter와 Retry-After |
 
@@ -144,10 +144,10 @@ feed-service에 용량 설정(`weave.http-client.max-connections-per-route`, `sp
 - 기본 재시도가 켜져 있으면 실패한 의존성에 요청이 두 번 가고 피드가 1초 이상 늦어진다. 끊김 장애(Toxiproxy `reset_peer` 등)에서도 GET은 라이브러리가 한 번 더 보냈을 것이다. 고도화 2 이후의 결과를 라이브러리 기본 동작과 비교할 때 이 차이를 감안한다. MVP는 "재시도 없음"이어서 `add-feed-aggregation`에서 껐다(886f98e). 재시도는 고도화 5에서 멱등한 호출에만 다시 건다.
 - 하위 서비스가 응답하지 않으면 호출 하나가 풀 스레드를 3분까지 붙잡는다. 커넥션 풀이 가득 차면 다음 호출은 연결을 얻으려고 다시 3분까지 기다린다.
 - Spring의 `HttpComponentsClientHttpRequestFactory`에는 따로 타임아웃이 없다(`readTimeout`, `connectionRequestTimeout` 모두 -1). 위 값은 모두 HttpClient 5 자체의 기본값이다. 이 -1은 4.1에서 한 번 확인했고 테스트로 남기지 않았다(private 필드라 이름에 기대야 해서다).
-- 확인 방법: feed-service의 `@SpringBootTest(webEnvironment = RANDOM_PORT)` 테스트 컨텍스트(위 속성 없음)에서 객체를 꺼내 읽었다. 스레드 풀은 `applicationTaskExecutor` Bean의 `corePoolSize`·`maxPoolSize`·`queueCapacity`와 `threadPoolExecutor.queue`, 커넥션 풀과 타임아웃은 클라이언트 Bean(`PostClient` 등)에서 객체 그래프를 따라가 찾은 `PoolingHttpClientConnectionManager`(`defaultMaxPerRoute`, `maxTotal`, 연결·소켓 설정)와 `InternalHttpClient`의 기본 `RequestConfig`, Tomcat은 `TomcatWebServer`의 커넥터 프로토콜 핸들러(`maxThreads` 등)다. 커넥션 풀을 찾는 코드는 feed-service 테스트 소스의 `HttpClientPools`에 있다. 타임아웃 3분 값들과 Tomcat 값은 `MvpTimeoutDefaultsTest`가 같은 방법으로 다시 확인한다. 코어 스레드 시간 초과와 keep-alive는 `TaskExecutorKeepAliveTest`가 `applicationTaskExecutor`의 `keepAliveSeconds`와 `threadPoolExecutor.allowsCoreThreadTimeOut()`로, 기본 재시도는 `HttpClientRetryDefaultsTest`가 `DefaultHttpRequestRetryStrategy.INSTANCE`의 `retryRequest`·`getRetryInterval`에 상태 코드 400~599를 넣어 본다. 재시도를 끈 결과(실패한 의존성에 요청 한 번)는 feed 시나리오 테스트가 본다.
+- 확인 방법: feed-service의 `@SpringBootTest(webEnvironment = RANDOM_PORT)` 테스트 컨텍스트(위 속성 없음)에서 객체를 꺼내 읽었다. 스레드 풀은 `applicationTaskExecutor` Bean의 `corePoolSize`·`maxPoolSize`·`queueCapacity`와 `threadPoolExecutor.queue`, 커넥션 풀과 타임아웃은 클라이언트 Bean(`PostClient` 등)에서 객체 그래프를 따라가 찾은 `PoolingHttpClientConnectionManager`(`defaultMaxPerRoute`, `maxTotal`, 연결·소켓 설정)와 `InternalHttpClient`의 기본 `RequestConfig`, Tomcat은 `TomcatWebServer`의 커넥터 프로토콜 핸들러(`maxThreads` 등)다. 커넥션 풀을 찾는 코드는 feed-service 테스트 소스의 `HttpClientPools`에 있다. 타임아웃 3분 값들과 Tomcat 값은 `MvpTimeoutDefaultsTest`가 같은 방법으로 다시 확인했다. 고도화 3(`add-call-isolation`, F-001)에서 MVP 값을 단언하던 `MvpTimeoutDefaultsTest`, `HttpClientPoolCapacityTest`, `TaskExecutorCapacityTest`는 격리 값을 같은 방법으로 보는 `IsolationSettingsTest`로 바뀌었고, MVP 값의 기록은 이 표다. 코어 스레드 시간 초과와 keep-alive는 `TaskExecutorKeepAliveTest`가 `applicationTaskExecutor`의 `keepAliveSeconds`와 `threadPoolExecutor.allowsCoreThreadTimeOut()`로, 기본 재시도는 `HttpClientRetryDefaultsTest`가 `DefaultHttpRequestRetryStrategy.INSTANCE`의 `retryRequest`·`getRetryInterval`에 상태 코드 400~599를 넣어 본다. 재시도를 끈 결과(실패한 의존성에 요청 한 번)는 feed 시나리오 테스트가 본다.
 - design 결정 8 표의 예상(라우트당 5, 전체 25, 코어 8, Tomcat 200)과 같아 용량 계산 비교는 그대로다.
 
-### 4-3. 시간 예산 (초기안)
+### 4-3. 시간 예산
 
 p99 300ms(PRD 2장) 안에 응답하기 위한 나눔이다. 하위 서비스의 평시 p99는 약 50ms로 둔다(PRD F-007). 아래 예산은 출발점이고, F-001에서 "기준선 평시 p99" 열을 근거로 확정한다.
 
@@ -161,6 +161,8 @@ p99 300ms(PRD 2장) 안에 응답하기 위한 나눔이다. 하위 서비스의
 | 집계·직렬화와 여유 | | 약 50ms | 남은 예산 |
 | **전체** | 피드 92ms | **250ms** | p99 300ms에 여유 50ms |
 
+**확정 (F-001, 2026-11-07).** 위 예산을 그대로 의존성별 호출 시간 상한(post·user·like 100ms, recommendation·ad 200ms)과 요청 시간 예산(250ms)으로 쓴다. 값을 넣기 전에 MVP 구성으로 S-01(400 RPS, `20261107-033746-S-01`)을 다시 재 평시 호출이 상한에 걸리는 비율을 봤다. 100ms 상한은 89.48ms 경계를 넘는 비율이 post 0.0119%, user 0.0076%, like 0.0136%, 200ms 상한은 178.96ms 경계를 넘는 호출이 없었다. 셋을 합쳐도 0.033%로, 평시 타임아웃으로 인한 피드 실패가 가용성 예산(0.1%)의 절반 아래다. 측정과 판단의 자세한 내용은 `add-call-isolation` design 결정 3이다.
+
 - ②는 남은 예산 안에서만 기다린다. ①이 80ms 걸렸으면 ②에 줄 수 있는 시간은 전체 예산에서 그만큼 줄어든다.
 - 하위 서비스에 남은 예산을 헤더로 넘기는 것(deadline 전파)은 다루지 않는다. 하위 서비스가 다시 다른 서비스를 부르지 않기 때문이다.
 
@@ -173,72 +175,97 @@ p99 300ms(PRD 2장) 안에 응답하기 위한 나눔이다. 하위 서비스의
 - 커넥션 풀 크기는 MVP에서도 평시 부하를 감당하도록 정한다. 보호 장치가 없다는 것은 장애 대응이 없다는 뜻이지, 평시 용량이 모자라도 된다는 뜻이 아니다. 크기는 리틀의 법칙(동시 요청 수 ≈ 초당 요청 수 × 응답시간)에 여유를 더해 정한다.
 - 하위 서비스 API는 HTTP Interface(`@HttpExchange`)로 선언한다.
 
-### 5-2. 어노테이션을 붙이는 곳
+### 5-2. 격리를 씌우는 곳
 
 ```mermaid
 flowchart LR
-    asm["FeedAssembler<br/>호출 순서 · 시간 예산 · 응답 구성"] --> gw["PostGateway 등<br/>의존성마다 하나의 Bean<br/>@CircuitBreaker @Bulkhead<br/>@TimeLimiter @Retry @RateLimiter"]
-    gw --> http["PostHttpClient<br/>@HttpExchange"]
+    asm["FeedAssembler<br/>호출 순서 · 시간 예산 · 응답 구성"] --> gw["PostGateway 등<br/>의존성마다 하나의 Bean"]
+    gw --> iso["IsolatedCalls<br/>서킷 → TimeLimiter → 벌크헤드<br/>실패 로그"]
+    iso --> http["PostClient 등<br/>@HttpExchange"]
     http --> rc["RestClient<br/>+ HttpClient 5 풀"]
 ```
 
-- **Resilience4j 어노테이션은 의존성별 Gateway Bean에 붙인다.** HTTP Interface 프록시에 바로 붙이지 않고, 같은 클래스 안에서 부르지 않는다(self-invocation이면 AOP가 걸리지 않는다).
-- ThreadPool 벌크헤드와 TimeLimiter를 쓰는 메서드는 `CompletableFuture`를 돌려준다.
-- fallback은 어노테이션의 `fallbackMethod`로 Gateway 안에 두고, 등급별 동작(6장)을 담은 결과 타입을 돌려준다.
+- **격리는 `IsolatedCalls`(`com.weave.feed.gateway`) 한 곳에서 씌운다**(`add-call-isolation` design 결정 1). Gateway는 `isolated.call("post") { client.getLatestPosts(size).posts }`처럼 의존성 이름과 호출 함수만 넘기고, 격리를 씌운 `CompletableFuture`를 받는다. 서킷 브레이커, TimeLimiter, 벌크헤드는 스타터가 만든 레지스트리에서 의존성 이름으로 꺼낸다.
+- **어노테이션을 쓰지 않는 이유:**
+  - 비교 실험(design 결정 11)은 같은 호출을 ThreadPool 벌크헤드와 Semaphore 벌크헤드로 바꿔 돌려야 한다. `@Bulkhead(type = ...)`는 컴파일 때 정해진다. 지금은 `weave.isolation.bulkhead-type`(`thread-pool` 기본 | `semaphore`, `IsolationProperties`) 하나로 바꾼다.
+  - 감싸는 순서(5-4)가 aspect 순서 속성에 흩어지지 않고, self-invocation처럼 프록시를 거치지 않는 호출이 조용히 빠지는 일이 없다. "격리를 거치지 않는 호출이 없다"를 Gateway가 `IsolatedCalls`만 쓰는지로 확인한다.
+  - AOP 의존성을 더하지 않는다.
+- 요청 스레드에서 동기로 부르는 좋아요 토글은 `isolated.callBlocking("like", IsolatedCalls.LIKE_TOGGLE) { ... }`로 부른다. 조회와 같은 `like` 서킷과 Semaphore 벌크헤드 `like-toggle`을 거치고 TimeLimiter는 쓰지 않는다(그룹의 응답 타임아웃이 같은 역할을 한다, design 결정 6).
+- 실패 로그(`downstream_call_failed`)도 `IsolatedCalls`가 감싼 future의 결과에서 한 번만 남긴다. 시간 상한이나 요청 시간 예산이 먼저 끝낸 호출의 뒤늦은 실패는 남기지 않는다.
+- 서킷 상태 전이 로그(`circuit_state_changed`)는 `CircuitStateLog`가 레지스트리의 서킷마다 건다(design 결정 9).
+- fallback(6장)을 어디에 둘지는 `add-graceful-degradation`에서 정한다.
 
 ### 5-3. 설정 구조
 
-모든 모듈을 설정으로 연다. 공통 기본값은 `configs.default`에, 의존성별 값은 `instances.<의존성>`에 둔다. 인스턴스 이름은 `post`, `user`, `like`, `recommendation`, `ad`이다.
+모든 모듈을 설정으로 연다. 공통 기본값은 `configs.default`에, 의존성별 값은 `instances.<의존성>`에 둔다. 인스턴스 이름은 `post`, `user`, `like`, `recommendation`, `ad`이고 HTTP 서비스 그룹 이름과 같다(`IsolatedCalls.DEPENDENCIES`). 설정은 feed-service `application.yml`에 있다.
 
 ```yaml
 resilience4j:
   circuitbreaker:
-    circuit-breaker-aspect-order: 3      # 순서는 5-4
     configs:
       default:
         sliding-window-type: COUNT_BASED
-        sliding-window-size: ...         # 기준선 뒤 채운다
+        sliding-window-size: ...         # 값은 5-6
         failure-rate-threshold: ...
         slow-call-duration-threshold: ...
         slow-call-rate-threshold: ...
         wait-duration-in-open-state: ...
         permitted-number-of-calls-in-half-open-state: ...
         automatic-transition-from-open-to-half-open-enabled: true
-        record-exceptions: [ ... ]       # 5-5
-        ignore-exceptions: [ ... ]
+        record-failure-predicate: com.weave.feed.gateway.CircuitFailurePredicate   # 5-5
+        ignore-exceptions: io.github.resilience4j.bulkhead.BulkheadFullException
     instances:
-      post: { base-config: default }
-      ad: { base-config: default, ... }
+      post: { base-config: default }     # user, like, recommendation, ad도 같다
+  timelimiter:
+    configs:
+      default:
+        cancel-running-future: true
+    instances: { ... }                   # 의존성마다 timeout-duration (4-3)
   thread-pool-bulkhead:
     configs:
       default:
-        context-propagators: [ ... ]     # traceId 전파 (7-3)
-  bulkhead: { ... }                      # Semaphore. 비교 실험과 가상 스레드용
-  timelimiter: { ... }
+        queue-capacity: 0                # 자리가 없으면 바로 거절한다
+        context-propagators: com.weave.feed.gateway.TraceContextPropagator   # traceId 전파 (7-3)
+    instances: { ... }                   # 의존성마다 core-thread-pool-size, max-thread-pool-size
+  bulkhead:                              # Semaphore. 좋아요 토글(like-toggle)과 비교 실험의 Semaphore 모드
+    configs:
+      default:
+        max-wait-duration: 0
+    instances: { like-toggle: ..., post: ..., ... }
   retry: { ... }                         # 고도화 5
   ratelimiter: { ... }                   # ad 쿼터 (고도화 5)
+
+weave:
+  isolation:
+    bulkhead-type: thread-pool           # thread-pool | semaphore (5-2)
 ```
+
+HTTP 클라이언트의 타임아웃과 풀 크기는 Boot 그룹 설정(`spring.http.serviceclient.<그룹>.connect-timeout`, `read-timeout`)과 `weave.http-client.*`(`HttpClientProperties`: `connection-request-timeout`, `max-connections-per-route`, `groups.<그룹>.max-connections`), 요청 시간 예산은 `weave.feed.time-budget`이다.
 
 ### 5-4. 적용 순서
 
-Resilience4j 어노테이션의 기본 순서는 바깥에서 안쪽으로 `Retry → CircuitBreaker → RateLimiter → TimeLimiter → Bulkhead → 호출`이다. 기본 순서를 쓰되 `*-aspect-order` 속성으로 명시해, 순서가 설정과 이 문서에 보이게 한다.
+순서는 바깥에서 안쪽으로 `Retry → CircuitBreaker → RateLimiter → TimeLimiter → Bulkhead → 호출`이다(Resilience4j aspect의 기본 순서와 같다). 순서는 코드 한 곳, `IsolatedCalls.call`에만 있다(5-2). 고도화 3에는 CircuitBreaker → TimeLimiter → Bulkhead가 있고, Retry와 RateLimiter는 고도화 5에서 같은 곳에 더한다. 좋아요 토글(`IsolatedCalls.callBlocking`)은 CircuitBreaker → Semaphore 벌크헤드 → 호출이다.
 
 | 순서 (바깥 → 안) | 이렇게 둔 이유 |
 |---|---|
-| Retry | 재시도 한 번 한 번이 서킷 브레이커를 거쳐, 실패가 서킷에 그대로 집계되고 서킷이 열리면 재시도가 바로 멈춘다 |
+| Retry (고도화 5) | 재시도 한 번 한 번이 서킷 브레이커를 거쳐, 실패가 서킷에 그대로 집계되고 서킷이 열리면 재시도가 바로 멈춘다 |
 | CircuitBreaker | 열려 있으면 RateLimiter, 벌크헤드 자원을 쓰기 전에 바로 실패한다 |
-| RateLimiter | 쿼터는 실제로 나가는 호출에만 쓴다 |
-| TimeLimiter | 벌크헤드 큐에서 기다린 시간까지 타임아웃에 포함한다. 시간 예산은 사용자가 기다리는 시간 기준이기 때문이다 |
-| Bulkhead | 실제 호출을 의존성별 스레드 풀에서 돌린다 |
+| RateLimiter (고도화 5) | 쿼터는 실제로 나가는 호출에만 쓴다 |
+| TimeLimiter | 벌크헤드에서 자리를 잡는 시간까지 호출 시간 상한에 포함한다. 시간 예산은 사용자가 기다리는 시간 기준이기 때문이다 |
+| Bulkhead | 실제 호출을 의존성별 스레드 풀에서 돌린다. Semaphore 모드면 의존성별 허가 수를 잡고 `applicationTaskExecutor`에서 돌린다 |
 
 ### 5-5. 실패 분류
 
-| 분류 | 예외·응답 | 서킷 | 재시도 |
-|---|---|---|---|
-| 하위 서비스 문제 | 연결 실패, 타임아웃, 5xx | 실패로 센다 | 멱등한 호출만 (고도화 5) |
-| 요청 문제 | 4xx(429 제외) | 세지 않는다 | 안 한다 |
-| 속도 조절 | 429 + Retry-After (ad) | F-005 설계에서 정한다 | 안 한다. Retry-After 동안 호출하지 않는다 |
-| 우리 쪽 거절 | 벌크헤드 가득 참, 서킷 열림 | 세지 않는다 | 안 한다 |
+| 분류 | 예외·응답 | 실패 로그 `cause` | 서킷 | 재시도 |
+|---|---|---|---|---|
+| 하위 서비스 문제 | 호출 시간 상한·응답 타임아웃, 연결 실패, 그 밖의 입출력 실패, 5xx | `timeout`, `connect_failure`, `io_failure`, `http_<상태 코드>` | 실패로 센다 | 멱등한 호출만 (고도화 5) |
+| 요청 문제 | 4xx(429 제외) | `http_<상태 코드>` | 세지 않는다 | 안 한다 |
+| 속도 조절 | 429 + Retry-After (ad) | `http_429` | 세지 않는다(4xx). F-005가 Retry-After 처리와 함께 다시 정한다 | 안 한다. Retry-After 동안 호출하지 않는다 |
+| 우리 쪽 거절 | 벌크헤드 가득 참, 서킷 열림, 요청 시간 예산 초과 | `bulkhead_full`, `circuit_open`, `budget_exhausted` | 세지 않는다 | 안 한다 |
+
+- 실패 로그의 `cause`와 서킷의 판정은 같은 분류를 쓴다(`DownstreamFailure.of`, `DownstreamFailure.countsAsCircuitFailure`). 서킷에는 `record-failure-predicate`로 `CircuitFailurePredicate`를 넘긴다(`add-call-isolation` design 결정 7).
+- Resilience4j는 실패 판정이 거짓인 예외를 성공으로 센다. 4xx는 하위 서비스가 응답한 것이라 성공으로 세도 되지만, 벌크헤드 거절(`BulkheadFullException`)은 부르지도 않은 호출이라 `ignore-exceptions`로 아예 세지 않는다. 성공으로 세면 절반이 거절되는 장애(S-02)에서 실패율이 묽어진다.
+- 서킷 열림(`CallNotPermittedException`)은 서킷이 막은 호출이라 서킷에 다시 기록되지 않는다. 예산 초과(`TimeBudgetExhaustedException`)는 `FeedAssembler`가 서킷 밖에서 끝내는 것이라 서킷에 닿지 않는다.
 
 Retry-After 동안 호출을 막는 방법(서킷을 그 시간만큼 열어 두기, 별도 대기 상태 등)은 `add-retry-policy`에서 정한다.
 
@@ -253,6 +280,21 @@ Retry-After 동안 호출을 막는 방법(서킷을 그 시간만큼 열어 두
 | 실패율 문턱 | 평시(S-01) 실패율보다 충분히 높게. 평시에 열리면 안 된다 |
 | 열림 유지 시간 | S-08의 복구 시간 목표에 맞춘다 |
 | 벌크헤드 크기 | 리틀의 법칙: 실험 RPS × 그 의존성의 평시 p99 × 여유. 넘는 요청은 기다리지 않고 바로 거절한다 |
+
+**정한 값 (F-001, 2026-11-07).** feed-service `application.yml`에 근거 주석과 함께 있다. 측정과 판단의 자세한 내용은 `add-call-isolation` design 결정 3~7이다.
+
+| 값 | post, user, like | recommendation, ad | 근거 |
+|---|---|---|---|
+| 호출 시간 상한(TimeLimiter), 연결·응답 타임아웃 | 100ms | 200ms | 기준선 평시 호출 p99(51.0~53.7ms)의 약 2배(4-3). 평시에 100ms 경계(89.48ms 버킷)를 넘는 비율은 post 0.0119%, user 0.0076%, like 0.0136%로 합 0.033%(가용성 예산의 절반 0.05% 아래), 200ms 경계(178.96ms 버킷)는 0 |
+| 커넥션 대기 상한 | 100ms | 100ms | 벌크헤드 ≤ 커넥션 풀이라 평시에는 기다리지 않는다. 기다린다면 설정 오류라 빨리 실패한다 |
+| 요청 시간 예산 | 250ms(피드 하나) | | p99 300ms에 여유 50ms(4-3) |
+| ThreadPool 벌크헤드 | 스레드 40, 대기열 0 | 같음 | 400 RPS × 평시 p99 51ms ≈ 20.4, 여유 2배 → 40. 기준선 400 RPS의 의존성별 커넥션 사용 중 최댓값 14~16의 2.5배 이상 |
+| 커넥션 풀(라우트당·전체) | 40, like만 50 | 40 | 벌크헤드와 같게 둬 기다림이 벌크헤드 한 곳에서만 생긴다. like는 토글 상한 10을 더한다 |
+| 토글 동시 호출 상한(Semaphore) | like 10 | | like 풀에서 읽기 몫 밖의 자리. 토글 부하는 실험 세트에 없어 F-003의 S-11에서 다시 정한다 |
+| 서킷: 판단 창, 최소 호출 수 | 최근 10초, 100 | 같음 | 처음에는 최근 호출 100개(400 RPS에서 0.25초)였는데, 1.05초 GC 멈춤만으로 창이 차 서킷이 5초 열렸다. 10초면 1초 멈춤은 창의 약 10%다. 대신 실제 장애도 창 전체의 실패율이 문턱을 넘어야 열려, 평시 뒤의 장애는 약 5~7초 뒤에 연다(S-03 실측 7~12초). 그동안 상한이 p99를 묶는다 |
+| 서킷: 실패율 문턱 | 50% | 같음 | 기준선 S-01의 호출 실패율 0 |
+| 서킷: 느린 호출 기준, 문턱 | 80ms, 50% | 160ms, 50% | 상한의 80%. 평시에 경계를 넘는 비율 0.17% 이하 |
+| 서킷: 열림 유지 시간, 반열림 시험 호출 | 5초, 10개 | 같음 | S-08 복구 시간 목표 20초(PRD 10장)에서 거꾸로 정했다 |
 
 ## 6. Graceful Degradation 구현
 
@@ -326,20 +368,21 @@ traceId는 스레드에 붙은 컨텍스트(MDC, 관찰 컨텍스트)에 있어�
 | 넘어가는 곳 | 방법 |
 |---|---|
 | Spring `TaskExecutor` (`applicationTaskExecutor`) | `spring.task.execution.propagate-context=true`(라이브러리 기본값, 7-1). Boot가 `ContextPropagatingTaskDecorator`를 붙인다. `TaskDecorator` Bean을 직접 두지 않는다 |
-| Resilience4j ThreadPool 벌크헤드 | (후보) `context-propagators` 설정에 MDC·관찰 컨텍스트 전파 클래스 등록. 고도화 3에서 정한다 |
+| Resilience4j ThreadPool 벌크헤드 | `resilience4j.thread-pool-bulkhead.configs.default.context-propagators`에 `TraceContextPropagator`(feed-service)를 등록한다. 일을 넣는 스레드에서 Micrometer Context Propagation 스냅샷을 뜨고 벌크헤드 스레드에서 펼친다(관찰과 MDC). 벌크헤드 스레드는 결과 future를 끝내기 전에 문맥을 닫으므로, 결과에 이어 붙인 일(post 뒤의 user·like 호출)은 `IsolatedCalls`가 부른 스레드의 스냅샷을 펼친 채로 future를 끝내 잇는다 |
 | 직접 만든 `Executor` | Micrometer Context Propagation의 `ContextExecutorService.wrap(executor, ContextSnapshotFactory)`로 감싼다 |
 
 고치기 전에 끊기는 것을 테스트로 먼저 보였고, 고친 뒤에도 "전파가 없으면 끊긴다"를 기록으로 남겨 두었다.
 
 | 넘어가는 곳 | 전파 없이 | 고친 뒤 | 테스트 |
 |---|---|---|---|
-| feed-service의 공유 풀(`applicationTaskExecutor`) | 풀 스레드의 RestClient가 새 trace를 시작해, post·recommendation·ad·user·like 다섯 요청의 `traceparent` traceId가 모두 응답의 `X-Trace-Id`와 달랐다. 요청 스레드에서 부르는 좋아요 토글은 처음부터 이어졌다 | 다섯 요청 모두 `X-Trace-Id`와 같다. post가 끝난 뒤 `thenCompose`로 시작한 user·like도 같다 | 끊김: `FeedTracePropagationOffTest`의 "F-004 전파를 끄면 끊긴다: …"(`propagate-context=false`를 테스트에 명시해, 기본값이 바뀌어도 기록으로 남는다). 이어짐: `FeedTraceLogScenarioTest`의 "F-004 피드 요청의 다섯 호출: …", "F-004 post가 끝난 뒤 시작한 호출: …" |
+| feed-service의 공유 풀(`applicationTaskExecutor`) | 풀 스레드의 RestClient가 새 trace를 시작해, post·recommendation·ad·user·like 다섯 요청의 `traceparent` traceId가 모두 응답의 `X-Trace-Id`와 달랐다. 요청 스레드에서 부르는 좋아요 토글은 처음부터 이어졌다 | 다섯 요청 모두 `X-Trace-Id`와 같다. post가 끝난 뒤 `thenCompose`로 시작한 user·like도 같다 | 끊김: `FeedTracePropagationOffTest`의 "F-004 F-001 전파를 끄면 끊긴다: …"(`propagate-context=false`를 테스트에 명시해, 기본값이 바뀌어도 기록으로 남는다. 고도화 3부터 기본 구성의 조회는 공유 풀이 아니라 벌크헤드에서 돌아, 공유 풀에서 조회를 돌리는 Semaphore 모드(`weave.isolation.bulkhead-type=semaphore`)로 띄운다). 이어짐: `FeedTraceLogScenarioTest`의 "F-004 피드 요청의 다섯 호출: …", "F-004 post가 끝난 뒤 시작한 호출: …" |
+| feed-service의 의존성별 ThreadPool 벌크헤드 (F-001) | 벌크헤드 스레드의 RestClient가 새 trace를 시작해 post·recommendation·ad 요청의 `traceparent` traceId가 `X-Trace-Id`와 달랐다. 전파기만 붙였을 때는 이 셋은 이어졌지만, post가 끝난 뒤 시작한 user·like는 여전히 달랐고 like 실패 로그에 traceId가 없었다(벌크헤드 스레드가 문맥을 닫은 뒤 결과 future를 끝낸다) | 다섯 요청 모두 `X-Trace-Id`와 같고, 벌크헤드 스레드에서 남긴 실패 로그의 traceId도 같다 | 끊김: `FeedBulkheadTracePropagationOffTest`의 "전파가 없으면 끊긴다"(`context-propagators`를 비운다). 이어짐: `FeedBulkheadTraceScenarioTest`의 "다섯 호출의 traceId", "벌크헤드 스레드의 실패 로그", `FeedTraceLogScenarioTest`의 두 시나리오, `FeedCallFailureLogScenarioTest`의 "F-004 post 뒤에 부른 호출이 실패한다: …" |
 | `Executors.newFixedThreadPool` | 작업 스레드에 현재 스팬이 없어 `traceId`가 없다 | `ContextExecutorService.wrap`으로 감싸면 요청 스레드와 같은 `traceId` | `ExecutorTracePropagationTest`의 "F-004 직접 만든 고정 스레드 풀에서는 traceId가 끊긴다", "F-004 고정 스레드 풀을 ContextExecutorService.wrap으로 감싸면 같은 traceId가 이어진다" |
 | `CompletableFuture` 기본 풀(`ForkJoinPool.commonPool()`) | 같음 | 같음 | 같은 파일의 "F-004 CompletableFuture의 기본 풀(ForkJoinPool.commonPool)에서는 traceId가 끊긴다", "F-004 ForkJoinPool.commonPool을 ContextExecutorService.wrap으로 감싸면 같은 traceId가 이어진다" |
 
 `ExecutorTracePropagationTest`는 Spring 없이 돌아, 작업 스레드의 traceId를 MDC가 아니라 OTel 현재 스팬에서 읽는다. MDC까지 보려면 OTel 컨텍스트 저장소에 전역 래퍼(`ContextStorage.addWrapper`)를 더해야 하는데, 이 래퍼는 OTel 컨텍스트를 처음 쓰기 전에만 먹혀 같은 JVM의 다른 테스트 순서에 기대게 된다. 로그의 MDC는 Boot가 같은 OTel 컨텍스트를 따라 채우고, 그 연결은 풀 스레드에서 쓴 실패 로그의 `traceId`를 보는 `FeedCallFailureLogScenarioTest`의 "F-004 하위 서비스가 5xx: …", "F-004 post 뒤에 부른 호출이 실패한다: …"가 실제 로그로 확인한다.
 
-`supplyAsync`에 실행기를 넘기지 않으면 commonPool로 가서 끊긴다. 하위 서비스 호출은 `applicationTaskExecutor`나 감싼 실행기에서 돌린다. F-001의 ThreadPool 벌크헤드도 직접 만든 실행기와 같은 방식으로 끊김과 이어짐을 테스트로 남긴다.
+`supplyAsync`에 실행기를 넘기지 않으면 commonPool로 가서 끊긴다. 하위 서비스 호출은 `applicationTaskExecutor`나 감싼 실행기에서 돌린다. F-001의 ThreadPool 벌크헤드도 같은 방식으로 끊김과 이어짐을 테스트로 남겼다(위 표).
 
 ### 7-4. 대시보드
 
@@ -353,8 +396,8 @@ traceId는 스레드에 붙은 컨텍스트(MDC, 관찰 컨텍스트)에 있어�
 |---|---|---|---|
 | 피드 SLO | 피드 RPS(응답 코드별), 가용성(200 비율, 99.9% 선), p50·p95·p99(300ms 선) | `http_server_requests_seconds`(`uri="/feed"`) | 고도화 2 |
 | 의존성 호출 | 의존성별 호출 p99, 실패율(`outcome!="SUCCESS"`), RPS | `http_client_requests_seconds`(`client_name`) | 고도화 2 |
-| 자원 사용량 | Tomcat 사용 중·최대 스레드, 공유 풀 활성 스레드, 공유 풀 대기열, 의존성별 커넥션 풀 사용 중·대기, CPU(0.7 선) | `tomcat_threads_*`, `executor_*`(`name="applicationTaskExecutor"`), `httpcomponents_httpclient_pool_total_connections`(`state="leased"`)·`..._total_pending`(`httpclient`), `process_cpu_usage` | 고도화 2 |
-| 서킷·벌크헤드 | 서킷 상태, 벌크헤드 사용량·거절 | Resilience4j 지표 | 고도화 3 (`add-call-isolation`, F-001) |
+| 자원 사용량 | Tomcat 사용 중·최대 스레드, 의존성별 커넥션 풀 사용 중·대기, CPU(0.7 선) | `tomcat_threads_*`, `httpcomponents_httpclient_pool_total_connections`(`state="leased"`)·`..._total_pending`(`httpclient`), `process_cpu_usage` | 고도화 2. 공유 풀(`applicationTaskExecutor`) 활성 스레드·대기열 패널은 고도화 3에서 지웠다(조회가 의존성별 벌크헤드로 옮겨 갔다) |
+| 서킷·벌크헤드 | 의존성별 서킷 상태(상태 타임라인, 0 CLOSED·1 HALF_OPEN·2 OPEN), 벌크헤드 사용 중·최대 스레드, 벌크헤드 거절(초당), 시간 상한 초과(초당) | `resilience4j_circuitbreaker_state`(`state="open"`·`"half_open"`), `resilience4j_bulkhead_active_thread_count`·`..._max_thread_pool_size`, `weave_bulkhead_rejected_calls_total`, `resilience4j_timelimiter_calls_total`(`kind="timeout"`). 모두 `name` 라벨이 의존성이다 | 고도화 3 (`add-call-isolation`, F-001) |
 | degrade | 의존성별 degrade 비율 | F-002가 정한다 | 고도화 4 (`add-graceful-degradation`, F-002) |
 
 패널 질의에는 Grafana 시간 변수(`$__rate_interval` 등) 말고 변수를 두지 않는다. 장애가 없을 때도 모든 질의가 시계열을 돌려줘야 해서, 실패율처럼 분자가 빌 수 있는 질의는 0으로 채운다. `./gradlew :e2e:composeTest`의 `ExperimentDashboardComposeScenarioTest`가 S-01 짧은 실행 뒤 모든 패널 질의를 Prometheus에 보내 확인한다.
@@ -385,15 +428,17 @@ traceId는 스레드에 붙은 컨텍스트(MDC, 관찰 컨텍스트)에 있어�
 
 | 대상 | 자원 상한 (`deploy.resources.limits`) | 메모 |
 |---|---|---|
-| feed-service | CPU 2, 메모리 1GB | Tomcat 최대 스레드 200을 `application.yml`에 명시한다(Boot 기본값, 4-2). Actuator는 관리 포트 8090(`MANAGEMENT_SERVER_PORT`)이고 헬스 체크와 Prometheus가 이 포트를 본다 |
+| feed-service | CPU 2, 메모리 1GB | Tomcat 최대 스레드 200을 `application.yml`에 명시한다(Boot 기본값, 4-2). Actuator는 관리 포트 8090(`MANAGEMENT_SERVER_PORT`)이고 헬스 체크와 Prometheus가 이 포트를 본다. 호스트 변수 `FEED_SPRING_APPLICATION_JSON`을 `SPRING_APPLICATION_JSON`으로 넘긴다(없으면 `{}`, 아래) |
 | 하위 서비스 5개 | 각 CPU 1, 메모리 512MB | |
 | MySQL, Toxiproxy | 각 CPU 1 | Redis는 post stale 캐시와 함께 F-002에서 더한다 |
 | Alloy, Prometheus, Grafana | 각 CPU 0.5, 메모리 512MB | 실험 대상이 아니라 상한만 건다. OOM 재시작이 보이면 근거와 함께 올린다 |
 | Loki, Tempo | 각 CPU 0.5, 메모리 1GB | 부하 중 로그·스팬이 쌓인다 |
 | k6 (`grafana/k6:2.3.0`) | CPU 2, 메모리 2GB | `profiles: [experiment]`라 `up`으로는 뜨지 않고 `run.sh`가 `docker compose run`으로 부른다. `experiments/`를 마운트한다 |
 
+- **서비스 JVM의 GC:** 서비스 6개는 G1(`JAVA_TOOL_OPTIONS: -XX:+UseG1GC`)로 띈다. 이 자원 상한에서는 JVM이 Serial GC를 골라 like-service에 1초가 넘는 Full GC가 생겼고, 고도화 3의 시간 상한(100ms) 아래에서는 그 멈춤이 곧 실패가 됐다. G1은 S-01에서 최대 멈춤 80ms였고, ZGC는 이 메모리 상한에서 서비스가 응답하지 못했다(`add-call-isolation` design 결정 15).
 - **Toxiproxy**(`ghcr.io/shopify/toxiproxy:2.13.0`): 프록시 정의는 `docker/toxiproxy/toxiproxy.json`이다. 관리 API는 `127.0.0.1:8474`에만 연다. feed-service는 Toxiproxy가 healthy가 된 뒤 뜬다.
 - **Prometheus 수집 간격 5초:** 측정 5분에 표본 60개, S-09의 10초 장애가 한 번에 두 번 이상 긁힌다(`docker/prometheus/prometheus.yml`).
+- **feed-service 설정 덮어쓰기:** 실험 하나만 feed-service 설정을 바꿀 때(격리를 넓힌 Compose 시나리오, 가상 스레드 비교) `FEED_SPRING_APPLICATION_JSON`에 JSON을 주고 컨테이너를 새로 만든다. 예) `FEED_SPRING_APPLICATION_JSON='{"weave.isolation.bulkhead-type":"semaphore","spring.threads.virtual.enabled":true}' docker compose up -d --force-recreate --no-deps --wait feed-service`. `run.sh`는 feed-service를 `restart`로 다시 띄워 컨테이너 환경을 그대로 두므로 값이 이어진다. 끝나면 변수 없이 같은 명령으로 다시 만든다(add-call-isolation design 결정 10, 11).
 - 상한은 예약이 아니다. Docker에 준 CPU가 상한의 합보다 작으면 컨테이너끼리 다툴 수 있어, 실험 RPS를 이 환경에서 S-01로 골랐다. **실험 RPS는 400**, 시나리오당 준비 1분 + 측정 5분이다. 고른 근거와 실행 환경은 [MVP 기준선](experiments/baseline-mvp.md)에 있다.
 
 feed-service는 하위 서비스를 의존성마다 하나인 프록시를 거쳐 부른다. 프록시 이름은 의존성 이름이고, Compose 네트워크 별칭으로 부른다.
@@ -426,10 +471,10 @@ experiments/
 ├── run.sh  run-all.sh       # 명령 (아래)
 ├── config.json              # 기본 RPS, 준비·측정 시간, k6 요청 시간 초과 5초, 사용자 ID 범위
 ├── slo.json                 # PRD 2장 SLO(가용성 99.9%, p99 300ms). k6 threshold는 여기서만 읽는다
-├── expectations.json        # 단계별 기대 결과(시나리오마다 meet/miss)
+├── expectations.json        # 단계별 기대 결과(시나리오마다 meet/miss, 또는 기준마다 {availability, p99})
 ├── scenarios/S-01.json ...  # 설명, PRD 4장 문장, 장애 시간표(측정 시작부터 잰 초, 동작, 대상)
 ├── k6/                      # feed.js(부하·장애·판정), faults.js, contract.js, reset.js
-├── lib/                     # verdict.sh(판정), windows.sh(10초 구간, 복구 시간)
+├── lib/                     # verdict.sh(판정), windows.sh(10초 구간, 복구 시간), circuits.sh(서킷 상태 이어 적기)
 └── results/                 # 실행마다 폴더 하나. 커밋하지 않는다
 ```
 
@@ -455,11 +500,12 @@ experiments/run-all.sh --list                                 # 돌릴 목록
 ```
 
 - `run.sh`는 장애를 되돌리고 feed-service를 다시 띄워(앞 실행이 묶어 둔 스레드를 지운다) 같은 상태에서 시작한다. k6가 준비 구간 뒤 측정 구간 동안 같은 RPS로 `GET /feed`를 보내고, 시간표대로 장애를 넣고 거둔다. 끝나면(실패하거나 Ctrl-C로 멈춰도) 장애를 모두 되돌린다.
-- 판정: k6 threshold는 늘 `slo.json`이고 측정 구간 요청만 센다. 가용성은 k6가 보내지 못한 요청도 실패로 넣어 `lib/verdict.sh`가 다시 계산한다. SLO 충족 여부가 그 단계의 기대(`expectations.json`)와 같으면 0, 다르면 1, 실행하지 못하면 2로 끝난다. 고도화 2의 기대는 S-01만 `meet`이다. `miss`인데 SLO를 지키면 장애가 재현되지 않은 것이라 기대와 다르다.
+- 판정: k6 threshold는 늘 `slo.json`이고 측정 구간 요청만 센다. 가용성은 k6가 보내지 못한 요청도 실패로 넣어 `lib/verdict.sh`가 다시 계산한다. 기준(가용성, p99)마다의 충족 여부가 그 단계의 기대(`expectations.json`)와 모두 같으면 0, 하나라도 다르면 1, 실행하지 못하면 2로 끝난다. 기대는 시나리오마다 두 기준을 함께(`meet`, `miss`) 적거나 `{"availability": "miss", "p99": "meet"}`처럼 기준마다 적는다(add-call-isolation design 결정 10). 고도화 2의 기대는 S-01만 `meet`이다. `miss`인 기준을 지키면 장애가 재현되지 않은 것이라 기대와 다르다. 판정 출력의 `criteria`와 기대와 다른 기준 `mismatchedCriteria`가 `report.json`에, 기준별 결과가 `report.md` 판정 줄 아래에 들어간다.
 - `run-all.sh`는 시나리오마다 `run.sh`를 부르고, 기대와 다르거나 실행하지 못한 시나리오가 있어도 끝까지 돈 뒤 판정 표(마크다운)를 출력한다. 종료 코드는 가장 나쁜 것이다.
+- `run-all.sh`는 첫 시나리오 전에 하위 서비스를 데우는 준비 실행(`run.sh S-01`, 같은 `--rps`·`--warmup`, 측정 1분)을 한 번 하고 판정 표에 넣지 않는다. 고도화 3(F-001)부터 막 띄운 하위 서비스가 느려 서킷이 열리면 트래픽이 가지 않아 데워지지 못하고 열림·닫힘을 되풀이한다(400 RPS에서 약 100초, `add-call-isolation` design 결정 10). `run.sh`는 feed-service만 다시 띄우므로 데운 하위 서비스는 남는다. 이미 데운 환경이면 `--skip-warm-up`. `run.sh`만 돌릴 때는 Compose를 띄운 뒤 S-01을 한 번 먼저 돌려 데운다.
 - Compose 프로젝트나 env 파일을 바꿀 때는 `COMPOSE_PROJECT_NAME`, `COMPOSE_ENV_FILE`을 준다(`:e2e:composeTest`는 `weave-compose-test`와 `e2e/build/compose-test.env`를 쓴다).
 
-**리포트.** 실행마다 `experiments/results/<UTC yyyyMMdd-HHmmss>-<S-xx>/`에 `report.md`와 같은 값의 `report.json`, k6 요약 `summary.json`, 요청마다의 원본 `raw.json.gz`를 남긴다.
+**리포트.** 실행마다 `experiments/results/<UTC yyyyMMdd-HHmmss>-<S-xx>/`에 `report.md`와 같은 값의 `report.json`, k6 요약 `summary.json`, 요청마다의 원본 `raw.json.gz`, 서킷 상태 질의 결과 `circuit-state.json`을 남긴다.
 
 | 항목 | 출처 |
 |---|---|
@@ -467,9 +513,10 @@ experiments/run-all.sh --list                                 # 돌릴 목록
 | 측정 요청 수, 보내지 못한 요청 수, p50·p95·p99(실패한 요청 포함). 지연은 k6가 요청 앞뒤로 잰 경과 시간 `feed_latency`다. k6의 `http_req_duration`은 시간 초과된 요청을 0으로 남길 수 있어 쓰지 않는다 | k6 요약 |
 | 가용성 = 200 수 ÷ (측정 요청 수 + 보내지 못한 요청 수) | k6 요약 |
 | 의존성별 호출 p99, 실패율, 요청 배율(하위 서비스가 받은 요청 ÷ 피드 요청) | Prometheus |
-| 자원 사용량의 측정 구간 최댓값·평균: Tomcat 사용 중 스레드, 공유 풀 활성 스레드·대기열, 의존성별 커넥션 풀 사용 중·대기, feed-service CPU | Prometheus |
+| 자원 사용량의 측정 구간 최댓값·평균: Tomcat 사용 중 스레드, 의존성별 벌크헤드 사용 중 스레드·대기열(`resilience4j_bulkhead_active_thread_count`, `resilience4j_bulkhead_queue_depth`. ThreadPool 벌크헤드 지표라 Semaphore 모드의 사용량은 담지 않는다), 의존성별 커넥션 풀 사용 중·대기, feed-service CPU | Prometheus |
 | feed-service 지표 수집 비율(측정 구간 `up` 표본 중 1인 비율). 1보다 작으면 자원 사용량이 긁힌 구간만의 값이라고 적는다 | Prometheus |
-| degrade 비율, 서킷 상태 | MVP에는 없어 "없음". F-002, F-001이 채운다 |
+| 의존성별 서킷 상태: 측정 구간에 거친 상태를 바뀔 때만 이어 적는다(`CLOSED → OPEN → HALF_OPEN → CLOSED`). `resilience4j_circuitbreaker_state`를 5초 간격 `query_range`로 읽어 그보다 짧게 머문 상태는 빠질 수 있고, 정확한 전이는 `circuit_state_changed` 로그로 본다. 서킷 지표가 없는 의존성은 "없음" | Prometheus, `lib/circuits.sh` |
+| degrade 비율 | 아직 없어 "없음". F-002가 채운다 |
 | 장애를 넣은 시각과 거둔 시각, 10초 구간 표(요청 수, `feed_latency` p99, 가용성), 복구 시간(S-08) | k6 원본, `lib/windows.sh` |
 | Grafana 링크(측정 구간을 붙인 `weave-feed` 대시보드, 7-4) | run.sh |
 
@@ -492,7 +539,7 @@ experiments/run-all.sh --list                                 # 돌릴 목록
 
 | 무엇 | 어디에 |
 |---|---|
-| 장애 대응 설정값, 시간 예산, 캐시 TTL | 서비스의 `application.yml`. 실험마다 바꿀 값은 환경 변수로 덮어쓸 수 있게 한다 |
+| 장애 대응 설정값, 시간 예산, 캐시 TTL | 서비스의 `application.yml`. 실험마다 바꿀 값은 환경 변수로 덮어쓸 수 있게 한다(느슨한 바인딩, 예: `RESILIENCE4J_TIMELIMITER_INSTANCES_RECOMMENDATION_TIMEOUTDURATION`). Compose의 feed-service는 여러 값을 한 번에 `FEED_SPRING_APPLICATION_JSON`(→ `SPRING_APPLICATION_JSON`)으로 덮는다(9-1). 의존성의 호출 시간 상한을 넓힐 때는 그 그룹의 응답·연결 타임아웃(`spring.http.serviceclient.<그룹>.read-timeout`·`connect-timeout`)도 함께 넓힌다. 상한만 넓히면 응답 타임아웃(상한과 같은 값)이 먼저 끊는다 |
 | 실행 환경별 차이(로컬 `bootRun`과 Compose의 주소) | Spring 프로필 `local`, `docker`. 실험 전용 엔드포인트는 `experiment` 프로필 |
 | 실험 전용 설정 | 하위 서비스 5개의 `src/main/resources/application-experiment.yml`. 장애 주입 스위치(`weave.fault-injection.enabled: true`)와 Actuator 노출 목록(`health,info,prometheus,faults`, ad-service는 `quota`도)을 둔다. ad-service는 요청 한도 스위치(`weave.ad.quota.enabled: true`)도 둔다. `libs/fault-injection`은 프로필 파일을 싣지 않는다(같은 이름의 파일이 서비스에도 있으면 하나만 읽힌다). feed-service에는 두지 않는다 |
 | MySQL 계정 | `.env` (커밋하지 않음). 이름과 설명만 `.env.example`에 |
@@ -504,16 +551,22 @@ experiments/run-all.sh --list                                 # 돌릴 목록
 | `add-feed-aggregation` (F-006) | 4-1 호출 순서, 4-2 MVP 구성과 기본값 기록, 5-1 클라이언트 구성, 8장 토글 좋아요 |
 | `add-trace-logging` (F-004) | 7-1 ~ 7-3, Compose의 서비스 6개·MySQL·관찰 인프라 |
 | `add-fault-experiments` (F-007) | 9장, 7-4 대시보드, 기준선 기록, 4-3과 5-6을 채울 측정 |
-| `add-call-isolation` (F-001) | 5-2 ~ 5-6, 7-3의 벌크헤드 전파, Resilience4j 4.1.2 호환 확인, 가상 스레드 + Semaphore 벌크헤드 비교(S-02) |
+| `add-call-isolation` (F-001) | 5-2 ~ 5-6, 7-3의 벌크헤드 전파, Resilience4j 4.1.2 호환 확인, 가상 스레드 + Semaphore 벌크헤드 비교(S-02). 5-2의 어노테이션 방식은 `IsolatedCalls` 한 곳에서 감싸는 방식으로 바꿨다(design 결정 1) |
 | `add-graceful-degradation` (F-002) | 6장 |
 | `add-retry-policy` (F-005) | 5-5의 429 처리, Retry·RateLimiter 설정 |
 | `add-idempotent-like` (F-003) | 8장의 고도화 6 항목(카운터 방식 비교 포함), 10장의 속성 기반 테스트 |
 
 ## 13. 남은 것
 
-- 4-3 시간 예산과 5-6 설정값: F-001에서 [MVP 기준선](experiments/baseline-mvp.md)을 근거로 정한다
-- user 로컬 캐시 TTL·크기, post 캐시 키 구조: `add-graceful-degradation`
+- user 로컬 캐시 TTL·크기, post 캐시 키 구조, fallback을 둘 곳(5-2): `add-graceful-degradation`
 - 429와 Retry-After 처리 방식: `add-retry-policy`
 - 좋아요 순서 판단 방법: `add-idempotent-like`
 - S-11의 몰림 부하 크기와 카운터 분할 수: `add-idempotent-like`
-- 가상 스레드 비교의 구성(풀 크기를 Semaphore 상한으로 어떻게 옮길지): `add-call-isolation`
+- 장애를 넣지 않은 like-service의 순간 막힘(고도화 3의 S-04·S-08·S-09)과 like-service 컨테이너 메모리(G1에서 512MiB 중 약 500MiB)의 원인: [고도화 3 결과](experiments/call-isolation.md) "남은 것"
+
+정한 것:
+
+- 4-3 시간 예산과 5-6 설정값(F-001): [MVP 기준선](experiments/baseline-mvp.md)과 값을 넣기 전의 평시 꼬리 지연 측정을 근거로 정했다
+- 서비스 JVM의 GC(F-001): G1(9-1, `add-call-isolation` design 결정 15)
+- 가상 스레드 비교의 구성(F-001): `weave.isolation.bulkhead-type: semaphore`와 `spring.threads.virtual.enabled: true`로 바꾸고, Semaphore 벌크헤드 상한은 ThreadPool 벌크헤드 크기와 같게 둔다. 비교하려는 것이 크기가 아니라 격리 방식이어서다(`add-call-isolation` design 결정 11)
+- 가상 스레드 비교 결과(F-001): 격리 효과가 같고 400 RPS에서 기본 구성이 스레드에 묶이지 않아 기본 구성(플랫폼 스레드 + ThreadPool 벌크헤드)을 유지한다([고도화 3 결과](experiments/call-isolation.md))

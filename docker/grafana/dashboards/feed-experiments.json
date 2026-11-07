@@ -1,7 +1,7 @@
 {
   "uid": "weave-feed",
   "title": "weave 피드 실험",
-  "description": "피드 SLO, 의존성별 호출, feed-service 자원 사용량 (add-fault-experiments design 결정 11, 아키텍처 7-4). 서킷·벌크헤드·degrade 패널은 F-001·F-002에서 더한다.",
+  "description": "피드 SLO, 의존성별 호출, feed-service 자원 사용량, 서킷·벌크헤드 (add-fault-experiments design 결정 11, add-call-isolation design 결정 10, 아키텍처 7-4). degrade 패널은 F-002에서 더한다.",
   "tags": ["weave", "experiment"],
   "editable": false,
   "graphTooltip": 1,
@@ -177,7 +177,7 @@
       "type": "timeseries",
       "title": "Tomcat 사용 중 스레드",
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 19 },
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 19 },
       "fieldConfig": { "defaults": { "unit": "short", "min": 0, "decimals": 0 }, "overrides": [] },
       "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
@@ -196,45 +196,11 @@
       ]
     },
     {
-      "id": 11,
-      "type": "timeseries",
-      "title": "공유 풀 활성 스레드 (applicationTaskExecutor)",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 19 },
-      "fieldConfig": { "defaults": { "unit": "short", "min": 0, "decimals": 0 }, "overrides": [] },
-      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(executor_active_threads{instance=\"feed-service:8090\",name=\"applicationTaskExecutor\"})",
-          "legendFormat": "활성"
-        }
-      ]
-    },
-    {
-      "id": 12,
-      "type": "timeseries",
-      "title": "공유 풀 대기열 (applicationTaskExecutor)",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 19 },
-      "fieldConfig": { "defaults": { "unit": "short", "min": 0, "decimals": 0 }, "overrides": [] },
-      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(executor_queued_tasks{instance=\"feed-service:8090\",name=\"applicationTaskExecutor\"})",
-          "legendFormat": "대기 중 작업"
-        }
-      ]
-    },
-    {
       "id": 13,
       "type": "timeseries",
       "title": "의존성별 커넥션 풀 사용 중",
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 27 },
+      "gridPos": { "h": 8, "w": 6, "x": 6, "y": 19 },
       "fieldConfig": { "defaults": { "unit": "short", "min": 0, "decimals": 0 }, "overrides": [] },
       "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
@@ -251,7 +217,7 @@
       "type": "timeseries",
       "title": "의존성별 커넥션 풀 대기",
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 27 },
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 19 },
       "fieldConfig": { "defaults": { "unit": "short", "min": 0, "decimals": 0 }, "overrides": [] },
       "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
@@ -269,7 +235,7 @@
       "title": "feed-service CPU (실험 RPS 기준 0.7 미만)",
       "description": "process_cpu_usage. JVM이 보는 CPU(컨테이너 상한 2개) 전체에 대한 비율이다. 실험 RPS는 S-01에서 이 값의 최댓값이 0.7 미만인 값으로 고른다(design 결정 12).",
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 27 },
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 19 },
       "fieldConfig": {
         "defaults": {
           "unit": "percentunit",
@@ -287,6 +253,108 @@
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "expr": "max(process_cpu_usage{instance=\"feed-service:8090\"})",
           "legendFormat": "CPU"
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "type": "row",
+      "title": "서킷·벌크헤드 (feed-service)",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 27 },
+      "panels": []
+    },
+    {
+      "id": 17,
+      "type": "state-timeline",
+      "title": "의존성별 서킷 상태",
+      "description": "resilience4j_circuitbreaker_state에서 값이 1인 상태. 0 CLOSED, 1 HALF_OPEN, 2 OPEN으로 바꿔 그린다. 수집 간격(5초)보다 짧게 머문 상태는 보이지 않을 수 있다(리포트의 서킷 상태와 같다).",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 28 },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 1 }, { "color": "red", "value": 2 }] },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": { "text": "CLOSED", "color": "green", "index": 0 },
+                "1": { "text": "HALF_OPEN", "color": "yellow", "index": 1 },
+                "2": { "text": "OPEN", "color": "red", "index": 2 }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": { "showValue": "auto", "mergeValues": true, "alignValue": "left", "rowHeight": 0.9, "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "single", "sort": "none" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "max by (name) (resilience4j_circuitbreaker_state{instance=\"feed-service:8090\",state=\"open\"}) * 2 + max by (name) (resilience4j_circuitbreaker_state{instance=\"feed-service:8090\",state=\"half_open\"})",
+          "legendFormat": "{{name}}"
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "type": "timeseries",
+      "title": "의존성별 벌크헤드 사용 중·최대 스레드",
+      "description": "기본 구성(weave.isolation.bulkhead-type: thread-pool)의 의존성별 ThreadPool 벌크헤드. Semaphore 모드와 토글의 like-toggle은 resilience4j_bulkhead_available_concurrent_calls에 있다.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 28 },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0, "decimals": 0 }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "max by (name) (resilience4j_bulkhead_active_thread_count{instance=\"feed-service:8090\"})",
+          "legendFormat": "{{name}} 사용 중"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "max by (name) (resilience4j_bulkhead_max_thread_pool_size{instance=\"feed-service:8090\"})",
+          "legendFormat": "{{name}} 최대"
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "type": "timeseries",
+      "title": "의존성별 벌크헤드 거절 (초당)",
+      "description": "벌크헤드가 차서 부르지 않은 호출. Resilience4j ThreadPool 벌크헤드에는 거절 지표가 없어 feed-service가 onCallRejected로 센다(weave.bulkhead.rejected.calls, 의존성마다 0부터 등록한다).",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 36 },
+      "fieldConfig": { "defaults": { "unit": "reqps", "min": 0 }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (name) (rate(weave_bulkhead_rejected_calls_total{instance=\"feed-service:8090\"}[$__rate_interval]))",
+          "legendFormat": "{{name}}"
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "type": "timeseries",
+      "title": "의존성별 시간 상한 초과 (초당)",
+      "description": "TimeLimiter가 상한에서 끊은 호출(resilience4j_timelimiter_calls_total{kind=\"timeout\"}). 호출 전에도 0으로 있다.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 36 },
+      "fieldConfig": { "defaults": { "unit": "reqps", "min": 0 }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (name) (rate(resilience4j_timelimiter_calls_total{instance=\"feed-service:8090\",kind=\"timeout\"}[$__rate_interval]))",
+          "legendFormat": "{{name}}"
         }
       ]
     }

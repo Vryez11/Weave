@@ -44,17 +44,27 @@ class HttpClientGroupTest :
         }
     })
 
-/** `weave.http-client.max-connections-per-route`가 있으면 모든 그룹의 라우트당·전체 최대 커넥션이 그 값이다 (F-006). */
+/**
+ * `weave.http-client.max-connections-per-route`가 있으면 그룹별 값이 없는 그룹의 라우트당·전체 최대 커넥션이 그 값이고(F-006),
+ * `weave.http-client.groups.<그룹>.max-connections`가 있으면 그 그룹은 그 값이다(F-001, add-call-isolation design 결정 5).
+ * main 설정의 like 덮어쓰기(50)에 기대지 않게 두 값을 테스트가 정한다.
+ */
 @Tags("Integration")
-@SpringBootTest(properties = ["weave.http-client.max-connections-per-route=7"])
+@SpringBootTest(
+    properties = [
+        "weave.http-client.max-connections-per-route=7",
+        "weave.http-client.groups.like.max-connections=9",
+    ],
+)
 class HttpClientPoolSizePropertyTest :
     FunSpec({
         extensions(SpringExtension())
 
-        test("F-006 커넥션 풀 크기 속성이 그룹 다섯 모두에 적용된다") {
+        test("F-006 F-001 커넥션 풀 크기 속성이 그룹별 값이 없는 그룹에 적용되고, 그룹별 값이 있는 like는 그 값이다") {
             connectionManagersByDependency().forEach { (dependency, manager) ->
-                (dependency to manager.defaultMaxPerRoute) shouldBe (dependency to 7)
-                (dependency to manager.maxTotal) shouldBe (dependency to 7)
+                val expected = if (dependency == "like") 9 else 7
+                (dependency to manager.defaultMaxPerRoute) shouldBe (dependency to expected)
+                (dependency to manager.maxTotal) shouldBe (dependency to expected)
             }
         }
     })

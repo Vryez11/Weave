@@ -19,13 +19,21 @@ import org.springframework.test.context.DynamicPropertySource
 import kotlin.time.Duration.Companion.seconds
 
 /**
- * `feed-aggregation` 델타의 "하위 서비스 호출 실패 로그" 시나리오 중 하위 서비스가 오류 상태를 주는 셋 (F-004).
+ * `feed-aggregation` 델타의 "하위 서비스 호출 실패 로그" 시나리오 중 하위 서비스가 오류 상태를 주는 셋과 시간 상한을 넘기는 하나 (F-004, F-001).
  *
  * 로그는 [LogCapture]로 잡고, 실패 로그 줄은 `event`, `dependency`, 그리고 응답의 `X-Trace-Id`와 같은 `traceId`로 찾는다.
  * "연결할 수 없다"는 주소가 달라 Spring 컨텍스트를 따로 띄워야 해서 [FeedCallFailureLogUnreachableScenarioTest]에 둔다.
+ * "호출 시간 상한을 넘긴다"의 GIVEN(recommendation 상한 200ms)은 이 클래스의 속성으로 준다. 다른 시나리오의 recommendation은
+ * 지연 없이 응답한다.
  */
 @Tags("Integration")
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(
+    webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+    properties = [
+        "resilience4j.timelimiter.instances.recommendation.timeout-duration=200ms",
+        "spring.http.serviceclient.recommendation.read-timeout=200ms",
+    ],
+)
 class FeedCallFailureLogScenarioTest :
     FunSpec({
         extensions(SpringExtension())
@@ -98,6 +106,29 @@ class FeedCallFailureLogScenarioTest :
                         capture.failureLines("like", traceId).filter { it["cause"] == "http_503" }.shouldNotBeEmpty()
                     }
                 }
+            }
+        }
+
+        test("F-001 호출 시간 상한을 넘긴다: recommendation 상한이 200ms이고 1초 늦으면 recommendation timeout 실패 로그가 한 줄만 남는다") {
+            stubAllHealthy()
+            wireMock.stubRecommendations(delayMs = 1_000)
+
+            LogCapture().use { capture ->
+                val response = feed().getFeed()
+
+                response.statusCode() shouldBe 500
+                val traceId = response.traceId()
+                eventually(5.seconds) {
+                    withClue("traceId가 X-Trace-Id와 같은 recommendation의 downstream_call_failed 줄") {
+                        capture.failureLines("recommendation", traceId).shouldNotBeEmpty()
+                    }
+                }
+                // 시간 상한이 끝낸 호출은 응답 타임아웃(200ms)으로도 한 번 더 실패한다. WireMock이 1초 뒤 응답을 끝낼 때까지 기다려
+                // 그 실패가 줄을 하나 더 남기지 않는지 본다.
+                Thread.sleep(1_500)
+                val lines = capture.failureLines("recommendation", traceId)
+                withClue("같은 호출의 실패 줄: $lines") { lines shouldHaveSize 1 }
+                lines.single()["cause"] shouldBe "timeout"
             }
         }
     }) {
