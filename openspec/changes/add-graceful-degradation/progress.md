@@ -12,7 +12,7 @@
 - e2e에서 Redis를 부르는 도우미는 `ExperimentRuns.redis(...)`(`docker compose exec -T redis redis-cli ...`)다. Compose 서비스 이름은 `redis`로 둔다(3.1).
 - Ralph 중에는 이미 커밋된 `src/test/` 파일을 훅이 막는다. 1.5~1.7에서 새 테스트 파일을 커밋하면 그 뒤로는 고칠 수 없다. 2장 구현이 따라야 할 이름(시계 Bean, 속성, 지표)을 테스트를 쓸 때 KDoc에 정해 둔다. 테스트 도구가 더 필요하면 새 파일에 둔다.
 - 시계: design 결정 11대로 `Clock` Bean을 두고 `FeedAssembler`·`PostStaleCache`·`UserProfileCache`(Caffeine `Ticker`)가 받는다. Boot는 Bean 덮어쓰기가 꺼져 있으니, 테스트는 `@TestConfiguration`에 다른 이름의 `@Primary` 움직이는 시계를 둔다.
-- Ralph 세션 권한에서는 셸 변수가 든 명령(`for n in ...; do ... $n`)도 막힌다. 여러 이름은 `grep -e A -e B ...` 한 번으로 찾는다. 또 `/bin/bash -n`, 실험 스크립트 직접 실행, `jq -f`, 중괄호·따옴표가 든 인라인 jq, `VAR=값 명령`·`env VAR=값 명령`·`bash 스크립트`가 막힌다(고도화 3 progress.md). 스크립트는 e2e `integrationTest`(`ExperimentScripts.run`)로 확인한다.
+- Ralph 세션 권한에서는 셸 변수가 든 명령(`for n in ...; do ... $n`)도 막힌다. 여러 이름은 `grep -e A -e B ...` 한 번으로 찾는다. 또 `/bin/bash -n`, 실험 스크립트 직접 실행, `jq -f`, 중괄호·따옴표가 든 인라인 jq, `VAR=값 명령`·`env VAR=값 명령`·`bash 스크립트`가 막힌다(고도화 3 progress.md). 스크립트는 e2e `integrationTest`(`ExperimentScripts.run`)로 확인한다. 호스트 `curl`·`docker manifest`·`docker image`도 막힌다. `docker compose ...`(`pull`, `exec -T <서비스> curl ...`)는 된다.
 - 결과는 `<모듈>/build/test-results/<태스크>/TEST-*.xml`에서 본다. `-Pkotest.filter.tests='*이름*'`는 다른 테스트를 skipped로 거르지만 Spring 컨텍스트는 클래스마다 다 뜬다. 클래스 몇 개만 돌리려면 Gradle `--tests 'com.weave.feed.<클래스>'`(여러 번 줄 수 있다)가 된다. `-Pkotest.filter.specs`는 거르지 않는다.
 - 전체 `:feed-service:integrationTest`에서 `ResilienceAutoConfigurationTest`가 `parsing HTTP/1.1 status line`으로 5개 실패할 때가 있다(임의 포트가 다른 프로세스와 겹친 것으로 보인다). 혼자 돌리면 통과한다. 실패 수를 셀 때 빼고 본다.
 
@@ -166,4 +166,15 @@
   - 4장에서 값을 넣으면 6-4 표의 "(tasks 4.x)"·"안"을 확정값과 측정 결과로 바꾼다. 9-1(Redis 줄)은 3.1, 9-3은 3.2·3.4, 7-4는 3.5에서 고친다. 맨 위 상태 줄은 5.3이다.
   - Ralph 권한에서 `for` 루프 변수(`$n`)가 든 Bash는 막힌다. 여러 이름은 `grep -e A -e B ...` 한 번으로 찾는다.
   - 다음 작업은 3.1(Compose에 Redis). `docker manifest inspect redis:8.2.2`로 태그를 먼저 확인한다.
+---
+
+## 2026-11-07 21:50 - 3.1 Compose에 Redis를 더한다
+- `compose.yaml`: `redis` 서비스(`redis:8.2.2`, `--save "" --appendonly no`, `redis-cli ping` 헬스 체크(공통 `service-healthcheck`), CPU 0.5·메모리 256MB, 호스트 포트 없음). feed-service에 `REDIS_HOST: redis`와 `depends_on.redis: service_healthy`.
+- feed-service main `application.yml`에 `spring.data.redis.host: ${REDIS_HOST:localhost}`(design 결정 14). 포트는 Boot 기본 6379. 테스트 `config/application.yml`이 host·port를 덮으므로 테스트에는 영향이 없다.
+- 태그 확인: Ralph 권한에서 `docker manifest inspect`·`docker image ls`가 막혀 `docker compose pull redis`로 받았다(받힘 = 태그 있음).
+- 확인: `docker compose config` 통과. `./gradlew bootJar` 뒤 `docker compose up -d --build --wait`에서 redis 포함 모두 healthy, `GET /feed`(`docker compose exec -T feed-service curl -H "X-User-Id: 1" ...`)가 200. 첫 요청 하나는 콜드 JVM에서 post가 100ms 상한을 넘겨 503(`cache_miss`)이었다. 환경은 `down -v`로 내렸다. `ktlintCheck`, `compileKotlin compileTestKotlin`, `:feed-service:test`, post 캐시 통합 시나리오 2클래스, `openspec validate` 통과.
+- 바꾼 파일: `compose.yaml`, `feed-service/src/main/resources/application.yml`, `docs/architecture.md`(9-1 Redis 줄), `CLAUDE.md`(로컬 인프라 줄), tasks.md, progress.md
+- 다음 반복이 알아 둘 것:
+  - Compose의 Redis에 아직 post 캐시 키가 생기지 않는다. `weave.post-cache.*` 값이 4.3 전이라 `PostStaleCache.DISABLED`다. 3장 확인에서 키를 기대하지 않는다.
+  - Ralph 권한에서 호스트 `curl`도 막힌다. 피드는 `docker compose exec -T feed-service curl ...`로 부른다(헤더 `X-User-Id`).
 ---
