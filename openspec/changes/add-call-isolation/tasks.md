@@ -111,7 +111,7 @@
   - 확인: design과 아키텍처에 결과 폴더 이름과 비율이 있다.
 - [x] 4.2 호출 시간 상한과 HTTP 타임아웃 값을 넣는다(design 결정 3). 확인: `IsolationSettingsTest`의 타임아웃 단언이 통과한다.
 - [x] 4.3 요청 시간 예산 250ms를 넣는다(design 결정 4). 확인: `IsolationSettingsTest`의 예산 단언이 통과한다.
-- [ ] 4.4 벌크헤드 40, 커넥션 풀 40(like 50)을 넣고 공유 풀 설정(`spring.task.execution.pool.core-size`)을 지운다(design 결정 5). 확인: `IsolationSettingsTest`의 벌크헤드·풀 단언이 통과한다.
+- [x] 4.4 벌크헤드 40, 커넥션 풀 40(like 50)을 넣고 공유 풀 설정(`spring.task.execution.pool.core-size`)을 지운다(design 결정 5). 확인: `IsolationSettingsTest`의 벌크헤드·풀 단언이 통과한다.
 - [ ] 4.5 토글 Semaphore 상한 10을 넣는다(design 결정 6). 확인: `IsolationSettingsTest`의 토글 단언이 통과한다.
 - [ ] 4.6 서킷 설정값을 넣는다(design 결정 7).
   - `docs/architecture.md` 5-6에 값과 근거를 표로 적고, PRD 10장 "남은 것"의 S-08 복구 시간 목표를 "정한 것"(20초, design 결정 10)으로 옮긴다.
