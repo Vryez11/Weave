@@ -2,17 +2,30 @@ spring:
   application:
     name: feed-service
   http:
+    # 연결·응답 타임아웃은 그 의존성의 호출 시간 상한(resilience4j.timelimiter)과 같다. 상한이 future를 끝내도 블로킹 I/O를 하던
+    # 스레드는 풀리지 않아, 스레드와 커넥션을 놓는 시점을 HttpClient가 정한다 (add-call-isolation design 결정 3)
     serviceclient:
       post:
         base-url: ${POST_BASE_URL:http://localhost:8081}
+        connect-timeout: 100ms
+        read-timeout: 100ms
       user:
         base-url: ${USER_BASE_URL:http://localhost:8082}
+        connect-timeout: 100ms
+        read-timeout: 100ms
       like:
         base-url: ${LIKE_BASE_URL:http://localhost:8083}
+        connect-timeout: 100ms
+        # 토글도 이 값을 쓴다. 무부하 토글 p99 약 60ms, 100ms 초과 1,000건 중 0~1건 (design 결정 6)
+        read-timeout: 100ms
       recommendation:
         base-url: ${RECOMMENDATION_BASE_URL:http://localhost:8084}
+        connect-timeout: 200ms
+        read-timeout: 200ms
       ad:
         base-url: ${AD_BASE_URL:http://localhost:8085}
+        connect-timeout: 200ms
+        read-timeout: 200ms
   task:
     execution:
       pool:
@@ -40,12 +53,15 @@ resilience4j:
       default:
         # 상한이 지나면 future를 취소해 벌크헤드 대기열에서 아직 시작하지 않은 일을 뺀다 (design 결정 3)
         cancel-running-future: true
+    # 호출 시간 상한. 기준선 S-01의 평시 호출 p99(51.0~53.7ms)의 약 2배(아키텍처 4-3). 평시에 100ms 경계(89.48ms)를 넘는 비율은
+    # post 0.0119%, user 0.0076%, like 0.0136%로 합 0.033%(가용성 예산의 절반 0.05% 아래), 200ms 경계(178.96ms)는 0 (design 결정 3)
     instances:
-      post: { base-config: default }
-      user: { base-config: default }
-      like: { base-config: default }
-      recommendation: { base-config: default }
-      ad: { base-config: default }
+      post: { base-config: default, timeout-duration: 100ms }
+      user: { base-config: default, timeout-duration: 100ms }
+      like: { base-config: default, timeout-duration: 100ms }
+      # 선택 등급. ①+②가 끝날 때까지만 기다리면 된다
+      recommendation: { base-config: default, timeout-duration: 200ms }
+      ad: { base-config: default, timeout-duration: 200ms }
   thread-pool-bulkhead:
     configs:
       default:
@@ -82,6 +98,8 @@ weave:
   http-client:
     # 200 RPS × 50ms = 동시 10개, 여유 2배 (design 결정 8)
     max-connections-per-route: 20
+    # 벌크헤드 크기 ≤ 커넥션 풀이라 평시에는 기다리지 않는다. 기다린다면 설정 오류라 가장 짧은 상한으로 빨리 실패한다 (design 결정 3)
+    connection-request-timeout: 100ms
 
 server:
   port: 8080
