@@ -43,6 +43,11 @@ import java.util.function.Supplier
  * `weave.isolation.bulkhead-type: semaphore`면 ThreadPool 벌크헤드 대신 같은 이름의 Semaphore 벌크헤드로 자리를 잡고
  * [taskExecutor](`applicationTaskExecutor`)에서 부른다(design 결정 11). 감싸는 순서와 실패 로그는 같다. 이때 호출 스레드의 trace는
  * 공유 풀의 `propagate-context`만으로 잇고, 호출 자체에는 따로 문맥을 펼치지 않는다(전파를 끄면 끊기는 것을 기록으로 남긴다).
+ * Semaphore 모드는 가상 스레드(`spring.threads.virtual.enabled: true`)와 함께 쓰는 비교 실험용이다. 가상 스레드 없이 켜면
+ * `applicationTaskExecutor`가 Boot 기본값(코어 8, 대기열 무제한)이라, 벌크헤드 자리를 잡은 호출이 그 대기열에서 기다리며 시간 상한을 쓴다.
+ *
+ * 시간 상한 초과는 [timeoutScheduler] 스레드 하나가 처리한다. 상한이 한꺼번에 몰리면(GC 뒤 등) 서킷 기록, 실패 로그, 이어 붙인 일이
+ * 그 스레드에서 차례로 돈다. 실험(400 RPS)에서는 문제가 보이지 않아 지켜볼 항목으로만 둔다.
  */
 @Component
 @EnableConfigurationProperties(IsolationProperties::class)
@@ -94,6 +99,7 @@ class IsolatedCalls(
      *
      * 실패하면 `cause`가 `timeout`, `circuit_open`, `bulkhead_full`, 또는 [block]의 예외를 [DownstreamFailure]가 분류한 값인
      * 실패 로그를 한 줄 남기고 실패를 그대로 넘긴다. 돌려준 future를 먼저 끝내면(예: 요청 시간 예산) 그 뒤의 실패는 로그로 남기지 않는다.
+     * 로그는 future를 실제로 끝낸 쪽이 끝낸 뒤에 남긴다.
      */
     fun <T> call(
         dependency: String,
@@ -126,11 +132,9 @@ class IsolatedCalls(
             .whenComplete { value, error ->
                 when {
                     error == null -> result.complete(value)
-                    // 로그를 먼저 남겨 지금처럼 피드 응답보다 실패 로그가 앞선다
-                    !result.isDone -> {
-                        withMdc(callerMdc) { DownstreamFailure.log(dependency, error) }
-                        result.completeExceptionally(error)
-                    }
+                    // 로그는 future를 실제로 끝낸 쪽만 남긴다. 요청 시간 예산(RequestBudget.exhaust)도 같은 규칙이라, 시간 상한과 예산 마감이
+                    // 거의 같은 순간에 와도 같은 호출의 실패 줄은 하나다. 그래서 실패 로그가 피드 응답보다 조금 늦을 수 있다
+                    result.completeExceptionally(error) -> withMdc(callerMdc) { DownstreamFailure.log(dependency, error) }
                 }
             }
         return result
