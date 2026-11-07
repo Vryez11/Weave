@@ -96,7 +96,7 @@
   - p99가 10ms를 넘으면 값을 넣지 않고 멈춘다. 넘지 않으면 30ms를 `application.yml`에 근거 주석과 함께 넣는다.
   - 결과(결과 폴더 이름, p99, CPU)를 design 결정 6과 `docs/architecture.md` 6장에 적는다.
   - 확인: design에 결과가 있고, `DegradationSettingsTest`(새로 둔다. `spring.config.location=classpath:/application.yml`로 main 설정만 읽어 대체 설정값을 단언한다, 고도화 3의 `IsolationSettingsTest`와 같은 방식)의 Redis 타임아웃 단언이 통과한다.
-- [ ] 4.2 user 캐시 값을 넣는다(design 결정 7).
+- [x] 4.2 user 캐시 값을 넣는다(design 결정 7).
   - 유효 기간 1시간, 최대 크기 10,000(승인 때 바뀌었으면 그 값). 항목 크기 추정(약 0.5KB)을 1만 개를 넣어 `Runtime` 사용량 차이로 한 번 재 design 결정 7에 적는다.
   - 확인: `DegradationSettingsTest`의 user 캐시 단언이 통과한다.
 - [ ] 4.3 stale 허용 10분과 쓰기 간격 1초를 넣는다(design 결정 4, 5). 확인: `DegradationSettingsTest`가 모두 통과하고 `./gradlew ktlintCheck build`가 1.3의 "지금 단계의 기대" 말고는 통과한다.
