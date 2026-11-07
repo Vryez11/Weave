@@ -133,7 +133,7 @@
   - `docs/experiments/call-isolation.md`에 기준선과 같은 형식의 표를 만들고, 기준선과 나란히 p99·가용성·Tomcat·벌크헤드·커넥션 풀·CPU·서킷 상태를 비교한다. S-02·S-03에서 post·user·like 호출 p99가 기준선 S-01과 비슷한지(격리 효과), S-08 복구 시간과 목표 20초를 적는다. 잡음 범위는 기준선 문서를 따른다.
   - 확인: `experiments/run-all.sh`가 0으로 끝나고, 문서의 표가 그 실행의 리포트 값과 같다.
 - [x] 5.2 Compose 테스트를 돌린다. 확인: `./gradlew :e2e:composeTest`가 통과한다(1.4에서 고친 시나리오 포함).
-- [ ] 5.3 가상 스레드 비교를 한다(design 결정 11).
+- [x] 5.3 가상 스레드 비교를 한다(design 결정 11).
   - 같은 날 같은 상태에서 S-02를 기본 구성과 `FEED_SPRING_APPLICATION_JSON`(가상 스레드 + Semaphore)으로 한 번씩 돌린다.
   - `docs/experiments/call-isolation.md`에 비교 절을 더한다. 기본 구성을 바꿀지는 결론만 적고 바꾸지 않는다.
   - 확인: 문서에 두 결과 폴더 이름과 비교 항목이 있다.
