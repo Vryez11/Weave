@@ -34,6 +34,7 @@
 
 - `feed-aggregation`: "피드 응답 구성"에 `degradation`과 nullable 필드를 더한다. "하위 서비스 실패는 시간 안에 피드 실패로 끝난다"를 지우고 실패 응답은 `graceful-degradation`이 정한다. "하위 서비스 호출 실패 로그"의 "응답은 500" 단언을 바꾼다.
 - `call-isolation`: 피드 500을 단언하던 시나리오(예산 초과)를 등급별 응답으로 바꾼다. 요청 시간 예산을 넘긴 의존성은 실패로 보고 등급대로 대체한다.
+- `trace-logging`: "처리되지 않은 예외로 끝난 요청", "오류 응답", "실패한 요청"의 예시가 피드 500(recommendation 503)이었다. 동작은 그대로 두고 예시를 F-002 뒤에도 남는 실패(토글 실패 500, 게시글을 대체할 수 없는 503)로 바꾼다(구현 중 tasks 1.2에서 찾았다).
 - `fault-experiments`: 리포트의 degrade 비율, degrade 비율 판정 기준, 고도화 4의 기대, 시작할 때 post 캐시 비우기, "모든 요청이 실패한다" 시나리오(post 캐시도 쓸 수 없을 때), 대시보드 degrade 행, Compose의 Redis
 
 ## Impact

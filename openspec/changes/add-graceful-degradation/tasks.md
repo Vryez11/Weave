@@ -12,6 +12,7 @@
   - 확인: `./gradlew :feed-service:test :feed-service:integrationTest`가 지금과 같은 결과다(새로 실패하는 테스트가 없다).
 - [ ] 1.2 (대화형) `feed-aggregation`·`call-isolation` 델타를 기존 feed-service 테스트에 옮긴다.
   - 피드 500을 단언하는 테스트를 델타대로 바꾼다: `FeedAggregationScenarioTest`(응답 구성의 `degradation`·`unknown`, "하위 서비스 실패는 시간 안에 피드 실패로 끝난다" 시나리오를 지우거나 `graceful-degradation`으로 옮긴다), `FeedCallFailureLogScenarioTest`("하위 서비스가 5xx"의 200), `FeedCallIsolationScenarioTest`(예산 초과의 200과 `missing` `user`), `FeedSlowDependencyScenarioTest`, `FeedUnreachableScenarioTest`, 그 밖에 `grep -ln "500\|INTERNAL_SERVER_ERROR\|is5xx"`로 찾은 것. 좋아요 토글의 500은 그대로 둔다.
+  - `trace-logging` 델타(이 작업에서 더했다): `FeedUnhandledExceptionLogScenarioTest`는 토글 실패로, `FeedTraceLogScenarioTest`의 "오류 응답"·"실패한 요청"은 post 503(테스트 기본 설정은 Redis에 연결할 수 없어 캐시를 읽지 못한다)으로 바꾼다. 503은 2.4 전까지 500이라 실패한다.
   - 바뀐 테스트의 이름의 기능 ID를 `F-002`로 바꾼다.
   - 확인: `./gradlew :feed-service:integrationTest`에서 바꾼 시나리오만 실패하고(실패 원인이 컴파일 오류가 아니다), `./gradlew :feed-service:test`는 통과한다.
 - [ ] 1.3 (대화형) 실험 세트의 판정 테스트를 델타대로 고친다.
