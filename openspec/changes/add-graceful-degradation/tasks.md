@@ -54,7 +54,7 @@
   - `PostStaleCache`(키·값 형식, stale 판단, 비동기 쓰기와 키별 쓰기 간격, 대기열 50에서 버림), Lettuce `REJECT_COMMANDS` customizer(`management.health.redis.enabled: false`는 1.1 뒤에 main 설정에 넣었다. Redis 스타터가 Redis 헬스를 켜 bootJar의 헬스가 DOWN이 됐다). post 실패면 요청 스레드에서 읽고, 쓸 수 없으면 `PostsUnavailableException` → `FeedController`가 503(`{"error":"posts_unavailable"}`)이다. 503이면 recommendation·ad를 기다리지 않는다.
   - `weave.post-cache.*`와 Redis 타임아웃은 구조만 두고 값은 4장에서 넣는다(그때까지는 테스트 속성).
   - 확인: `PostStaleCacheTest`, 새 `FeedAssemblerPostFlowTest`(post 흐름 단언, design 결정 15), 1.6의 두 시나리오 테스트가 통과한다. `FeedAssembler`에 더하는 매개변수는 기본값을 둬 커밋된 `FeedAssemblerTest`·`FeedAssemblerBudgetTest`가 그대로 컴파일되게 한다.
-- [ ] 2.5 대체 이벤트 로그를 남긴다(design 결정 9).
+- [x] 2.5 대체 이벤트 로그를 남긴다(design 결정 9).
   - `fallback_applied`를 요청 스레드에서 의존성마다 한 줄. 필드는 design 결정 9.
   - feed-service `CLAUDE.md`에 대체 경로(Assembler 한 곳, 요청 스레드, 로그 한 줄)를 적는다.
   - 확인: 1.7의 `FeedFallbackLogScenarioTest`가 통과한다.

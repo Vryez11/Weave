@@ -136,3 +136,14 @@
   - 2.6의 `weave.post.cache.reads`는 `PostCacheRead.tag`로 센다. `weave.post.cache.writes`는 `PostStaleCache.store`의 성공·실패와 `write`의 `RejectedExecutionException`(`dropped`) 자리에 넣는다. 지금은 아무것도 세지 않는다.
   - 같은 패키지의 테스트 파일끼리 `private class` 이름이 겹치면(`MutableClock`) 컴파일이 깨진다(JVM 클래스 이름이 같다). 새 테스트의 도우미는 다른 이름으로 둔다.
 ---
+
+## 2026-11-07 21:40 - 2.5 대체 이벤트 로그를 남긴다
+- `degradation/FallbackLog.kt`: `FallbackLog.events(sections, cacheHits, cacheMisses)`가 영역 결과에서 이벤트(`FallbackEvent(dependency, fallback, fields)`)를 고르고(post `STALE` → `stale_cache`, user `CACHED` → `local_cache`·`MISSING` → `partial_cache`에 `cacheHits`·`cacheMisses`, like `MISSING` → `unknown`, recommendation·ad `MISSING` → `omitted`), `unavailable(reason)`이 503 이벤트를, `log`가 INFO로 `event`·`dependency`·`fallback`과 `fields`를 한 줄 남긴다.
+- `FeedAssembler`: `compose` 뒤 요청 스레드에서 이벤트를 남긴다. 적중은 `cachedUsers.size`, 누락은 중복 없는 작성자 수 − 적중. `stalePosts`의 `Unusable` 분기가 던지기 전에 `unavailable`을 남긴다.
+- user 캐시에 작성자가 하나도 없을 때(모두 `unknown`)도 `partial_cache`(`cacheHits` 0)로 뒀다. 스펙 값이 `local_cache`(모두 채움)·`partial_cache`(일부 `unknown`) 둘뿐이라 "모두 채우지 못함"으로 읽었다. 검토에서 따로 값을 원하면 `FallbackLog.events`만 고치면 된다.
+- 확인: 새 `degradation/FallbackLogTest` 5개, `FeedFallbackLogScenarioTest` 4개 통과. `:feed-service:integrationTest` 실패 5 → 2(`FeedDegradationMetricsScenarioTest` 2, 2.6 몫), 새 실패 없음. `:feed-service:test`, `ktlintCheck`, `compileKotlin compileTestKotlin` 통과.
+- 바꾼 파일: `FeedAssembler.kt`, `degradation/FallbackLog.kt`(새 파일), `src/test/.../degradation/FallbackLogTest.kt`(새 파일), `feed-service/CLAUDE.md`, tasks.md, progress.md
+- 다음 반복이 알아 둘 것:
+  - 2.6의 `weave.feed.sections`는 `FeedAssembler.assemble`에서 이벤트를 남기는 자리(`composed.sections`)에서 같이 세면 된다. 503은 `compose`까지 가지 않으니 세지 않는다(design 결정 10 "200 피드 응답마다").
+  - post 캐시 읽기 지표는 `stalePosts`의 `postStaleCache.read` 결과(`PostCacheRead.tag`)로 센다.
+---
