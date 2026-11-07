@@ -72,38 +72,9 @@ feed-service는 post, recommendation, ad를 서로 기다리지 않고 동시에
 
 #### Scenario: 서로 기다리지 않는다
 
-- **GIVEN** post, recommendation, ad, user, like가 각각 400ms 늦게 응답한다
+- **GIVEN** 의존성마다의 호출 시간 상한이 1초, 요청 시간 예산이 2초이고(`call-isolation`), post, recommendation, ad, user, like가 각각 400ms 늦게 응답한다
 - **WHEN** `GET /feed`를 부른다
-- **THEN** 피드가 1,200ms 안에 온다. 모두 차례로 불렀다면 2,000ms가 걸린다
-
-### Requirement: 보호 장치 없는 실패 전파 (F-006)
-
-feed-service는 하위 서비스 호출에 직접 정한 타임아웃(라이브러리 기본값만 쓴다), 서킷 브레이커, 벌크헤드, 재시도, fallback을 두지 않아야 한다(SHALL). HTTP 클라이언트 라이브러리가 스스로 하는 재시도도 재시도에 든다. 하위 서비스 하나라도 실패하면 피드 요청 전체가 500으로 실패하고, 느리면 피드도 그만큼 기다려야 한다(SHALL). 이 상태가 고도화 2의 기준선이고, 고도화 3·4·5에서 이 요구사항을 바꾼다.
-
-#### Scenario: 하위 서비스 하나가 5xx
-
-- **GIVEN** post, user, like, recommendation, ad 중 하나가 503을 준다
-- **WHEN** `GET /feed`를 부른다
-- **THEN** 500이 온다. 다섯 의존성 각각에 대해 같다
-- **AND** 실패한 의존성에는 한 번만 요청한다
-
-#### Scenario: 하위 서비스가 속도 조절 응답을 준다
-
-- **GIVEN** ad-service가 429와 `Retry-After: 1`을 준다
-- **WHEN** `GET /feed`를 부른다
-- **THEN** 500이 오고, ad-service에는 한 번만 요청한다
-
-#### Scenario: 하위 서비스 하나에 연결할 수 없다
-
-- **GIVEN** recommendation-service의 주소에 아무것도 떠 있지 않다
-- **WHEN** `GET /feed`를 부른다
-- **THEN** 500이 온다
-
-#### Scenario: 하위 서비스 하나가 느리다
-
-- **GIVEN** recommendation-service가 2초 늦게 응답하고 나머지는 정상이다
-- **WHEN** `GET /feed`를 부른다
-- **THEN** 2초 넘게 기다린 뒤 200과 함께 추천까지 채워진 피드가 온다
+- **THEN** 피드가 1,200ms 안에 200으로 온다. 모두 차례로 불렀다면 2,000ms가 걸린다
 
 ### Requirement: 좋아요 토글 전달 (F-006)
 
@@ -146,7 +117,7 @@ feed-service는 `POST /feed/likes/{postId}/toggle`을 받으면 같은 게시글
 
 ### Requirement: 하위 서비스 호출 실패 로그 (F-004)
 
-feed-service는 하위 서비스 호출이 실패할 때마다 로그를 한 줄 남겨야 한다(SHALL). 필드는 `event`(`downstream_call_failed`), `dependency`(`post`, `user`, `like`, `recommendation`, `ad` 중 하나), `cause`, `exception`(예외 클래스 이름)이고, 피드 요청의 `traceId`가 함께 있다. `cause`는 HTTP 상태가 있으면 `http_<상태 코드>`, 연결하지 못했으면(연결 거부, 호스트 이름을 찾지 못함, 경로 없음, 연결 시간 초과) `connect_failure`, 그 밖의 입출력 실패는 `io_failure`, 나머지는 `other`다. 예외 메시지와 스택 트레이스는 남기지 않는다. 클라이언트에 주는 응답은 바뀌지 않는다.
+feed-service는 하위 서비스 호출이 실패할 때마다 로그를 한 줄 남겨야 한다(SHALL). 필드는 `event`(`downstream_call_failed`), `dependency`(`post`, `user`, `like`, `recommendation`, `ad` 중 하나), `cause`, `exception`(예외 클래스 이름)이고, 피드 요청의 `traceId`가 함께 있다. `cause`의 값은 "하위 서비스 호출 실패 원인"을 따른다. 예외 메시지와 스택 트레이스는 남기지 않는다. 클라이언트에 주는 응답은 바뀌지 않는다.
 
 #### Scenario: 하위 서비스가 5xx
 
@@ -179,3 +150,49 @@ feed-service는 하위 서비스 호출이 실패할 때마다 로그를 한 줄
 - **GIVEN** like-service가 토글에 503을 준다
 - **WHEN** `POST /feed/likes/{postId}/toggle`을 부른다
 - **THEN** feed-service가 `dependency` `like`, `cause` `http_503`인 `downstream_call_failed` 줄을 남긴다
+
+#### Scenario: 호출 시간 상한을 넘긴다
+
+- **GIVEN** recommendation의 호출 시간 상한이 200ms이고 recommendation-service가 1초 늦게 응답한다
+- **WHEN** `GET /feed`를 부른다
+- **THEN** `dependency` `recommendation`, `cause` `timeout`인 `downstream_call_failed` 줄이 하나 있다. 시간 상한이 지난 뒤 응답 타임아웃으로 끝난 같은 호출의 줄을 하나 더 남기지 않는다
+
+### Requirement: 하위 서비스 실패는 시간 안에 피드 실패로 끝난다 (F-001)
+
+하위 서비스 하나라도 실패하면(5xx, 4xx, 연결 실패, 시간 상한 초과, 서킷 열림, 벌크헤드 거절, 시간 예산 초과) 피드 요청 전체가 500으로 실패해야 한다(SHALL). 느린 하위 서비스를 시간 상한이나 예산을 넘겨 기다리지 않는다. 재시도와 fallback은 두지 않고, HTTP 클라이언트 라이브러리가 스스로 하는 재시도도 끈 채로 둔다. 고도화 4·5에서 이 요구사항을 바꾼다.
+
+#### Scenario: 하위 서비스 하나가 5xx
+
+- **GIVEN** post, user, like, recommendation, ad 중 하나가 503을 준다
+- **WHEN** `GET /feed`를 부른다
+- **THEN** 500이 온다. 다섯 의존성 각각에 대해 같다
+- **AND** 실패한 의존성에는 한 번만 요청한다
+
+#### Scenario: 하위 서비스가 속도 조절 응답을 준다
+
+- **GIVEN** ad-service가 429와 `Retry-After: 1`을 준다
+- **WHEN** `GET /feed`를 부른다
+- **THEN** 500이 오고, ad-service에는 한 번만 요청한다
+
+#### Scenario: 하위 서비스 하나에 연결할 수 없다
+
+- **GIVEN** recommendation-service의 주소에 아무것도 떠 있지 않다
+- **WHEN** `GET /feed`를 부른다
+- **THEN** 500이 온다
+
+#### Scenario: 하위 서비스 하나가 느리다
+
+- **GIVEN** recommendation의 호출 시간 상한이 200ms이고, recommendation-service가 2초 늦게 응답하며 나머지는 정상이다
+- **WHEN** `GET /feed`를 부른다
+- **THEN** 400ms 안에 500이 온다
+
+### Requirement: 하위 서비스 호출 실패 원인 (F-004, F-001)
+
+실패 로그의 `cause`는 HTTP 상태가 있으면 `http_<상태 코드>`, 연결하지 못했으면(연결 거부, 호스트 이름을 찾지 못함, 경로 없음, 연결 시간 초과) `connect_failure`, 호출 시간 상한이나 응답 타임아웃을 넘겼으면 `timeout`, 서킷이 열려 부르지 않았으면 `circuit_open`, 벌크헤드가 가득 차 부르지 않았으면 `bulkhead_full`, 요청 시간 예산이 다 돼 기다리지 않았으면 `budget_exhausted`, 그 밖의 입출력 실패는 `io_failure`, 나머지는 `other`여야 한다(SHALL).
+
+#### Scenario: 연결 시간 초과와 커넥션 대기 시간 초과
+
+- **WHEN** 하위 서비스 호출이 연결 시간 초과로 실패한다
+- **THEN** `cause`는 `timeout`이 아니라 `connect_failure`다
+- **AND** 커넥션 풀에서 연결을 얻지 못해 실패한 호출의 `cause`는 `connect_failure`가 아니라 `io_failure`다
+
