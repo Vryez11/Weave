@@ -203,3 +203,11 @@
 - 바꾼 파일: `experiments/lib/circuits.sh`, `experiments/run.sh`, `docs/architecture.md`, `tasks.md`, `progress.md`.
 - 다음(3.3): 대시보드 서킷·벌크헤드 행. 지표 이름은 위 패턴(거절 `weave_bulkhead_rejected_calls_total{name}`), 대시보드 테스트(`*Dashboard*Compose*`) KDoc을 먼저 본다.
 ---
+
+## 2026-11-07 - 3.3 대시보드 서킷·벌크헤드 행 (Ralph)
+- `feed-experiments.json`: 자원 사용량 행의 공유 풀 패널 둘(id 11, 12)을 지우고 남은 넷(Tomcat, 커넥션 풀 사용 중·대기, CPU)을 한 줄(w 6)로 옮겼다. "서킷·벌크헤드 (feed-service)" 행(id 16, y 27)에 패널 넷을 더했다: 서킷 상태 `state-timeline`(`max by (name) (...{state="open"}) * 2 + max by (name) (...{state="half_open"})`, 값 매핑 0 CLOSED·1 HALF_OPEN·2 OPEN), ThreadPool 벌크헤드 사용 중·최대(`active_thread_count`, `max_thread_pool_size`), 거절 초당(`rate(weave_bulkhead_rejected_calls_total)`), 시간 상한 초과 초당(`rate(resilience4j_timelimiter_calls_total{kind="timeout"})`). 모두 시작할 때부터 시계열이 있는 지표라 0 채우기가 필요 없다(서킷 상태 지표는 상태마다 0/1로 늘 있다).
+- 대시보드 설명 문구와 `docs/architecture.md` 7-4 표를 고쳤다.
+- 확인: `jq .` 통과, 질의에 `applicationTaskExecutor`·`executor_` 없음, `ExperimentDashboardComposeScenarioTest`의 `expectedMetrics` 열한 개가 모두 질의에 있다. `ktlintCheck compileKotlin compileTestKotlin :e2e:test`, `openspec validate` 통과. 실제 Prometheus 질의는 5.2 Compose 테스트에서 돈다.
+- 바꾼 파일: `docker/grafana/dashboards/feed-experiments.json`, `docs/architecture.md`, `tasks.md`, `progress.md`.
+- 다음(3.4): compose.yaml의 feed-service에 `SPRING_APPLICATION_JSON: ${FEED_SPRING_APPLICATION_JSON:-{}}`. `docker compose config`는 `.env`를 읽으니 출력을 그대로 남기지 않는다(MySQL 계정이 보인다). feed-service 환경만 골라 본다.
+---
