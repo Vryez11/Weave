@@ -144,6 +144,28 @@ Compose 환경의 feed-service는 하위 서비스 5개를 의존성마다 하�
 - **WHEN** 부하 도구가 결과를 남기지 못하고 끝난다(예: 스크립트 오류)
 - **THEN** `experiments/run.sh`는 2로 끝나고, 장애를 거둔 상태다
 
+### Requirement: 실험 세트 전체를 돌린다 (F-007)
+
+`experiments/run-all.sh`는 S-01~S-09(시나리오 ID를 주면 그것만)를 차례로 돌리고, 기대와 다른 시나리오가 있어도 끝까지 돌린 뒤 시나리오마다의 판정을 한 표로 출력해야 한다(SHALL). 모두 기대와 같으면 0, 하나라도 다르거나 실행하지 못했으면 0이 아닌 코드로 끝난다. 시나리오 ID 없이 돌려 0으로 끝나는 것을 "장애 실험 세트 통과"로 본다.
+
+첫 시나리오 전에는 하위 서비스를 데우는 준비 실행(S-01, 같은 부하, 측정 1분)을 한 번 해야 하고(SHALL), 그 결과는 판정 표와 종료 코드에 넣지 않는다. 막 띄운 하위 서비스가 느려 서킷이 열리면 트래픽이 가지 않아 데워지지 못하기 때문이다. `--skip-warm-up`이면 건너뛴다.
+
+#### Scenario: 판정 표
+
+- **WHEN** `experiments/run-all.sh --rps 5 --warmup 5s --duration 20s S-01 S-02`를 돌린다
+- **THEN** 두 줄의 표(시나리오 ID, SLO 충족 여부, 기대, 판정, 리포트 경로)를 출력하고 0으로 끝난다
+
+#### Scenario: 기본 목록
+
+- **WHEN** 시나리오 ID 없이 돌릴 목록을 본다
+- **THEN** S-01부터 S-09까지 아홉 개다
+
+#### Scenario: 준비 실행
+
+- **WHEN** `experiments/run-all.sh --rps 5 --warmup 5s --duration 20s S-02`를 돌린다
+- **THEN** S-02보다 먼저 S-01을 측정 1분으로 돌린 결과 폴더가 생긴다
+- **AND** 판정 표에는 S-02 한 줄만 있다
+
 ### Requirement: feed-service의 실험 지표 (F-007)
 
 feed-service는 `/actuator/prometheus`에 Tomcat 사용 중 스레드 수, 의존성 5개마다 벌크헤드의 사용 중 스레드 수와 대기열 길이, 의존성 5개마다 커넥션 풀의 사용 중·대기 연결 수, 의존성마다 호출 지연 히스토그램, 피드 요청 지연 히스토그램을 내보내야 한다(SHALL). 의존성은 이름(`post`, `user`, `like`, `recommendation`, `ad`)으로 구분된다. 서킷 지표는 `call-isolation`의 "격리 지표"를 따른다.
