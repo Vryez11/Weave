@@ -19,7 +19,7 @@
   - `ExperimentVerdictScenarioTest`의 "고도화 3의 기대"를 "지금 단계의 기대"(고도화 4)로 바꾸고, "degrade 비율 기준"의 두 시나리오를 픽스처(`e2e/src/test/resources/experiments/`)로 더한다. 픽스처의 degrade 값을 판정 스크립트에 넘기는 방법(k6 요약의 `degraded_sections` 하위 지표)을 KDoc에 적는다.
   - "degrade 비율"의 "비율을 계산한다"를 새 `ExperimentDegradeRatioScenarioTest`에 k6 요약 픽스처로 둔다. 계산을 맡을 스크립트 이름과 인자를 이 작업에서 정해 KDoc에 적는다.
   - 확인: `./gradlew :e2e:integrationTest`에서 새·바뀐 판정 테스트만 실패하고, `./gradlew :e2e:test`는 통과한다.
-- [ ] 1.4 (대화형) Compose 테스트와 종단 간 테스트를 델타대로 고친다.
+- [x] 1.4 (대화형) Compose 테스트와 종단 간 테스트를 델타대로 고친다.
   - `ExperimentRunComposeScenarioTest`: "리포트 항목"(degrade 비율), "모든 요청이 실패한다"(`docker compose stop redis` 뒤 S-06, 끝나면 `start`), 새 "앞에 남은 post 캐시"(`redis-cli SET`으로 `size=7` 키), 새 "선택 의존성이 느리다"(S-02 짧은 실행의 degrade 비율).
   - `ExperimentDashboardComposeScenarioTest`: degrade 비율 패널. `ProxyPathComposeScenarioTest` 등 피드 500이나 degrade "없음"을 전제로 한 것을 찾아 고친다.
   - `ServiceProcesses`가 feed-service 프로세스에 1.1과 같은 Redis 주소를 준다.

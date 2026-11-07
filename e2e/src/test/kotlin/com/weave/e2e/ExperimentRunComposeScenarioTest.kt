@@ -26,10 +26,13 @@ import kotlin.io.path.writeText
 import kotlin.time.Duration.Companion.minutes
 
 /**
- * `fault-experiments` 스펙 중 `experiments/run.sh`의 시나리오 (F-007, F-001).
- * "짧게 돌린다", "없는 시나리오", "환경이 떠 있지 않다", "앞에 남은 장애", "정상 종료 뒤", "중간에 멈춘다",
- * "준비 구간은 세지 않는다", "모든 요청이 실패한다", "시간 초과된 요청", "리포트 항목", "부하 도구가 실패한다",
- * "Tomcat 스레드가 모두 묶여도 긁힌다"(feed-service의 실험 지표).
+ * `fault-experiments` 스펙 중 `experiments/run.sh`의 시나리오 (F-007, F-001, F-002).
+ * "짧게 돌린다", "없는 시나리오", "환경이 떠 있지 않다", "앞에 남은 장애", "앞에 남은 post 캐시", "정상 종료 뒤", "중간에 멈춘다",
+ * "준비 구간은 세지 않는다", "모든 요청이 실패한다", "시간 초과된 요청", "리포트 항목", "선택 의존성이 느리다"(degrade 비율),
+ * "부하 도구가 실패한다", "Tomcat 스레드가 모두 묶여도 긁힌다"(feed-service의 실험 지표).
+ *
+ * 고도화 4(add-graceful-degradation)부터 선택 의존성이 실패해도 피드는 200이고(S-02 짧은 실행은 SLO 충족), post가 실패하면
+ * post 캐시(Redis)로 대체한다. "모든 요청이 실패한다"는 Redis를 멈춰 캐시를 읽지 못하게 한 뒤 S-06을 돌린다.
  *
  * `:e2e:composeTest`가 띄운 환경에서 `run.sh`를 프로세스로 돌린다(add-fault-experiments design 결정 13).
  * 고도화 3(add-call-isolation)부터 하위 서비스 호출에 격리가 있어, MVP를 전제로 했던 "짧게 돌린다", "시간 초과된 요청",
@@ -55,11 +58,11 @@ import kotlin.time.Duration.Companion.minutes
  *   "dropped": 0,                        // measure의 dropped_iterations
  *   "latencyMs": { "p50": 3012.1, "p95": 3020.4, "p99": 3031.0 },  // measure의 feed_latency(요청 앞뒤 경과 시간). 실패한 요청 포함
  *   "availability": 0.0,                 // 200 수 ÷ (requests + dropped)
- *   "sloMet": false, "expectation": { "availability": "miss", "p99": "meet" }, "matchesExpectation": true,
- *   "criteria": { "availability": { "met": false, "expectation": "miss" }, "p99": { "met": true, "expectation": "meet" } },
+ *   "sloMet": true, "expectation": "meet", "matchesExpectation": true,
+ *   "criteria": { "availability": { "met": true, "expectation": "meet" }, "p99": { "met": true, "expectation": "meet" } },
  *   "mismatchedCriteria": [],
- *   "verdict": "SLO 미충족, 기대와 같음",  // 판정 값(expectation부터 failedThresholds까지)은 lib/verdict.sh의 출력 그대로(ExperimentVerdictScenarioTest)
- *   "failedThresholds": ["availability{scenario:measure}: rate>=0.999"],
+ *   "verdict": "SLO 충족, 기대와 같음",    // 판정 값(expectation부터 failedThresholds까지)은 lib/verdict.sh의 출력 그대로(ExperimentVerdictScenarioTest)
+ *   "failedThresholds": [],
  *   "dependencies": {                    // 의존성 5개 모두
  *     "post": { "p99Ms": 48.2, "failureRate": 0.0, "requestRatio": 1.0 }, ...
  *   },
@@ -69,7 +72,9 @@ import kotlin.time.Duration.Companion.minutes
  *     "bulkheads": { "post": { "activeThreads": { "max": .., "avg": .. }, "queueDepth": { "max": .., "avg": .. } }, ... },
  *     "connectionPools": { "post": { "leased": { "max": .., "avg": .. }, "pending": { "max": .., "avg": .. } }, ... }
  *   },
- *   "degradeRatio": "없음",              // 이후 단계(F-002)가 값을 채운다
+ *   "degradeRatio": {                    // lib/degrade.sh의 출력 그대로(ExperimentDegradeRatioScenarioTest). 200 응답이 없으면 "없음"
+ *     "post": 0, "user": 0, "like": 0, "recommendation": 1, "ad": 0, "any": 1
+ *   },
  *   "circuitState": {                    // 의존성마다 측정 구간에 거친 상태. lib/circuits.sh의 출력 그대로(ExperimentCircuitStateScenarioTest)
  *     "post": "CLOSED", "recommendation": "CLOSED → OPEN → HALF_OPEN → OPEN", ...
  *   },
@@ -126,7 +131,7 @@ class ExperimentRunComposeScenarioTest :
         afterSpec { ExperimentRuns.resetQuietly() }
 
         test(
-            "F-001 짧게 돌린다: S-02를 5 RPS·준비 5초·측정 20초로 돌리면 results/ 아래 리포트가 생기고 측정 요청 수는 95~105, recommendation 호출 실패율은 0.9 이상, p99는 1,000ms 미만이다",
+            "F-002 짧게 돌린다: S-02를 5 RPS·준비 5초·측정 20초로 돌리면 results/ 아래 리포트가 생기고 측정 요청 수는 95~105, recommendation 호출 실패율은 0.9 이상, p99는 1,000ms 미만이며 SLO를 지킨다",
         ) {
             val (result, folder) = shortS02
             val report = ExperimentRuns.report(folder)
@@ -136,8 +141,8 @@ class ExperimentRunComposeScenarioTest :
                 // 3초 지연이 피드를 늦추지 않고 recommendation 호출의 시간 상한 실패로 드러난다
                 report["dependencies"].asMap()["recommendation"].asMap()["failureRate"].asDouble() shouldBeGreaterThanOrEqualTo 0.9
                 report["latencyMs"].asMap()["p99"].asDouble() shouldBeLessThan 1000.0
-                // "기대대로 SLO를 못 지킨다"의 WHEN과 같은 명령이다. 판정 계산은 ExperimentVerdictScenarioTest가 본다
-                report["verdict"] shouldBe "SLO 미충족, 기대와 같음"
+                // 추천만 빠지고 피드는 200이라 고도화 4의 기대(meet)대로 SLO를 지킨다. 판정 계산은 ExperimentVerdictScenarioTest가 본다
+                report["verdict"] shouldBe "SLO 충족, 기대와 같음"
                 result.exitCode shouldBe 0
             }
         }
@@ -147,7 +152,7 @@ class ExperimentRunComposeScenarioTest :
             ExperimentRuns.shouldBeClean()
         }
 
-        test("F-001 리포트 항목: S-02 짧은 실행의 리포트에 실행 정보, 지연·가용성·기준별 판정, 의존성별 값, 자원 사용량(벌크헤드 포함), 서킷 상태, 없음 항목, Grafana 링크, 장애 시각이 있다") {
+        test("F-002 리포트 항목: S-02 짧은 실행의 리포트에 실행 정보, 지연·가용성·기준별 판정, 의존성별 값, 자원 사용량(벌크헤드 포함), 서킷 상태, degrade 비율, Grafana 링크, 장애 시각이 있다") {
             val (_, folder) = shortS02
             val report = ExperimentRuns.report(folder)
             withClue("report.json: $report") {
@@ -162,15 +167,15 @@ class ExperimentRunComposeScenarioTest :
                 val latency = report["latencyMs"].asMap()
                 listOf("p50", "p95", "p99").forEach { latency[it].asDouble() shouldBeGreaterThan 0.0 }
                 report["availability"].asDouble() shouldBeInRangeOf 0.0..1.0
-                report["sloMet"] shouldBe false
-                report["expectation"] shouldBe mapOf("availability" to "miss", "p99" to "meet")
+                report["sloMet"] shouldBe true
+                report["expectation"] shouldBe "meet"
                 report["matchesExpectation"] shouldBe true
                 val criteria = report["criteria"].asMap()
                 listOf("availability", "p99").forEach { name ->
                     val criterion = criteria[name].asMap()
                     withClue("기준 $name: $criterion") {
                         (criterion["met"] is Boolean) shouldBe true
-                        criterion["expectation"] shouldBe (if (name == "availability") "miss" else "meet")
+                        criterion["expectation"] shouldBe "meet"
                     }
                 }
 
@@ -201,7 +206,10 @@ class ExperimentRunComposeScenarioTest :
                     pool["pending"].asMap().shouldHaveMaxAndAverage("$name 커넥션 풀 대기")
                 }
 
-                report["degradeRatio"] shouldBe "없음"
+                val degradeRatio = report["degradeRatio"].asMap()
+                (ExperimentRuns.dependencies.keys + "any").forEach { name ->
+                    withClue("degrade 비율 $name: ${degradeRatio[name]}") { degradeRatio[name].asDouble() shouldBeInRangeOf 0.0..1.0 }
+                }
                 val circuits = report["circuitState"].asMap()
                 ExperimentRuns.dependencies.keys.forEach { name ->
                     withClue("$name 서킷 상태: ${circuits[name]}") {
@@ -236,9 +244,22 @@ class ExperimentRunComposeScenarioTest :
             withClue("report.md") {
                 val markdown = folder.resolve("report.md").readText()
                 markdown shouldContain "S-02"
-                markdown shouldContain "SLO 미충족, 기대와 같음"
-                markdown shouldContain "없음"
+                markdown shouldContain "SLO 충족, 기대와 같음"
+                markdown shouldContain "degrade"
                 markdown shouldContain "CLOSED"
+            }
+        }
+
+        test("F-002 선택 의존성이 느리다: S-02 짧은 실행의 가용성은 1이고 recommendation degrade 비율은 1, 나머지 의존성은 0이다") {
+            val (result, folder) = shortS02
+            val report = ExperimentRuns.report(folder)
+            withClue("$result\nreport.json: $report") {
+                report["availability"].asDouble() shouldBe (1.0 plusOrMinus 1e-9)
+                val degradeRatio = report["degradeRatio"].asMap()
+                degradeRatio["recommendation"].asDouble() shouldBe (1.0 plusOrMinus 1e-9)
+                listOf("post", "user", "like", "ad").forEach { name ->
+                    withClue(name) { degradeRatio[name].asDouble() shouldBe (0.0 plusOrMinus 1e-9) }
+                }
             }
         }
 
@@ -309,6 +330,16 @@ class ExperimentRunComposeScenarioTest :
             }
         }
 
+        test("F-002 앞에 남은 post 캐시: 실험 부하가 쓰지 않는 size=7의 post 캐시를 넣어 둬도 S-01 짧은 실행이 끝난 뒤 그 캐시가 없다") {
+            val key = "weave:feed:posts:latest:v1:size:7"
+            val set = ExperimentRuns.redis("SET", key, "{\"cachedAt\":\"2026-01-01T00:00:00Z\",\"posts\":[]}", "EX", "600")
+            withClue("redis-cli SET: $set") { set.exitCode shouldBe 0 }
+
+            val (result, _) = run("S-01", *ExperimentRuns.shortOptions())
+            val exists = ExperimentRuns.redis("EXISTS", key)
+            withClue("$result\nredis-cli EXISTS: $exists") { exists.stdout.trim() shouldBe "0" }
+        }
+
         test("F-007 준비 구간은 세지 않는다: S-01을 준비 10초·측정 20초로 돌리면 측정 요청 수는 95~105다") {
             val (result, folder) = run("S-01", *ExperimentRuns.shortOptions(warmup = "10s"))
             val report = ExperimentRuns.report(folder)
@@ -317,15 +348,23 @@ class ExperimentRunComposeScenarioTest :
             }
         }
 
-        test("F-007 모든 요청이 실패한다: post 프록시가 꺼진 S-06 짧은 실행의 가용성은 0이고 지연 p50·p95·p99가 있다") {
-            val (result, folder) = run("S-06", *ExperimentRuns.shortOptions())
-            val report = ExperimentRuns.report(folder)
-            withClue("$result\nreport.json: $report") {
-                report["availability"].asDouble() shouldBe (0.0 plusOrMinus 1e-9)
-                val latency = report["latencyMs"].asMap()
-                listOf("p50", "p95", "p99").forEach { latency[it].asDouble() shouldBeGreaterThan 0.0 }
+        test("F-002 모든 요청이 실패한다: post 캐시 저장소(Redis)를 멈추고 post 프록시가 꺼진 S-06 짧은 실행의 가용성은 0이고 지연 p50·p95·p99가 있다") {
+            // post가 꺼지면 대체할 캐시를 읽지 못해 피드가 503이다. Redis가 떠 있으면 준비 구간이 채운 캐시로 stale 200이 된다
+            val stopped = ComposeEnvironment.dockerCompose("stop", "redis")
+            withClue("docker compose stop redis: $stopped") { stopped.exitCode shouldBe 0 }
+            try {
+                val (result, folder) = run("S-06", *ExperimentRuns.shortOptions())
+                val report = ExperimentRuns.report(folder)
+                withClue("$result\nreport.json: $report") {
+                    report["availability"].asDouble() shouldBe (0.0 plusOrMinus 1e-9)
+                    val latency = report["latencyMs"].asMap()
+                    listOf("p50", "p95", "p99").forEach { latency[it].asDouble() shouldBeGreaterThan 0.0 }
+                }
+                ExperimentRuns.shouldBeClean()
+            } finally {
+                val started = ComposeEnvironment.dockerCompose("start", "redis")
+                withClue("docker compose start redis: $started") { started.exitCode shouldBe 0 }
             }
-            ExperimentRuns.shouldBeClean()
         }
 
         test("F-001 시간 초과된 요청: S-01을 20 RPS·측정 30초로 돌리며 측정 구간 5초 뒤 feed-service를 10초 멈추면 지연 p99는 4,500ms 이상이다") {
