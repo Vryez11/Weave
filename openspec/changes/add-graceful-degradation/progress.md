@@ -124,3 +124,15 @@
   - 2.5의 `cacheHits`·`cacheMisses`는 `FeedAssembler.cachedUsers`가 돌려준 맵 크기와 작성자 수(중복 없이)의 차로 낸다.
   - 4.2에서 main `application.yml`에 값을 넣으면 `UserCacheProperties`를 non-null로 바꾸고 `DISABLED` 분기를 지울 수 있다(설정 없는 테스트 컨텍스트가 main 값을 받는다).
 ---
+
+## 2026-11-07 21:40 - 2.4 post stale 캐시와 503을 넣는다
+- `degradation/PostStaleCache.kt`: `PostStaleCache`(`read(size)` → `PostCacheRead.Hit(posts, cachedAt)` 또는 `Unusable`인 `Expired`·`Miss`·`Error`, 각각 `tag`(지표 `outcome`)와 `reason`(`cache_expired`·`cache_miss`·`cache_error`). `write(size, posts)`는 키별 쓰기 간격을 `ConcurrentHashMap`으로 보고 자기 전용 `ThreadPoolExecutor`(스레드 1, 대기열 50, 차면 `RejectedExecutionException`을 삼켜 버림)로 넘긴다. 값은 `CachedPosts(cachedAt, posts)`를 서비스 `ObjectMapper`로, TTL은 `max-staleness`), `PostCacheProperties`(`weave.post-cache.*`, 둘 중 하나라도 없으면 `PostStaleCache.DISABLED`: 쓰지 않고 읽으면 `Miss`), `PostsUnavailableException(reason)`, `PostStaleCacheConfig`(Bean과 Lettuce `REJECT_COMMANDS`를 `LettuceClientOptionsBuilderCustomizer`로).
+- `FeedAssembler`: post를 `awaitResult`로 받아 성공이면 요청 스레드에서 `postStaleCache.write`, 실패면 `read`해 `Hit`이면 `fetchDetails`를 요청 스레드에서 바로 부르고 `PostSource.Stale`, `Unusable`이면 recommendation·ad를 기다리지 않고 `PostsUnavailableException`. 새 매개변수 `postStaleCache`는 기본값 `DISABLED`.
+- `FeedController`: `@ExceptionHandler(PostsUnavailableException)` → 503 `{"error":"posts_unavailable"}`.
+- 확인: 새 `degradation/PostStaleCacheTest` 11개, 새 `FeedAssemblerPostFlowTest` 7개, `FeedAssemblerTest`·`FeedAssemblerBudgetTest` 통과. 2.4 시나리오 12개(`FeedPostStaleCacheScenarioTest` 5, `FeedPostUnavailableDeadlineScenarioTest`, `FeedPostStaleCacheOverrideScenarioTest`, `FeedPostCacheOutageScenarioTest` 2, `FeedPostCacheReadPauseScenarioTest`, `FeedPostCacheWritePauseScenarioTest`, `FeedTraceLogScenarioTest` 9 중 503 둘) 통과. `:feed-service:integrationTest` 실패 17 → 5(`FeedFallbackLogScenarioTest` 3, `FeedDegradationMetricsScenarioTest` 2, 2.5·2.6 몫), 새 실패 없음. `ktlintCheck`, `compileKotlin compileTestKotlin`, `:feed-service:test`, `openspec validate` 통과.
+- 바꾼 파일: `FeedAssembler.kt`, `FeedController.kt`, `degradation/PostStaleCache.kt`(새 파일), `src/test/.../degradation/PostStaleCacheTest.kt`·`FeedAssemblerPostFlowTest.kt`(새 파일), `feed-service/CLAUDE.md`, tasks.md, progress.md
+- 다음 반복이 알아 둘 것:
+  - 2.5의 post 대체 로그: stale이면 `FeedAssembler.stalePosts`의 `Hit` 분기(`stale_cache`), 503이면 던지기 전(`unavailable`, `reason`은 `PostCacheRead.Unusable.reason`). 둘 다 요청 스레드다.
+  - 2.6의 `weave.post.cache.reads`는 `PostCacheRead.tag`로 센다. `weave.post.cache.writes`는 `PostStaleCache.store`의 성공·실패와 `write`의 `RejectedExecutionException`(`dropped`) 자리에 넣는다. 지금은 아무것도 세지 않는다.
+  - 같은 패키지의 테스트 파일끼리 `private class` 이름이 겹치면(`MutableClock`) 컴파일이 깨진다(JVM 클래스 이름이 같다). 새 테스트의 도우미는 다른 이름으로 둔다.
+---

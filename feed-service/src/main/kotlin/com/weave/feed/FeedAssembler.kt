@@ -4,7 +4,10 @@ import com.weave.feed.client.like.LikeResponse
 import com.weave.feed.client.post.PostResponse
 import com.weave.feed.client.user.UserResponse
 import com.weave.feed.degradation.FeedDegradation
+import com.weave.feed.degradation.PostCacheRead
 import com.weave.feed.degradation.PostSource
+import com.weave.feed.degradation.PostStaleCache
+import com.weave.feed.degradation.PostsUnavailableException
 import com.weave.feed.degradation.UserProfileCache
 import com.weave.feed.gateway.AdGateway
 import com.weave.feed.gateway.DownstreamFailure
@@ -31,8 +34,8 @@ import java.util.concurrent.TimeoutException
  * post, recommendation, ad를 한꺼번에 시작하고, post가 끝나면 user와 like를 함께 시작한다. 받은 결과로 응답을 만드는 것은
  * [FeedDegradation.compose]다(add-graceful-degradation design 결정 3). post 결과를 먼저 받고, user·like·recommendation·ad의 결과는
  * 실패도 값([Result])으로 받아 넘겨 등급대로 대체한다. user가 성공하면 받은 프로필을 [UserProfileCache]에 넣고, 실패하면 그 캐시에서
- * 작성자를 찾아 넘긴다. 캐시는 요청 스레드에서 다룬다. post가 실패하면 아직 그 실패가 `CompletionException`으로 올라가 피드 전체가
- * 실패한다(stale 캐시와 503은 add-graceful-degradation tasks 2.4).
+ * 작성자를 찾아 넘긴다. post가 성공하면 그 게시글을 [PostStaleCache]에 넘기고(쓰기는 비동기), 실패하면 같은 `size`의 stale 캐시로
+ * 게시글을 채운다. 그것도 안 되면 [PostsUnavailableException]이다(design 결정 4, 8). 캐시는 요청 스레드에서 다룬다.
  *
  * 요청 시간 예산(add-call-isolation design 결정 4): 요청을 받은 시각에 [timeBudget]만큼 뒤를 마감으로 정하고(시계는 [clock]),
  * 의존성마다 마감까지 남은 시간만 기다린다. post가 끝났을 때 남은 시간이 없으면 user와 like를 부르지 않는다. 마감이 지나면
@@ -49,29 +52,55 @@ class FeedAssembler(
     @Value("\${weave.feed.time-budget}") private val timeBudget: Duration,
     private val clock: Clock = Clock.systemUTC(),
     private val userProfileCache: UserProfileCache = UserProfileCache.DISABLED,
+    private val postStaleCache: PostStaleCache = PostStaleCache.DISABLED,
 ) {
+    /** post를 대체할 수 없으면 [PostsUnavailableException]을 던진다(design 결정 8). */
     fun assemble(
         userId: Long,
         size: Int,
     ): FeedResponse {
         val budget = RequestBudget(clock.instant() + timeBudget, clock)
         val posts = budget.call("post") { postGateway.getLatestPosts(size) }
-        val details = posts.thenApply { fetchDetails(budget, userId, it) }
+        val freshDetails = posts.thenApply { fetchDetails(budget, userId, it) }
         val recommendations = budget.call("recommendation") { recommendationGateway.getRecommendations() }
         val ads = budget.call("ad") { adGateway.getAds() }
 
-        val postList = budget.await(posts)
+        val (source, details) =
+            budget.awaitResult(posts).fold(
+                onSuccess = {
+                    postStaleCache.write(size, it)
+                    PostSource.Fresh(it) to freshDetails
+                },
+                onFailure = { stalePosts(budget, userId, size) },
+            )
         val users = budget.awaitResult(details.thenCompose { it.users })
         return FeedDegradation
             .compose(
-                posts = PostSource.Fresh(postList),
+                posts = source,
                 users = users,
                 likes = budget.awaitResult(details.thenCompose { it.likes }),
                 recommendations = budget.awaitResult(recommendations),
                 ads = budget.awaitResult(ads),
-                cachedUsers = cachedUsers(users, postList),
+                cachedUsers = cachedUsers(users, source.posts),
             ).response
     }
+
+    /**
+     * post가 실패하면 요청 스레드에서 stale 캐시를 읽고, 쓸 수 있으면 그 게시글로 user·like를 시작한다(design 결정 3). 쓸 수 없으면
+     * recommendation·ad를 기다리지 않고 [PostsUnavailableException]을 던진다. 남은 호출은 각자의 시간 상한에서 끝난다.
+     */
+    private fun stalePosts(
+        budget: RequestBudget,
+        userId: Long,
+        size: Int,
+    ): Pair<PostSource, CompletableFuture<Details>> =
+        when (val cached = postStaleCache.read(size)) {
+            is PostCacheRead.Hit -> {
+                val details = fetchDetails(budget, userId, cached.posts)
+                PostSource.Stale(cached.posts, cached.cachedAt) to completedFuture(details)
+            }
+            is PostCacheRead.Unusable -> throw PostsUnavailableException(cached.reason)
+        }
 
     /** user가 성공하면 받은 프로필을 캐시에 넣고, 실패하면 게시글의 작성자를 캐시에서 찾는다(design 결정 7). */
     private fun cachedUsers(
