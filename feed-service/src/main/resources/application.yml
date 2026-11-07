@@ -157,3 +157,6 @@ management:
       percentiles-histogram:
         http.server.requests: true
         http.client.requests: true
+        # post stale 캐시(Redis) 명령 지연. S-06에서 캐시 읽기 p99로 읽기 상한(spring.data.redis.timeout)의 근거를 잰다
+        # (add-graceful-degradation design 결정 6)
+        lettuce: true
