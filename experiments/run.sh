@@ -319,12 +319,22 @@ q_failed="$(prom query "sum by (client_name) (increase(http_client_requests_seco
 q_received="$(prom query "sum by (instance) (increase(http_server_requests_seconds_count{instance=~\"(post|user|like|recommendation|ad)-service:[0-9]+\",uri!~\"/actuator.*\"}[$range]))")" || prometheus_failed=1
 q_feed="$(prom query "sum(increase(http_server_requests_seconds_count{$FEED,uri=\"/feed\"}[$range]))")" || prometheus_failed=1
 q_tomcat="$(prom query_range "sum(tomcat_threads_busy_threads{$FEED})")" || prometheus_failed=1
-q_active="$(prom query_range "sum(executor_active_threads{$FEED,name=\"applicationTaskExecutor\"})")" || prometheus_failed=1
-q_queued="$(prom query_range "sum(executor_queued_tasks{$FEED,name=\"applicationTaskExecutor\"})")" || prometheus_failed=1
+# 의존성별 ThreadPool 벌크헤드(F-001). Semaphore 벌크헤드는 지표 이름이 달라 섞이지 않는다
+q_bulkhead_active="$(prom query_range "max by (name) (resilience4j_bulkhead_active_thread_count{$FEED})")" || prometheus_failed=1
+q_bulkhead_queue="$(prom query_range "max by (name) (resilience4j_bulkhead_queue_depth{$FEED})")" || prometheus_failed=1
 q_cpu="$(prom query_range "max(process_cpu_usage{$FEED})")" || prometheus_failed=1
 q_leased="$(prom query_range "sum by (httpclient) (httpcomponents_httpclient_pool_total_connections{$FEED,state=\"leased\"})")" || prometheus_failed=1
 q_pending="$(prom query_range "sum by (httpclient) (httpcomponents_httpclient_pool_total_pending{$FEED})")" || prometheus_failed=1
-q_circuit="$(prom query "max by (name, state) (max_over_time(resilience4j_circuitbreaker_state{$FEED}[$range]))")" || prometheus_failed=1
+# 서킷 상태는 5초 간격 표본을 시간순으로 이어 적는다(lib/circuits.sh). 질의 응답 형식으로 결과 폴더에 남겨 넘긴다
+circuit_state=null
+if q_circuit="$(prom query_range "max by (name, state) (resilience4j_circuitbreaker_state{$FEED})")"; then
+  jq -n --argjson result "$q_circuit" '{status: "success", data: {resultType: "matrix", result: $result}}' \
+    >"$folder/circuit-state.json" &&
+    circuit_state="$("$here/lib/circuits.sh" "$folder/circuit-state.json")" ||
+    { log "서킷 상태를 이어 적지 못했다(lib/circuits.sh)"; circuit_state=null; }
+else
+  prometheus_failed=1
+fi
 # 측정 구간에 feed-service 지표를 긁은 비율. 1보다 작으면 자원 사용량은 긁힌 구간만의 값이다
 q_up="$(prom query_range "up{$FEED}")" || prometheus_failed=1
 
@@ -356,12 +366,12 @@ report="$(
     --argjson received "$q_received" \
     --argjson feed "$q_feed" \
     --argjson tomcat "$q_tomcat" \
-    --argjson active "$q_active" \
-    --argjson queued "$q_queued" \
+    --argjson bulkheadActive "$q_bulkhead_active" \
+    --argjson bulkheadQueue "$q_bulkhead_queue" \
     --argjson cpu "$q_cpu" \
     --argjson leased "$q_leased" \
     --argjson pending "$q_pending" \
-    --argjson circuit "$q_circuit" \
+    --argjson circuitState "$circuit_state" \
     --argjson up "$q_up" '
     def round_to($digits): pow(10; $digits) as $f | . * $f | round / $f;
     # Prometheus 값은 문자열이다. NaN·Inf는 null로 둔다
@@ -428,21 +438,18 @@ report="$(
         }}) | from_entries),
         resources: {
           tomcatBusyThreads: ($tomcat | stats),
-          sharedPoolActiveThreads: ($active | stats),
-          sharedPoolQueuedTasks: ($queued | stats),
           feedCpuUsage: ($cpu | stats),
+          bulkheads: (($bulkheadActive | range_by("name"; $names)) as $a
+            | ($bulkheadQueue | range_by("name"; $names)) as $q
+            | $names | map({key: ., value: {activeThreads: $a[.], queueDepth: $q[.]}}) | from_entries),
           connectionPools: (($leased | range_by("httpclient"; $names)) as $l
             | ($pending | range_by("httpclient"; $names)) as $p
             | $names | map({key: ., value: {leased: $l[.], pending: $p[.]}}) | from_entries)
         },
         # 부분 응답(F-002)이 없어 contract.js가 빠진 영역을 세지 않는다. F-002가 값을 채운다
         degradeRatio: "없음",
-        # 서킷 브레이커(F-001) 지표가 없으면 "없음". 있으면 서킷마다 측정 구간에 거친 상태
-        circuitState: (if $circuit == null then null
-                       elif ($circuit | length) == 0 then "없음"
-                       else $circuit | map(select((.value[1] | num) == 1)) | group_by(.metric.name)
-                         | map({key: .[0].metric.name, value: map(.metric.state)}) | from_entries
-                       end),
+        # 의존성마다 측정 구간에 거친 서킷 상태(lib/circuits.sh). 서킷 지표가 없는 의존성은 "없음", 질의가 실패하면 null
+        circuitState: $circuitState,
         grafanaUrl: $grafana,
         prometheusFailed: ($prometheusFailed == 1),
         # 표본이 하나도 없으면(대상이 없다) 0이다
@@ -521,22 +528,26 @@ jq -r '
     row(["가용성", .availability]),
     row(["SLO 충족", .sloMet]),
     row(["degrade 비율", .degradeRatio]),
-    row(["서킷 상태", (.circuitState | if type == "object" then tojson else . end)]),
     "",
     "## 의존성",
     "",
-    "| 의존성 | 호출 p99 | 호출 실패율 | 요청 배율 |",
-    "|---|---|---|---|",
-    (.dependencies | to_entries[] | row([.key, (.value.p99Ms | ms), .value.failureRate, .value.requestRatio])),
+    "| 의존성 | 호출 p99 | 호출 실패율 | 요청 배율 | 서킷 상태 |",
+    "|---|---|---|---|---|",
+    (.circuitState as $circuits
+      | .dependencies | to_entries[]
+      | row([.key, (.value.p99Ms | ms), .value.failureRate, .value.requestRatio, ($circuits[.key]? // null)])),
+    "",
+    "서킷 상태는 측정 구간을 5초 간격으로 본 표본에서 바뀔 때만 이어 적었다. 5초보다 짧게 머문 상태는 빠질 수 있고, 정확한 전이는 `circuit_state_changed` 로그로 본다.",
     "",
     "## 자원 사용량 (측정 구간)",
     "",
     "| 항목 | 최댓값 | 평균 |",
     "|---|---|---|",
     row(["Tomcat 사용 중 스레드", .resources.tomcatBusyThreads.max, .resources.tomcatBusyThreads.avg]),
-    row(["공유 풀 활성 스레드", .resources.sharedPoolActiveThreads.max, .resources.sharedPoolActiveThreads.avg]),
-    row(["공유 풀 대기열", .resources.sharedPoolQueuedTasks.max, .resources.sharedPoolQueuedTasks.avg]),
     row(["feed-service CPU 사용률", .resources.feedCpuUsage.max, .resources.feedCpuUsage.avg]),
+    (.resources.bulkheads | to_entries[]
+      | row(["벌크헤드 \(.key) 사용 중 스레드", .value.activeThreads.max, .value.activeThreads.avg]),
+        row(["벌크헤드 \(.key) 대기열", .value.queueDepth.max, .value.queueDepth.avg])),
     (.resources.connectionPools | to_entries[]
       | row(["커넥션 풀 \(.key) 사용 중", .value.leased.max, .value.leased.avg]),
         row(["커넥션 풀 \(.key) 대기", .value.pending.max, .value.pending.avg])),

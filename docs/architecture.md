@@ -455,7 +455,7 @@ experiments/
 ├── expectations.json        # 단계별 기대 결과(시나리오마다 meet/miss, 또는 기준마다 {availability, p99})
 ├── scenarios/S-01.json ...  # 설명, PRD 4장 문장, 장애 시간표(측정 시작부터 잰 초, 동작, 대상)
 ├── k6/                      # feed.js(부하·장애·판정), faults.js, contract.js, reset.js
-├── lib/                     # verdict.sh(판정), windows.sh(10초 구간, 복구 시간)
+├── lib/                     # verdict.sh(판정), windows.sh(10초 구간, 복구 시간), circuits.sh(서킷 상태 이어 적기)
 └── results/                 # 실행마다 폴더 하나. 커밋하지 않는다
 ```
 
@@ -485,7 +485,7 @@ experiments/run-all.sh --list                                 # 돌릴 목록
 - `run-all.sh`는 시나리오마다 `run.sh`를 부르고, 기대와 다르거나 실행하지 못한 시나리오가 있어도 끝까지 돈 뒤 판정 표(마크다운)를 출력한다. 종료 코드는 가장 나쁜 것이다.
 - Compose 프로젝트나 env 파일을 바꿀 때는 `COMPOSE_PROJECT_NAME`, `COMPOSE_ENV_FILE`을 준다(`:e2e:composeTest`는 `weave-compose-test`와 `e2e/build/compose-test.env`를 쓴다).
 
-**리포트.** 실행마다 `experiments/results/<UTC yyyyMMdd-HHmmss>-<S-xx>/`에 `report.md`와 같은 값의 `report.json`, k6 요약 `summary.json`, 요청마다의 원본 `raw.json.gz`를 남긴다.
+**리포트.** 실행마다 `experiments/results/<UTC yyyyMMdd-HHmmss>-<S-xx>/`에 `report.md`와 같은 값의 `report.json`, k6 요약 `summary.json`, 요청마다의 원본 `raw.json.gz`, 서킷 상태 질의 결과 `circuit-state.json`을 남긴다.
 
 | 항목 | 출처 |
 |---|---|
@@ -493,9 +493,10 @@ experiments/run-all.sh --list                                 # 돌릴 목록
 | 측정 요청 수, 보내지 못한 요청 수, p50·p95·p99(실패한 요청 포함). 지연은 k6가 요청 앞뒤로 잰 경과 시간 `feed_latency`다. k6의 `http_req_duration`은 시간 초과된 요청을 0으로 남길 수 있어 쓰지 않는다 | k6 요약 |
 | 가용성 = 200 수 ÷ (측정 요청 수 + 보내지 못한 요청 수) | k6 요약 |
 | 의존성별 호출 p99, 실패율, 요청 배율(하위 서비스가 받은 요청 ÷ 피드 요청) | Prometheus |
-| 자원 사용량의 측정 구간 최댓값·평균: Tomcat 사용 중 스레드, 공유 풀 활성 스레드·대기열, 의존성별 커넥션 풀 사용 중·대기, feed-service CPU | Prometheus |
+| 자원 사용량의 측정 구간 최댓값·평균: Tomcat 사용 중 스레드, 의존성별 벌크헤드 사용 중 스레드·대기열(`resilience4j_bulkhead_active_thread_count`, `resilience4j_bulkhead_queue_depth`. ThreadPool 벌크헤드 지표라 Semaphore 모드의 사용량은 담지 않는다), 의존성별 커넥션 풀 사용 중·대기, feed-service CPU | Prometheus |
 | feed-service 지표 수집 비율(측정 구간 `up` 표본 중 1인 비율). 1보다 작으면 자원 사용량이 긁힌 구간만의 값이라고 적는다 | Prometheus |
-| degrade 비율, 서킷 상태 | MVP에는 없어 "없음". F-002, F-001이 채운다 |
+| 의존성별 서킷 상태: 측정 구간에 거친 상태를 바뀔 때만 이어 적는다(`CLOSED → OPEN → HALF_OPEN → CLOSED`). `resilience4j_circuitbreaker_state`를 5초 간격 `query_range`로 읽어 그보다 짧게 머문 상태는 빠질 수 있고, 정확한 전이는 `circuit_state_changed` 로그로 본다. 서킷 지표가 없는 의존성은 "없음" | Prometheus, `lib/circuits.sh` |
+| degrade 비율 | 아직 없어 "없음". F-002가 채운다 |
 | 장애를 넣은 시각과 거둔 시각, 10초 구간 표(요청 수, `feed_latency` p99, 가용성), 복구 시간(S-08) | k6 원본, `lib/windows.sh` |
 | Grafana 링크(측정 구간을 붙인 `weave-feed` 대시보드, 7-4) | run.sh |
 

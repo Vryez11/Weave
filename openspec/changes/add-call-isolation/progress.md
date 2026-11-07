@@ -26,7 +26,10 @@
 
 - Semaphore 벌크헤드 인스턴스 다섯(`resilience4j.bulkhead.instances.<의존성>`)은 2.9에서 구조만 넣었다(Resilience4j 기본 최대 동시 25). 4.4에서 ThreadPool 40과 함께 Semaphore도 40을 넣어야 `IsolationSettingsTest`의 Semaphore 단언이 통과한다.
 
+- Ralph 세션 권한에서는 `/bin/bash -n`, 실험 스크립트 직접 실행, `jq -f`, 중괄호·따옴표가 든 인라인 jq가 막힌다. 확인하려면 커밋하지 않을 임시 Kotest(`e2e/src/test/kotlin/.../Tmp*Test.kt`, 태그 없음)에서 `ProcessBuilder("/bin/bash", "-c", ...)`로 돌려 출력을 `build/` 아래 파일로 남기고 `./gradlew :e2e:test -Pkotest.filter.tests='*이름*'`로 돌린 뒤, 파일을 읽고 임시 파일을 지운다(3.2).
+
 ## 지금 실패하는 것이 정상인 테스트 (구현 전)
+- **3.2 뒤:** e2e `integrationTest` 실패 1개: `ExperimentVerdictScenarioTest` "고도화 3의 기대"(4.7). feed-service는 2.9 뒤와 같다.
 - **3.1 뒤:** e2e `integrationTest` 실패 4개: `ExperimentCircuitStateScenarioTest` 3(3.2), `ExperimentVerdictScenarioTest` "고도화 3의 기대" 1(4.7). feed-service는 2.9 뒤와 같다.
 - **2.9 뒤:** feed-service `integrationTest` 실패 9개, 모두 4장 `IsolationSettingsTest`.
 - **2.8 뒤:** feed-service `integrationTest` 실패 10개: 2.9 `FeedTracePropagationOffTest` 1, 4장 `IsolationSettingsTest` 9.
@@ -190,4 +193,13 @@
 - 주의: 지금 `experiments/expectations.json`(고도화 2)은 S-02~S-09가 문자열 `miss`라, 새 판정으로는 p99를 지키는 S-04~S-07·S-09가 기대와 다르다. 4.7에서 고도화 3 기대로 바꾸면 풀린다(그 전에 `run-all.sh`를 돌리지 않는다).
 - 바꾼 파일: `experiments/lib/verdict.sh`, `experiments/run.sh`, `experiments/run-all.sh`, `experiments/CLAUDE.md`, `docs/architecture.md`, `tasks.md`, `progress.md`.
 - 다음(3.2): 리포트의 벌크헤드·서킷 항목과 `lib/circuits.sh`(인자·출력은 `ExperimentCircuitStateScenarioTest` KDoc).
+---
+
+## 2026-11-07 12:29 - 3.2 리포트의 벌크헤드·서킷 항목 (Ralph)
+- `experiments/lib/circuits.sh`(새 파일, 실행 권한): query_range 응답 파일을 받아 의존성 다섯마다 값이 1인 상태를 시각순으로 대문자로 읽고 연속 중복을 뺀 뒤 ` → `로 잇는다. 시계열이 없으면 "없음", 파일이 없거나 형식이 아니면 2.
+- `run.sh`: 공유 풀 질의(`executor_*{name="applicationTaskExecutor"}`)를 지우고 `max by (name) (resilience4j_bulkhead_active_thread_count|queue_depth)`를 `resources.bulkheads.<의존성>.activeThreads|queueDepth`로 싣는다. 서킷은 `max by (name, state) (resilience4j_circuitbreaker_state)` query_range를 응답 형식으로 감싸 결과 폴더 `circuit-state.json`에 쓰고 `lib/circuits.sh` 출력을 `circuitState`에 그대로 싣는다(질의·스크립트가 실패하면 null). `report.md`는 서킷 상태를 의존성 표의 열로 옮기고 5초 표본 설명을 붙였으며, 자원 표의 공유 풀 두 줄을 의존성별 벌크헤드 사용 중 스레드·대기열로 바꿨다.
+- `docs/architecture.md` 9-3: lib 목록, 결과 폴더 파일, 리포트 표(벌크헤드, 서킷 상태 줄, degrade 비율 줄).
+- 확인: `ExperimentCircuitStateScenarioTest` 3개 통과. `:e2e:integrationTest` 실패는 "고도화 3의 기대" 1개(4.7). 임시 Kotest로 `/bin/bash -n`(run.sh, circuits.sh) 통과, 바뀐 report.md jq 식과 감싼 응답 → circuits.sh 경로를 돌려 봤다(위 패턴). `ktlintCheck compileKotlin compileTestKotlin :e2e:test`, `openspec validate` 통과. 전체 report.json jq는 Compose 테스트(5.2)에서 돈다.
+- 바꾼 파일: `experiments/lib/circuits.sh`, `experiments/run.sh`, `docs/architecture.md`, `tasks.md`, `progress.md`.
+- 다음(3.3): 대시보드 서킷·벌크헤드 행. 지표 이름은 위 패턴(거절 `weave_bulkhead_rejected_calls_total{name}`), 대시보드 테스트(`*Dashboard*Compose*`) KDoc을 먼저 본다.
 ---
