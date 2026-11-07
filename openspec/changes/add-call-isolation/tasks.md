@@ -120,6 +120,9 @@
   - `./gradlew bootJar` 뒤 Compose를 다시 띄워 `experiments/run.sh S-01`이 0으로 끝나는지, 리포트의 서킷 상태가 모두 `CLOSED`인지, 측정 구간 타임아웃 수(`resilience4j_timelimiter_calls_total{kind="timeout"}` 등)를 본다. 결과를 design 결정 3에 적는다.
   - `experiments/expectations.json`을 고도화 3으로 바꾼다(design 결정 10). 설정값 커밋과 섞지 않는다.
   - 확인: S-01이 0으로 끝나고 `./gradlew ktlintCheck build`가 통과한다.
+- [x] 4.8 (4.7에서 더함) `run-all.sh`가 첫 시나리오 전에 하위 서비스를 데우는 준비 실행을 한다(design 결정 10 "준비 실행").
+  - 4.7에서 Compose를 막 띄운 직후의 S-01이 콜드 스타트 고리로 실패했다(design 결정 3). 사람이 "실험 절차로 데우기"를 골랐다.
+  - 확인: `/bin/bash experiments/run-all.sh --rps 5 --warmup 5s --duration 20s S-01`이 준비 실행 뒤 S-01 한 줄의 표를 쓰고 0으로 끝난다. `fault-experiments` 델타의 "준비 실행"은 `ExperimentRunAllComposeScenarioTest`(5.2)가 본다.
 
 ## 5. 실험과 기록
 
