@@ -1,5 +1,7 @@
 package com.weave.feed.gateway
 
+import com.weave.feed.gateway.IsolationProperties.BulkheadType
+import io.github.resilience4j.bulkhead.Bulkhead
 import io.github.resilience4j.bulkhead.BulkheadRegistry
 import io.github.resilience4j.bulkhead.ThreadPoolBulkhead
 import io.github.resilience4j.bulkhead.ThreadPoolBulkheadRegistry
@@ -12,9 +14,12 @@ import io.micrometer.core.instrument.Counter
 import io.micrometer.core.instrument.MeterRegistry
 import org.slf4j.MDC
 import org.springframework.beans.factory.DisposableBean
+import org.springframework.beans.factory.annotation.Qualifier
+import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.stereotype.Component
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CompletionStage
+import java.util.concurrent.Executor
 import java.util.concurrent.ScheduledThreadPoolExecutor
 import java.util.function.Predicate
 import java.util.function.Supplier
@@ -34,15 +39,24 @@ import java.util.function.Supplier
  * 시계열을 받게 의존성마다 0부터 등록한다(design Open Questions).
  *
  * 요청 스레드에서 동기로 부르는 호출(좋아요 토글)은 [callBlocking]으로 부른다(design 결정 6).
+ *
+ * `weave.isolation.bulkhead-type: semaphore`면 ThreadPool 벌크헤드 대신 같은 이름의 Semaphore 벌크헤드로 자리를 잡고
+ * [taskExecutor](`applicationTaskExecutor`)에서 부른다(design 결정 11). 감싸는 순서와 실패 로그는 같다. 이때 호출 스레드의 trace는
+ * 공유 풀의 `propagate-context`만으로 잇고, 호출 자체에는 따로 문맥을 펼치지 않는다(전파를 끄면 끊기는 것을 기록으로 남긴다).
  */
 @Component
+@EnableConfigurationProperties(IsolationProperties::class)
 class IsolatedCalls(
     circuitBreakers: CircuitBreakerRegistry,
     timeLimiters: TimeLimiterRegistry,
     bulkheads: ThreadPoolBulkheadRegistry,
     semaphoreBulkheads: BulkheadRegistry,
     meterRegistry: MeterRegistry,
+    properties: IsolationProperties,
+    @Qualifier("applicationTaskExecutor") private val taskExecutor: Executor,
 ) : DisposableBean {
+    private val bulkheadType = properties.bulkheadType
+
     private val timeoutScheduler =
         ScheduledThreadPoolExecutor(1) { Thread(it, "isolation-timeout").apply { isDaemon = true } }
             // 시간 안에 끝난 호출의 시간 초과 작업을 바로 지운다. 지우지 않으면 상한이 지날 때까지 대기열에 남는다
@@ -54,6 +68,7 @@ class IsolatedCalls(
                 circuitBreakers.circuitBreaker(dependency),
                 timeLimiters.timeLimiter(dependency),
                 bulkheads.bulkhead(dependency),
+                semaphoreBulkheads.bulkhead(dependency),
             )
         }
 
@@ -70,11 +85,12 @@ class IsolatedCalls(
                     .tag("name", dependency)
                     .register(meterRegistry)
             isolation.bulkhead.eventPublisher.onCallRejected { rejected.increment() }
+            isolation.semaphore.eventPublisher.onCallRejected { rejected.increment() }
         }
     }
 
     /**
-     * [dependency]의 격리 안에서 [block]을 부른다. [block]은 벌크헤드 스레드에서 돈다.
+     * [dependency]의 격리 안에서 [block]을 부른다. [block]은 벌크헤드 스레드(Semaphore 모드면 `applicationTaskExecutor`)에서 돈다.
      *
      * 실패하면 `cause`가 `timeout`, `circuit_open`, `bulkhead_full`, 또는 [block]의 예외를 [DownstreamFailure]가 분류한 값인
      * 실패 로그를 한 줄 남기고 실패를 그대로 넘긴다. 돌려준 future를 먼저 끝내면(예: 요청 시간 예산) 그 뒤의 실패는 로그로 남기지 않는다.
@@ -86,7 +102,16 @@ class IsolatedCalls(
         val isolation = isolations.getValue(dependency)
         val callerMdc: Map<String, String>? = MDC.getCopyOfContextMap()
         val callerContext = traceContexts.captureAll()
-        val inBulkhead = Supplier<CompletionStage<T>> { isolation.bulkhead.executeSupplier(block) }
+        val inBulkhead =
+            when (bulkheadType) {
+                BulkheadType.THREAD_POOL -> Supplier<CompletionStage<T>> { isolation.bulkhead.executeSupplier(block) }
+                // 자리는 부른 스레드에서 바로 잡고(없으면 기다리지 않고 거절), 호출이 실제로 끝날 때 놓는다. 시간 상한이 먼저 끝내도
+                // 스레드가 응답 타임아웃까지 묶여 있는 동안은 자리를 잡고 있어 ThreadPool 벌크헤드와 같다
+                BulkheadType.SEMAPHORE ->
+                    Supplier<CompletionStage<T>> {
+                        isolation.semaphore.executeCompletionStage { CompletableFuture.supplyAsync(block, taskExecutor) }
+                    }
+            }
         // 서킷이 결과를 기록하고(상태 전이 로그), 결과에 이어 붙인 일(post 뒤의 user·like 호출)이 돌 때 부른 스레드의 trace를
         // 잇게 한다. 시간 상한의 결과는 전파기의 문맥을 이미 닫은 벌크헤드 스레드나 시간 상한 스레드에서 끝난다 (design 결정 8, 9)
         val limited =
@@ -138,6 +163,7 @@ class IsolatedCalls(
         val circuitBreaker: CircuitBreaker,
         val timeLimiter: TimeLimiter,
         val bulkhead: ThreadPoolBulkhead,
+        val semaphore: Bulkhead,
     )
 
     companion object {

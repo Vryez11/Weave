@@ -67,8 +67,18 @@ resilience4j:
     instances:
       # 좋아요 토글. 요청 스레드에서 동기로 부르고 like 서킷을 같이 쓴다 (design 결정 6)
       like-toggle: { base-config: default }
+      # Semaphore 모드(weave.isolation.bulkhead-type: semaphore)에서 조회를 감싼다 (design 결정 11)
+      post: { base-config: default }
+      user: { base-config: default }
+      like: { base-config: default }
+      recommendation: { base-config: default }
+      ad: { base-config: default }
 
 weave:
+  isolation:
+    # thread-pool(기본) | semaphore. semaphore면 조회를 applicationTaskExecutor에서 돌리고 Semaphore 벌크헤드로 감싼다.
+    # 가상 스레드 비교 실험에서만 spring.threads.virtual.enabled: true와 함께 바꾼다 (design 결정 11)
+    bulkhead-type: thread-pool
   http-client:
     # 200 RPS × 50ms = 동시 10개, 여유 2배 (design 결정 8)
     max-connections-per-route: 20

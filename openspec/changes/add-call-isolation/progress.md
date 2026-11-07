@@ -24,7 +24,10 @@
 
 - 요청 시간 예산은 `FeedAssembler.kt`의 `RequestBudget`(2.6)이다. 2.9의 Semaphore 모드도 Gateway의 future만 바꾸면 예산은 그대로 적용된다. 예산을 넘겨 먼저 끝낸 future는 `IsolatedCalls`가 실패 로그를 다시 남기지 않는다(`!result.isDone`).
 
+- Semaphore 벌크헤드 인스턴스 다섯(`resilience4j.bulkhead.instances.<의존성>`)은 2.9에서 구조만 넣었다(Resilience4j 기본 최대 동시 25). 4.4에서 ThreadPool 40과 함께 Semaphore도 40을 넣어야 `IsolationSettingsTest`의 Semaphore 단언이 통과한다.
+
 ## 지금 실패하는 것이 정상인 테스트 (구현 전)
+- **2.9 뒤:** feed-service `integrationTest` 실패 9개, 모두 4장 `IsolationSettingsTest`.
 - **2.8 뒤:** feed-service `integrationTest` 실패 10개: 2.9 `FeedTracePropagationOffTest` 1, 4장 `IsolationSettingsTest` 9.
 - **2.6 뒤:** feed-service `integrationTest` 실패 12개: 2.7 토글 1, 2.8 전이 로그 1, 2.9 `FeedTracePropagationOffTest` 1, 4장 `IsolationSettingsTest` 9.
 - **2.4 뒤 갱신(이 목록이 위 옛 항목보다 우선한다).** feed-service `integrationTest` 실패 18개: 끊김 재현 6(아래), 2.6 예산 1(`FeedCallIsolationBudgetScenarioTest` "합치면 예산을 넘는다"), 2.7 토글 1(`FeedLikeToggleIsolationScenarioTest` "like의 서킷이 열려 있다"), 2.8 전이 로그 1(`FeedCircuitBreakerScenarioTest` "서킷이 열린다"), 4장 `IsolationSettingsTest` 9. `FeedExperimentMetricsScenarioTest`, `FeedIsolationMetricsScenarioTest`, `FeedBulkheadTracePropagationOffTest`, 1.6 서킷 시나리오(전이 로그 말고)는 이제 통과한다.
@@ -159,4 +162,13 @@
 - 확인: `FeedCircuitBreakerScenarioTest` "서킷이 열린다", `FeedIsolationMetricsScenarioTest`, `FeedIsolationOverrideScenarioTest` 통과. `:feed-service:integrationTest` 140개 중 실패 10(두 번 같다) = 2.9 `FeedTracePropagationOffTest` 1, 4장 `IsolationSettingsTest` 9. trace 테스트는 그대로 통과한다. `ktlintCheck`, `compileKotlin compileTestKotlin`, `:feed-service:test` 통과.
 - 바꾼 파일: `CircuitStateLog.kt`(새 파일), `IsolatedCalls.kt`, `feed-service/CLAUDE.md`, `tasks.md`, `progress.md`.
 - 다음(2.9): Semaphore 모드. Semaphore 경로에서도 서킷이 결과를 기록하는 스레드에 요청 문맥이 있어야 전이 줄에 traceId가 남는다. 단 호출 자체에는 `IsolatedCalls`가 문맥을 펼치지 않는다(`FeedTracePropagationOffTest`). 결과를 끝내는 쪽(`completingIn`)만 같은 방식을 쓰면 끊김 기록과 충돌하지 않는다.
+---
+
+## 2026-11-07 12:16 - 2.9 Semaphore 모드 (Ralph)
+- `IsolationProperties`(`weave.isolation.bulkhead-type`: `thread-pool` 기본 | `semaphore`)를 새로 두고 `IsolatedCalls`가 켠다. Semaphore 모드면 `call`의 벌크헤드 단계가 `Bulkhead.executeCompletionStage { supplyAsync(block, applicationTaskExecutor) }`다. 자리는 부른 스레드에서 바로 잡고(기다리지 않음), 호출이 실제로 끝날 때 놓는다(시간 상한이 먼저 끝내도 스레드가 묶인 동안은 자리를 잡는다. ThreadPool 모드와 같다). 서킷 → TimeLimiter 순서, `completingIn`, 실패 로그는 두 모드가 같다. 호출 자체에는 문맥을 펼치지 않는다.
+- 벌크헤드 거절 카운터 `weave.bulkhead.rejected.calls{name}`은 ThreadPool·Semaphore 벌크헤드의 `onCallRejected` 둘 다에서 센다.
+- `application.yml`: `resilience4j.bulkhead.instances`에 의존성 다섯(`base-config: default`), `weave.isolation.bulkhead-type: thread-pool`. 값(최대 동시 40)은 4.4.
+- 확인: 새 `FeedSemaphoreIsolationScenarioTest`(`Integration` 2: 가상 스레드 + semaphore에서 피드 200·다섯 요청 traceparent가 `X-Trace-Id`와 같음, recommendation 동시 2에 1초 지연·피드 5개 동시면 요청 2개·`bulkhead_full` 3줄) 통과. `FeedTracePropagationOffTest` 통과. `:feed-service:test` 통과, `:feed-service:integrationTest` 실패는 `IsolationSettingsTest` 9개뿐. `ktlintCheck`, `compileKotlin compileTestKotlin`, `openspec validate` 통과.
+- 바꾼 파일: `IsolationProperties.kt`(새 파일), `IsolatedCalls.kt`, `application.yml`, `FeedSemaphoreIsolationScenarioTest.kt`(새 파일), `feed-service/CLAUDE.md`, `tasks.md`, `progress.md`.
+- 다음(2.10): 아키텍처 문서를 구현에 맞춘다. 클래스·속성 이름은 `IsolatedCalls`, `IsolationProperties`, `CircuitStateLog`, `TraceContextPropagator`, `CircuitFailurePredicate`, `RequestBudget`, `weave.isolation.bulkhead-type`.
 ---

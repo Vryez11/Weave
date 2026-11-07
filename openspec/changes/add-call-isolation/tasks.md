@@ -73,7 +73,7 @@
 - [x] 2.8 서킷 상태 전이 로그를 남긴다(design 결정 9).
   - 레지스트리의 `onEntryAdded`에서 서킷마다 전이 소비자를 건다.
   - 확인: 1.6의 "서킷이 열린다"와 1.7의 "지표가 있다", "환경 변수로 상한을 바꾼다"가 통과한다.
-- [ ] 2.9 Semaphore 모드를 넣는다(design 결정 11).
+- [x] 2.9 Semaphore 모드를 넣는다(design 결정 11).
   - `weave.isolation.bulkhead-type: semaphore`면 `applicationTaskExecutor`에서 돌리고 Semaphore 벌크헤드로 감싼다. 기본은 `thread-pool`.
   - Semaphore 모드에서는 공유 풀의 `propagate-context`만으로 문맥을 잇는다. `IsolatedCalls`가 호출 자체에 따로 문맥을 펼치지 않는다(그러면 `FeedTracePropagationOffTest`의 끊김 기록이 성립하지 않는다).
   - 확인: `spring.threads.virtual.enabled=true`와 `semaphore`를 준 `FeedSemaphoreIsolationScenarioTest`(`Integration`)에서 피드가 200이고, 다섯 호출의 traceId가 `X-Trace-Id`와 같으며, 동시 호출 상한을 넘은 호출이 `bulkhead_full`로 끝난다. `FeedTracePropagationOffTest`(Semaphore 모드의 끊김 기록)가 통과한다. `./gradlew :feed-service:test :feed-service:integrationTest`가 1.2의 값 단언 말고는 통과한다.
