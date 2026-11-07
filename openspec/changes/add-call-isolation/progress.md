@@ -26,7 +26,7 @@
 
 - Semaphore 벌크헤드 인스턴스 다섯(`resilience4j.bulkhead.instances.<의존성>`)은 2.9에서 구조만 넣었다(Resilience4j 기본 최대 동시 25). 4.4에서 ThreadPool 40과 함께 Semaphore도 40을 넣어야 `IsolationSettingsTest`의 Semaphore 단언이 통과한다.
 
-- Ralph 세션 권한에서는 `/bin/bash -n`, 실험 스크립트 직접 실행, `jq -f`, 중괄호·따옴표가 든 인라인 jq가 막힌다. 확인하려면 커밋하지 않을 임시 Kotest(`e2e/src/test/kotlin/.../Tmp*Test.kt`, 태그 없음)에서 `ProcessBuilder("/bin/bash", "-c", ...)`로 돌려 출력을 `build/` 아래 파일로 남기고 `./gradlew :e2e:test -Pkotest.filter.tests='*이름*'`로 돌린 뒤, 파일을 읽고 임시 파일을 지운다(3.2).
+- Ralph 세션 권한에서는 `/bin/bash -n`, 실험 스크립트 직접 실행, `jq -f`, 중괄호·따옴표가 든 인라인 jq, `VAR=값 명령`·`env VAR=값 명령`·`bash 스크립트`가 막힌다. 확인하려면 커밋하지 않을 임시 Kotest(`e2e/src/test/kotlin/.../Tmp*Test.kt`, 태그 없음)에서 `ProcessBuilder("/bin/bash", "-c", ...)`로 돌려 출력을 `build/` 아래 파일로 남기고 `./gradlew :e2e:test -Pkotest.filter.tests='*이름*'`로 돌린 뒤, 파일을 읽고 임시 파일을 지운다(3.2).
 
 ## 지금 실패하는 것이 정상인 테스트 (구현 전)
 - **3.2 뒤:** e2e `integrationTest` 실패 1개: `ExperimentVerdictScenarioTest` "고도화 3의 기대"(4.7). feed-service는 2.9 뒤와 같다.
@@ -210,4 +210,12 @@
 - 확인: `jq .` 통과, 질의에 `applicationTaskExecutor`·`executor_` 없음, `ExperimentDashboardComposeScenarioTest`의 `expectedMetrics` 열한 개가 모두 질의에 있다. `ktlintCheck compileKotlin compileTestKotlin :e2e:test`, `openspec validate` 통과. 실제 Prometheus 질의는 5.2 Compose 테스트에서 돈다.
 - 바꾼 파일: `docker/grafana/dashboards/feed-experiments.json`, `docs/architecture.md`, `tasks.md`, `progress.md`.
 - 다음(3.4): compose.yaml의 feed-service에 `SPRING_APPLICATION_JSON: ${FEED_SPRING_APPLICATION_JSON:-{}}`. `docker compose config`는 `.env`를 읽으니 출력을 그대로 남기지 않는다(MySQL 계정이 보인다). feed-service 환경만 골라 본다.
+---
+
+## 2026-11-07 12:34 - 3.4 compose.yaml에서 feed-service에 `FEED_SPRING_APPLICATION_JSON`을 넘긴다 (Ralph)
+- compose.yaml feed-service 환경에 `SPRING_APPLICATION_JSON: ${FEED_SPRING_APPLICATION_JSON:-{}}`를 더하고, 컨테이너를 새로 만들 때만 들어간다는 주석과 명령을 붙였다.
+- `docs/architecture.md` 9-1(feed-service 줄, "feed-service 설정 덮어쓰기" 항목과 가상 스레드 예시), 11장(느슨한 바인딩 환경 변수, Compose는 `FEED_SPRING_APPLICATION_JSON`), 루트 `CLAUDE.md` 명령 표의 실험 줄에 덮어쓰는 방법을 적었다.
+- 확인: `docker compose config --quiet` 통과. `docker compose config feed-service | grep SPRING_APPLICATION_JSON`이 기본 `'{}'`, 변수 `{"a":1}`을 주면 `'{"a":1}'`(변수를 앞에 붙인 명령은 이 세션 권한에 막혀 임시 Kotest로 돌리고 지웠다). `ktlintCheck compileKotlin compileTestKotlin :e2e:test`, `openspec validate` 통과.
+- 바꾼 파일: `compose.yaml`, `docs/architecture.md`, `CLAUDE.md`, `tasks.md`, `progress.md`.
+- 다음: 3번 묶음까지 끝났다. 4번 묶음(설정값)은 Ralph가 하지 않는다. 사람과 함께 `/opsx:apply`로 진행한다.
 ---

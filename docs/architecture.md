@@ -411,7 +411,7 @@ traceId는 스레드에 붙은 컨텍스트(MDC, 관찰 컨텍스트)에 있어�
 
 | 대상 | 자원 상한 (`deploy.resources.limits`) | 메모 |
 |---|---|---|
-| feed-service | CPU 2, 메모리 1GB | Tomcat 최대 스레드 200을 `application.yml`에 명시한다(Boot 기본값, 4-2). Actuator는 관리 포트 8090(`MANAGEMENT_SERVER_PORT`)이고 헬스 체크와 Prometheus가 이 포트를 본다 |
+| feed-service | CPU 2, 메모리 1GB | Tomcat 최대 스레드 200을 `application.yml`에 명시한다(Boot 기본값, 4-2). Actuator는 관리 포트 8090(`MANAGEMENT_SERVER_PORT`)이고 헬스 체크와 Prometheus가 이 포트를 본다. 호스트 변수 `FEED_SPRING_APPLICATION_JSON`을 `SPRING_APPLICATION_JSON`으로 넘긴다(없으면 `{}`, 아래) |
 | 하위 서비스 5개 | 각 CPU 1, 메모리 512MB | |
 | MySQL, Toxiproxy | 각 CPU 1 | Redis는 post stale 캐시와 함께 F-002에서 더한다 |
 | Alloy, Prometheus, Grafana | 각 CPU 0.5, 메모리 512MB | 실험 대상이 아니라 상한만 건다. OOM 재시작이 보이면 근거와 함께 올린다 |
@@ -420,6 +420,7 @@ traceId는 스레드에 붙은 컨텍스트(MDC, 관찰 컨텍스트)에 있어�
 
 - **Toxiproxy**(`ghcr.io/shopify/toxiproxy:2.13.0`): 프록시 정의는 `docker/toxiproxy/toxiproxy.json`이다. 관리 API는 `127.0.0.1:8474`에만 연다. feed-service는 Toxiproxy가 healthy가 된 뒤 뜬다.
 - **Prometheus 수집 간격 5초:** 측정 5분에 표본 60개, S-09의 10초 장애가 한 번에 두 번 이상 긁힌다(`docker/prometheus/prometheus.yml`).
+- **feed-service 설정 덮어쓰기:** 실험 하나만 feed-service 설정을 바꿀 때(격리를 넓힌 Compose 시나리오, 가상 스레드 비교) `FEED_SPRING_APPLICATION_JSON`에 JSON을 주고 컨테이너를 새로 만든다. 예) `FEED_SPRING_APPLICATION_JSON='{"weave.isolation.bulkhead-type":"semaphore","spring.threads.virtual.enabled":true}' docker compose up -d --force-recreate --no-deps --wait feed-service`. `run.sh`는 feed-service를 `restart`로 다시 띄워 컨테이너 환경을 그대로 두므로 값이 이어진다. 끝나면 변수 없이 같은 명령으로 다시 만든다(add-call-isolation design 결정 10, 11).
 - 상한은 예약이 아니다. Docker에 준 CPU가 상한의 합보다 작으면 컨테이너끼리 다툴 수 있어, 실험 RPS를 이 환경에서 S-01로 골랐다. **실험 RPS는 400**, 시나리오당 준비 1분 + 측정 5분이다. 고른 근거와 실행 환경은 [MVP 기준선](experiments/baseline-mvp.md)에 있다.
 
 feed-service는 하위 서비스를 의존성마다 하나인 프록시를 거쳐 부른다. 프록시 이름은 의존성 이름이고, Compose 네트워크 별칭으로 부른다.
@@ -519,7 +520,7 @@ experiments/run-all.sh --list                                 # 돌릴 목록
 
 | 무엇 | 어디에 |
 |---|---|
-| 장애 대응 설정값, 시간 예산, 캐시 TTL | 서비스의 `application.yml`. 실험마다 바꿀 값은 환경 변수로 덮어쓸 수 있게 한다 |
+| 장애 대응 설정값, 시간 예산, 캐시 TTL | 서비스의 `application.yml`. 실험마다 바꿀 값은 환경 변수로 덮어쓸 수 있게 한다(느슨한 바인딩, 예: `RESILIENCE4J_TIMELIMITER_INSTANCES_RECOMMENDATION_TIMEOUTDURATION`). Compose의 feed-service는 여러 값을 한 번에 `FEED_SPRING_APPLICATION_JSON`(→ `SPRING_APPLICATION_JSON`)으로 덮는다(9-1) |
 | 실행 환경별 차이(로컬 `bootRun`과 Compose의 주소) | Spring 프로필 `local`, `docker`. 실험 전용 엔드포인트는 `experiment` 프로필 |
 | 실험 전용 설정 | 하위 서비스 5개의 `src/main/resources/application-experiment.yml`. 장애 주입 스위치(`weave.fault-injection.enabled: true`)와 Actuator 노출 목록(`health,info,prometheus,faults`, ad-service는 `quota`도)을 둔다. ad-service는 요청 한도 스위치(`weave.ad.quota.enabled: true`)도 둔다. `libs/fault-injection`은 프로필 파일을 싣지 않는다(같은 이름의 파일이 서비스에도 있으면 하나만 읽힌다). feed-service에는 두지 않는다 |
 | MySQL 계정 | `.env` (커밋하지 않음). 이름과 설명만 `.env.example`에 |

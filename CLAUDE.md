@@ -40,7 +40,7 @@
 | Compose 테스트 | `./gradlew :e2e:composeTest` (Compose 환경을 띄워 traceId 조회, 프록시 경로, 대시보드, `run.sh`·`run-all.sh` 짧은 실행을 보고 내린다. 10분 남짓) |
 | 서비스 실행 | `./gradlew :feed-service:bootRun` (like-service는 `./gradlew :like-service:bootTestRun`으로 MySQL과 함께 띄운다) |
 | 로컬 인프라 | `./gradlew bootJar` 뒤 `docker compose up -d --build --wait` (서비스 6개, MySQL, Toxiproxy, 관찰 인프라. MySQL 계정은 루트 `.env`, 항목은 `.env.example`). 내리기는 `docker compose down -v` |
-| 장애 실험 시나리오 하나 | `experiments/run.sh S-02` (로컬 인프라를 먼저 띄운다. 짧게는 `--rps 5 --warmup 5s --duration 20s`). 리포트는 `experiments/results/<시각>-<ID>/report.md` |
+| 장애 실험 시나리오 하나 | `experiments/run.sh S-02` (로컬 인프라를 먼저 띄운다. 짧게는 `--rps 5 --warmup 5s --duration 20s`). 리포트는 `experiments/results/<시각>-<ID>/report.md`. feed-service 설정을 바꿔 돌리려면 먼저 `FEED_SPRING_APPLICATION_JSON='{...}' docker compose up -d --force-recreate --no-deps --wait feed-service`(끝나면 변수 없이 다시) |
 | 장애 실험 세트 | `experiments/run-all.sh` (S-01~S-09, 약 1시간). 0으로 끝나면 통과 |
 
 훅은 `jq`를 쓴다. 실험 스크립트는 bash, `jq`, `gzip`, `docker compose`를 쓴다.

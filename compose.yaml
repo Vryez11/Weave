@@ -72,6 +72,10 @@ services:
       # Actuator(지표, 헬스 체크)를 업무 포트와 다른 Tomcat 커넥터에 연다. 업무 요청이 Tomcat 스레드 200개를 모두 묶어도
       # Prometheus가 긁을 수 있게 한다 (add-fault-experiments design 결정 10)
       MANAGEMENT_SERVER_PORT: "8090"
+      # 실험마다 feed-service 설정을 덮어쓴다(격리를 넓힌 Compose 시나리오, 가상 스레드 비교). 변수는 컨테이너를 새로 만들 때만
+      # 들어간다: FEED_SPRING_APPLICATION_JSON='{...}' docker compose up -d --force-recreate --no-deps --wait feed-service
+      # (add-call-isolation design 결정 10, 11)
+      SPRING_APPLICATION_JSON: ${FEED_SPRING_APPLICATION_JSON:-{}}
     depends_on:
       <<: *service-depends-on
       toxiproxy:

@@ -95,7 +95,7 @@
   - 질의는 분자가 빌 수 있으면 0으로 채운다(아키텍처 7-4의 규칙).
   - `docs/architecture.md` 7-4 표를 고친다.
   - 확인: `jq . docker/grafana/dashboards/feed-experiments.json`이 통과하고, 패널 질의에 `applicationTaskExecutor`가 없다. Compose 확인은 5.2.
-- [ ] 3.4 compose.yaml에서 feed-service에 `SPRING_APPLICATION_JSON: ${FEED_SPRING_APPLICATION_JSON:-{}}`를 넘긴다(design 결정 10, 11).
+- [x] 3.4 compose.yaml에서 feed-service에 `SPRING_APPLICATION_JSON: ${FEED_SPRING_APPLICATION_JSON:-{}}`를 넘긴다(design 결정 10, 11).
   - `docs/architecture.md` 9-1과 11장, `CLAUDE.md` 명령 표의 실험 줄에 덮어쓰는 방법을 적는다.
   - 확인: `docker compose config`가 통과하고, `FEED_SPRING_APPLICATION_JSON='{"a":1}' docker compose config`의 feed-service 환경에 그 값이 있다.
 
