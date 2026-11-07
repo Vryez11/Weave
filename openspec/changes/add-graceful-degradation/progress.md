@@ -220,3 +220,8 @@
   - Prometheus 질의는 `docker compose exec -T prometheus wget -qO- --post-data 'query=...' http://localhost:9090/api/v1/query`로 확인할 수 있다(URL 인코딩 없이 `&`·`+`만 피하면 된다).
   - 3장이 끝났다. 다음은 4번 묶음이라 Ralph는 하지 않는다(사람과 `/opsx:apply`).
 ---
+
+## 2026-11-07 22:27 - 4번 묶음에서 멈춤 (BLOCKED)
+- 3번 묶음까지 끝남, 4번 묶음은 사람과 함께 `/opsx:apply`로 진행(tasks 4장 머리말). Compose 측정이 반복 세션의 명령 시간 제한을 넘을 수 있고, 값마다 측정 근거가 필요하다. 5번 묶음도 Ralph가 하지 않는다.
+- 바꾼 파일: progress.md
+---
