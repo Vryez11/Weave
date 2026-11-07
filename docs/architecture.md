@@ -435,6 +435,7 @@ traceId는 스레드에 붙은 컨텍스트(MDC, 관찰 컨텍스트)에 있어�
 | Loki, Tempo | 각 CPU 0.5, 메모리 1GB | 부하 중 로그·스팬이 쌓인다 |
 | k6 (`grafana/k6:2.3.0`) | CPU 2, 메모리 2GB | `profiles: [experiment]`라 `up`으로는 뜨지 않고 `run.sh`가 `docker compose run`으로 부른다. `experiments/`를 마운트한다 |
 
+- **서비스 JVM의 GC:** 서비스 6개는 G1(`JAVA_TOOL_OPTIONS: -XX:+UseG1GC`)로 띈다. 이 자원 상한에서는 JVM이 Serial GC를 골라 like-service에 1초가 넘는 Full GC가 생겼고, 고도화 3의 시간 상한(100ms) 아래에서는 그 멈춤이 곧 실패가 됐다. G1은 S-01에서 최대 멈춤 80ms였고, ZGC는 이 메모리 상한에서 서비스가 응답하지 못했다(`add-call-isolation` design 결정 15).
 - **Toxiproxy**(`ghcr.io/shopify/toxiproxy:2.13.0`): 프록시 정의는 `docker/toxiproxy/toxiproxy.json`이다. 관리 API는 `127.0.0.1:8474`에만 연다. feed-service는 Toxiproxy가 healthy가 된 뒤 뜬다.
 - **Prometheus 수집 간격 5초:** 측정 5분에 표본 60개, S-09의 10초 장애가 한 번에 두 번 이상 긁힌다(`docker/prometheus/prometheus.yml`).
 - **feed-service 설정 덮어쓰기:** 실험 하나만 feed-service 설정을 바꿀 때(격리를 넓힌 Compose 시나리오, 가상 스레드 비교) `FEED_SPRING_APPLICATION_JSON`에 JSON을 주고 컨테이너를 새로 만든다. 예) `FEED_SPRING_APPLICATION_JSON='{"weave.isolation.bulkhead-type":"semaphore","spring.threads.virtual.enabled":true}' docker compose up -d --force-recreate --no-deps --wait feed-service`. `run.sh`는 feed-service를 `restart`로 다시 띄워 컨테이너 환경을 그대로 두므로 값이 이어진다. 끝나면 변수 없이 같은 명령으로 다시 만든다(add-call-isolation design 결정 10, 11).
