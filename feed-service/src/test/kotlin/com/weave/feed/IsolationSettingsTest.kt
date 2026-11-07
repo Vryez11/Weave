@@ -142,13 +142,13 @@ class IsolationSettingsTest :
                 }
             }
 
-            test("F-001 의존성마다 서킷이 최근 호출 100개 중 실패·느린 호출 50% 이상이면 열리고, 5초 뒤 시험 호출 10개로 판단한다") {
+            test("F-001 의존성마다 서킷이 최근 10초(최소 호출 100개) 중 실패·느린 호출 50% 이상이면 열리고, 5초 뒤 시험 호출 10개로 판단한다") {
                 val registry = context().getBean(CircuitBreakerRegistry::class.java)
                 callTimeouts.forEach { (dependency, timeout) ->
                     val config = registry.circuitBreaker(dependency).circuitBreakerConfig
                     withClue(dependency) {
-                        config.slidingWindowType shouldBe SlidingWindowType.COUNT_BASED
-                        config.slidingWindowSize shouldBe 100
+                        config.slidingWindowType shouldBe SlidingWindowType.TIME_BASED
+                        config.slidingWindowSize shouldBe 10
                         config.minimumNumberOfCalls shouldBe 100
                         config.failureRateThreshold shouldBe 50f
                         config.slowCallDurationThreshold shouldBe timeout.multipliedBy(4).dividedBy(5)

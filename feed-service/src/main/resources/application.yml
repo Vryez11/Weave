@@ -33,10 +33,11 @@ resilience4j:
   circuitbreaker:
     configs:
       default:
-        # 최근 호출 100개로 판단한다. 400 RPS에서 의존성마다 0.25초 분량이라 장애에 빨리 반응하고, 창이 차기 전(시작 직후 JIT 준비 등)에는
-        # 열지 않는다 (design 결정 7)
-        sliding-window-type: COUNT_BASED
-        sliding-window-size: 100
+        # 최근 10초로 판단한다. 호출 100개(400 RPS에서 0.25초) 창은 like-service의 1.05초 GC 멈춤만으로 차서 서킷이 5초 열렸다.
+        # 10초면 1초 멈춤은 창의 약 10%라 문턱에 못 미친다. 계속 실패하는 장애는 최소 호출 100개가 차는 0.25초 안에 지금처럼 연다.
+        # 창이 차기 전(시작 직후 JIT 준비 등)에는 열지 않는다 (design 결정 7, 16)
+        sliding-window-type: TIME_BASED
+        sliding-window-size: 10
         minimum-number-of-calls: 100
         # 기준선 S-01의 의존성별 호출 실패율은 0이다. 평시에 열릴 일이 없고 S-05(like 에러율 50%)는 문턱 근처에서 열렸다 닫혔다 한다
         failure-rate-threshold: 50
