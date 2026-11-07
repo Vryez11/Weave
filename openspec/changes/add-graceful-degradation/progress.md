@@ -20,6 +20,8 @@
   - feed-service `integrationTest` 실패 11개(2.1~2.4에서 통과해야 한다): `FeedAggregationScenarioTest` "모든 하위 서비스가 정상", "작성자 프로필이 없다", `FeedSlowDependencyScenarioTest`, `FeedUnreachableScenarioTest`, `FeedCallFailureLogScenarioTest` "하위 서비스가 5xx", "호출 시간 상한을 넘긴다", `FeedCallIsolationBudgetScenarioTest` "합치면 예산을 넘는다", `FeedBulkheadTraceScenarioTest` "벌크헤드 스레드의 실패 로그", `FeedTraceLogScenarioTest` "오류 응답", "실패한 요청"(503, 2.4), "하위 서비스 오류 본문이 로그에 없다".
   - e2e `integrationTest` 실패 5개: `ExperimentDegradeRatioScenarioTest` 3(3.2), `ExperimentVerdictScenarioTest` "평시에 영역이 빠진다"(3.3), "지금 단계의 기대"(4.4).
   - Compose 테스트(5.2)는 3장과 4.4 뒤에 통과한다.
+- **1.5 뒤:** feed-service `integrationTest` 실패가 26개다. 위 11개에 더해 `FeedDegradationScenarioTest` 11개(2.1·2.2), `FeedUserProfileCacheScenarioTest` 4개(2.3).
+- user 캐시 속성(`weave.user-cache.*`)은 새 시나리오 클래스만 `@SpringBootTest(properties)`로 준다. 기존 테스트 컨텍스트와 test `config/application.yml`(커밋돼 Ralph가 고칠 수 없다)에는 값이 없다. 2.3은 값이 없어도 컨텍스트가 떠야 한다(4.2 전까지). 못 하면 멈춘다.
 
 ## 반복 기록
 
@@ -28,3 +30,16 @@
 - 1.2: `trace-logging` 스펙의 세 시나리오도 피드 500을 예로 써서 델타를 더했다(proposal, design 결정 13, tasks 1.2에 반영). 처리되지 않은 예외는 토글 실패로, 오류 응답·실패한 요청은 post 503으로 바꿨다. `FeedAggregationScenarioTest`의 "하위 서비스 실패는 시간 안에 피드 실패로 끝난다" 묶음은 지웠다. 1.5의 `FeedDegradationScenarioTest`가 `graceful-degradation`으로 다시 둔다. `FeedSlowDependencyScenarioTest`(느린 선택 의존성)와 `FeedUnreachableScenarioTest`(선택 의존성 연결 실패)는 상한·주소가 달라 그대로 두고 F-002로 바꿨다. 1.5에서 "느린 선택 의존성"을 다시 만들지 않는다.
 - 1.3: degrade 계산은 `lib/degrade.sh`로 정했다. 픽스처는 `summary-degrade-ratio.json`, `summary-no-200.json`, `summary-S-01-like-degraded.json`, `summary-S-02-recommendation-degraded.json`, `expectations-stage4.json`.
 - 1.4: `TraceHttp.kt`에 `HttpResponse<String>.json()`을 더했다(feed-service 테스트 도우미).
+
+---
+
+## 2026-11-07 20:40 - 1.5 중요·선택 등급 시나리오를 테스트로 옮긴다
+- `FeedDegradationScenarioTest`: 부분 응답 표시 2, 중요·선택 등급 실패 3(하나가 5xx는 의존성 4개를 `forEach`로, 모두 실패, 서킷 열림. "느린 선택 의존성"은 `FeedSlowDependencyScenarioTest`에 있다), 선택 영역 빼기 2, 좋아요 모름 1. 서킷 열림의 GIVEN은 레지스트리에서 `transitionToOpenState()`로 열고, 시나리오마다 모든 서킷을 `reset()`한다.
+- `FeedUserProfileCacheScenarioTest`: 4개. 유효 기간 1초, 최대 크기 100을 클래스 속성으로 준다. 시나리오 사이에 1.5초 기다려 앞 시나리오의 프로필이 지나게 한다(캐시를 비우는 API에 기대지 않는다). 유효 기간은 실제 시간으로 지난다. 2.3에서 Caffeine `Ticker`를 `Clock` Bean(`systemUTC`)에서 만들면 그대로 통과한다.
+- 확인: `:feed-service:integrationTest`에서 새 15개가 모두 단언 실패(500, `degradation` 없음)이고 기존 실패 11개는 그대로다. `:feed-service:test`, `ktlintCheck`, `openspec validate`는 통과.
+- 바꾼 파일: `feed-service/src/test/kotlin/com/weave/feed/FeedDegradationScenarioTest.kt`, `FeedUserProfileCacheScenarioTest.kt`(새 파일), tasks.md, progress.md
+- 다음 반복이 알아 둘 것:
+  - `FeedDegradationScenarioTest`는 user 캐시가 컨텍스트에 남는다. `user`가 빠졌다고 단언하는 "모두 실패"는 그 클래스에서 user-service가 돌려준 적 없는 작성자 7, 8을 쓴다.
+  - 응답 계약 단언: like 실패면 `like`가 `{"count": null, "myLike": "UNKNOWN"}`(null 키가 있어야 한다), 모르는 작성자는 `{"id", "nickname": null, "profileImageUrl": null, "unknown": true}`다.
+  - `-Pkotest.filter.specs='*A|*B'`는 거르지 않았다(151개가 다 돌았다). 결과는 XML에서 클래스별로 본다.
+---

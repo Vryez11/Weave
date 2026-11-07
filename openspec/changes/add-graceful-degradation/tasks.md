@@ -24,7 +24,7 @@
   - `ExperimentDashboardComposeScenarioTest`: degrade 비율 패널. `ProxyPathComposeScenarioTest` 등 피드 500이나 degrade "없음"을 전제로 한 것을 찾아 고친다.
   - `ServiceProcesses`가 feed-service 프로세스에 1.1과 같은 Redis 주소를 준다.
   - 확인: `./gradlew :e2e:compileTestKotlin`이 통과하고 `./gradlew :e2e:test :e2e:integrationTest`가 1.3에서 실패하게 둔 것 말고는 통과한다. Compose 테스트는 5.2에서 돌린다.
-- [ ] 1.5 `graceful-degradation`의 중요·선택 등급 시나리오를 옮긴다.
+- [x] 1.5 `graceful-degradation`의 중요·선택 등급 시나리오를 옮긴다.
   - `FeedDegradationScenarioTest`: "부분 응답 표시"(둘), "중요·선택 등급의 실패는 피드를 실패시키지 않는다"(넷), "선택 영역 빼기"(둘), "좋아요 상태를 모름으로 내린다".
   - `FeedUserProfileCacheScenarioTest`: "작성자 프로필을 로컬 캐시로 채운다"(넷). 유효 기간은 시나리오에서 속성으로 1초를 준다.
   - 확인: `./gradlew :feed-service:integrationTest`에서 이 시나리오들이 실패하고(컴파일 오류가 아니다), `./gradlew :feed-service:test`는 통과한다.
