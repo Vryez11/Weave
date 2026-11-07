@@ -116,7 +116,7 @@
 - [x] 4.6 서킷 설정값을 넣는다(design 결정 7).
   - `docs/architecture.md` 5-6에 값과 근거를 표로 적고, PRD 10장 "남은 것"의 S-08 복구 시간 목표를 "정한 것"(20초, design 결정 10)으로 옮긴다.
   - 확인: `IsolationSettingsTest`가 모두 통과하고 `./gradlew ktlintCheck build`가 1.3의 "고도화 3의 기대" 말고는 통과한다.
-- [ ] 4.7 평시를 다시 재고 고도화 3의 기대를 적는다.
+- [x] 4.7 평시를 다시 재고 고도화 3의 기대를 적는다.
   - `./gradlew bootJar` 뒤 Compose를 다시 띄워 `experiments/run.sh S-01`이 0으로 끝나는지, 리포트의 서킷 상태가 모두 `CLOSED`인지, 측정 구간 타임아웃 수(`resilience4j_timelimiter_calls_total{kind="timeout"}` 등)를 본다. 결과를 design 결정 3에 적는다.
   - `experiments/expectations.json`을 고도화 3으로 바꾼다(design 결정 10). 설정값 커밋과 섞지 않는다.
   - 확인: S-01이 0으로 끝나고 `./gradlew ktlintCheck build`가 통과한다.

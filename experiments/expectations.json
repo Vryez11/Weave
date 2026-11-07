@@ -1,14 +1,38 @@
 {
-  "stage": "고도화 2",
+  "stage": "고도화 3",
   "scenarios": {
     "S-01": "meet",
-    "S-02": "miss",
-    "S-03": "miss",
-    "S-04": "miss",
-    "S-05": "miss",
-    "S-06": "miss",
-    "S-07": "miss",
-    "S-08": "miss",
-    "S-09": "miss"
+    "S-02": {
+      "availability": "miss",
+      "p99": "meet"
+    },
+    "S-03": {
+      "availability": "miss",
+      "p99": "meet"
+    },
+    "S-04": {
+      "availability": "miss",
+      "p99": "meet"
+    },
+    "S-05": {
+      "availability": "miss",
+      "p99": "meet"
+    },
+    "S-06": {
+      "availability": "miss",
+      "p99": "meet"
+    },
+    "S-07": {
+      "availability": "miss",
+      "p99": "meet"
+    },
+    "S-08": {
+      "availability": "miss",
+      "p99": "meet"
+    },
+    "S-09": {
+      "availability": "miss",
+      "p99": "meet"
+    }
   }
 }
