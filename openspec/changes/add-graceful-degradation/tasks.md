@@ -15,7 +15,7 @@
   - `trace-logging` 델타(이 작업에서 더했다): `FeedUnhandledExceptionLogScenarioTest`는 토글 실패로, `FeedTraceLogScenarioTest`의 "오류 응답"·"실패한 요청"은 post 503(테스트 기본 설정은 Redis에 연결할 수 없어 캐시를 읽지 못한다)으로 바꾼다. 503은 2.4 전까지 500이라 실패한다.
   - 바뀐 테스트의 이름의 기능 ID를 `F-002`로 바꾼다.
   - 확인: `./gradlew :feed-service:integrationTest`에서 바꾼 시나리오만 실패하고(실패 원인이 컴파일 오류가 아니다), `./gradlew :feed-service:test`는 통과한다.
-- [ ] 1.3 (대화형) 실험 세트의 판정 테스트를 델타대로 고친다.
+- [x] 1.3 (대화형) 실험 세트의 판정 테스트를 델타대로 고친다.
   - `ExperimentVerdictScenarioTest`의 "고도화 3의 기대"를 "지금 단계의 기대"(고도화 4)로 바꾸고, "degrade 비율 기준"의 두 시나리오를 픽스처(`e2e/src/test/resources/experiments/`)로 더한다. 픽스처의 degrade 값을 판정 스크립트에 넘기는 방법(k6 요약의 `degraded_sections` 하위 지표)을 KDoc에 적는다.
   - "degrade 비율"의 "비율을 계산한다"를 새 `ExperimentDegradeRatioScenarioTest`에 k6 요약 픽스처로 둔다. 계산을 맡을 스크립트 이름과 인자를 이 작업에서 정해 KDoc에 적는다.
   - 확인: `./gradlew :e2e:integrationTest`에서 새·바뀐 판정 테스트만 실패하고, `./gradlew :e2e:test`는 통과한다.
