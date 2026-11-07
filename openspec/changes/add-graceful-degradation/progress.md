@@ -13,7 +13,8 @@
 - Ralph 중에는 이미 커밋된 `src/test/` 파일을 훅이 막는다. 1.5~1.7에서 새 테스트 파일을 커밋하면 그 뒤로는 고칠 수 없다. 2장 구현이 따라야 할 이름(시계 Bean, 속성, 지표)을 테스트를 쓸 때 KDoc에 정해 둔다. 테스트 도구가 더 필요하면 새 파일에 둔다.
 - 시계: design 결정 11대로 `Clock` Bean을 두고 `FeedAssembler`·`PostStaleCache`·`UserProfileCache`(Caffeine `Ticker`)가 받는다. Boot는 Bean 덮어쓰기가 꺼져 있으니, 테스트는 `@TestConfiguration`에 다른 이름의 `@Primary` 움직이는 시계를 둔다.
 - Ralph 세션 권한에서는 `/bin/bash -n`, 실험 스크립트 직접 실행, `jq -f`, 중괄호·따옴표가 든 인라인 jq, `VAR=값 명령`·`env VAR=값 명령`·`bash 스크립트`가 막힌다(고도화 3 progress.md). 스크립트는 e2e `integrationTest`(`ExperimentScripts.run`)로 확인한다.
-- 결과는 `<모듈>/build/test-results/<태스크>/TEST-*.xml`에서 본다. `-Pkotest.filter.tests='*이름*'`는 다른 테스트를 skipped로 거르지만 Spring 컨텍스트는 클래스마다 다 뜬다.
+- 결과는 `<모듈>/build/test-results/<태스크>/TEST-*.xml`에서 본다. `-Pkotest.filter.tests='*이름*'`는 다른 테스트를 skipped로 거르지만 Spring 컨텍스트는 클래스마다 다 뜬다. 클래스 몇 개만 돌리려면 Gradle `--tests 'com.weave.feed.<클래스>'`(여러 번 줄 수 있다)가 된다. `-Pkotest.filter.specs`는 거르지 않는다.
+- 전체 `:feed-service:integrationTest`에서 `ResilienceAutoConfigurationTest`가 `parsing HTTP/1.1 status line`으로 5개 실패할 때가 있다(임의 포트가 다른 프로세스와 겹친 것으로 보인다). 혼자 돌리면 통과한다. 실패 수를 셀 때 빼고 본다.
 
 ## 지금 실패하는 것이 정상인 테스트 (구현 전)
 - **1.4 뒤:**
@@ -22,6 +23,7 @@
   - Compose 테스트(5.2)는 3장과 4.4 뒤에 통과한다.
 - **1.5 뒤:** feed-service `integrationTest` 실패가 26개다. 위 11개에 더해 `FeedDegradationScenarioTest` 11개(2.1·2.2), `FeedUserProfileCacheScenarioTest` 4개(2.3).
 - **1.6 뒤:** 37개다. 위 26개에 더해 2.4에서 통과해야 할 11개: `FeedPostStaleCacheScenarioTest` 5, `FeedPostUnavailableDeadlineScenarioTest` 1, `FeedPostStaleCacheOverrideScenarioTest` 1, `FeedPostCacheOutageScenarioTest` 2("죽었고 post는 정상"은 2.1의 `degradation`만 있으면 통과할 수 있다), `FeedPostCacheReadPauseScenarioTest` 1, `FeedPostCacheWritePauseScenarioTest` 1.
+- **1.7 뒤:** 42개다. 위 37개에 더해 `FeedFallbackLogScenarioTest` 3(2.5, "게시글을 대체할 수 없다"는 2.4도), `FeedDegradationMetricsScenarioTest` 2(2.6). "정상이면 남기지 않는다"는 없음을 보는 시나리오라 지금도 통과한다.
 - **2.4가 지켜야 할 것(1.6 테스트 KDoc):** `cachedAt`, stale 판단, 쓰기 간격을 모두 `Clock` Bean으로 잰다(테스트가 시나리오마다 시계를 1시간 옮겨 같은 키를 다시 쓴다). 캐시 쓰기는 비동기이고 테스트는 키가 생길 때까지 기다린다. `weave.post-cache.*` 값이 없는 기존 테스트 컨텍스트도 떠야 한다(4.3 전까지, user 캐시와 같다).
 - user 캐시 속성(`weave.user-cache.*`)은 새 시나리오 클래스만 `@SpringBootTest(properties)`로 준다. 기존 테스트 컨텍스트와 test `config/application.yml`(커밋돼 Ralph가 고칠 수 없다)에는 값이 없다. 2.3은 값이 없어도 컨텍스트가 떠야 한다(4.2 전까지). 못 하면 멈춘다.
 
@@ -57,4 +59,15 @@
 - 다음 반복이 알아 둘 것:
   - 2.4의 Redis 첫 연결: `warmUp`은 쓰기 다섯 번 중 하나만 남으면 된다. 읽기 상한 30ms 클래스도 연결 타임아웃은 2초로 준다.
   - 시간을 재는 시나리오는 GIVEN 전에 같은 경로(503 경로는 `size=7`)를 한 번 지난다. 그래도 흔들리면 테스트가 아니라 구현의 첫 요청 비용을 본다.
+---
+
+## 2026-11-07 20:55 - 1.7 대체 로그와 지표 시나리오를 테스트로 옮긴다
+- `FeedFallbackLogScenarioTest`: "대체 이벤트 로그" 4. 클래스 하나에 [PostCacheRedis] 주소를 줘 `cache_miss`가 나오게 했다(죽은 저장소면 `cache_error`). 503 시나리오는 다른 시나리오가 쓰지 않는 `size=7`로 불러 앞 시나리오의 비동기 쓰기와 겹치지 않게 했다. user 캐시가 컨텍스트에 남으므로 "작성자 일부"를 뺀 시나리오는 작성자 3의 게시글만 쓴다. "정상이면 남기지 않는다"는 그 요청의 `http_request` 줄이 보인 뒤 `fallback_applied`가 없는지 본다.
+- `FeedDegradationMetricsScenarioTest`: "대체 지표" 2. 카운터는 컨텍스트에 남아 피드 전후로 긁은 차이를 단언한다. "지표가 있다"는 피드를 부르기 전 본문에 영역 결과 20개, post 캐시 읽기 4·쓰기 3, `cache_gets_total{cache="user-profiles",result=hit|miss}`가 있는지도 본다.
+- 확인: 새 실패 5개가 모두 단언 실패(500≠200/503, `weave_feed_sections_total` 없음)다. 전체 실패 42개(+ 포트 겹침으로 보이는 `ResilienceAutoConfigurationTest` 5개, 혼자 돌리면 통과). `:feed-service:test`, `ktlintCheck`, `compileKotlin compileTestKotlin`, `openspec validate`는 통과.
+- 바꾼 파일: `feed-service/src/test/kotlin/com/weave/feed/FeedFallbackLogScenarioTest.kt`, `FeedDegradationMetricsScenarioTest.kt`(새 파일), tasks.md, progress.md
+- 다음 반복이 알아 둘 것:
+  - 2.5의 로그 필드는 design 결정 9(`event`, `dependency`, `fallback`, `reason`, `cacheHits`, `cacheMisses`)이고, 테스트는 `fallback`·`reason`만 단언한다. 로그는 응답 전에 요청 스레드에서 남겨야 MDC `traceId`가 붙는다.
+  - 2.6의 영역 결과 카운터는 200 응답마다 의존성 5개에 하나씩이다. 테스트의 "대체를 센다"는 앞선 정상 요청의 user `fresh` +1이 보인 뒤 값을 기준으로 둔다. 응답 뒤에 세도 `eventually`(5초)로 기다린다.
+  - 다음 작업은 2.1(응답 계약)이다. 1장은 모두 끝났다.
 ---

@@ -33,7 +33,7 @@
   - `FeedPostCacheOutageScenarioTest`: "대체 수단의 장애는 피드를 막지 않는다"(넷). 응답하지 않는 Redis는 `CLIENT PAUSE 1000 ALL`, 죽은 Redis는 듣지 않는 포트.
   - 테스트에서 시계를 바꾸는 방법과 환경 변수 형식 속성(`WEAVE_POSTCACHE_MAXSTALENESS`)을 주는 방법을 KDoc에 적는다.
   - 확인: 1.5와 같다.
-- [ ] 1.7 대체 로그와 지표 시나리오를 옮긴다.
+- [x] 1.7 대체 로그와 지표 시나리오를 옮긴다.
   - `FeedFallbackLogScenarioTest`: "대체 이벤트 로그"(넷). 이름에 `F-002`와 `F-004`.
   - `FeedDegradationMetricsScenarioTest`: "대체 지표"(둘). 지표 이름은 design 결정 10이다.
   - 확인: 1.5와 같다.
