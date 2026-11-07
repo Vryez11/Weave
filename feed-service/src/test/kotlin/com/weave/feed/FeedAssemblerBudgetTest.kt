@@ -18,7 +18,6 @@ import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldBeEmpty
 import io.kotest.matchers.collections.shouldContainAll
 import io.kotest.matchers.collections.shouldContainExactlyInAnyOrder
-import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.types.shouldBeInstanceOf
 import io.mockk.clearAllMocks
@@ -91,7 +90,7 @@ class FeedAssemblerBudgetTest :
                 completedFuture(listOf(AdResponse(id = 1, title = "광고 1", imageUrl = "https://a/1.png", landingUrl = "https://l/1")))
         }
 
-        test("F-001 남은 시간: 예산 250ms에서 100ms가 지나면 150ms가 남고, 마감을 넘기면 0이며, 예산이 없으면 없다") {
+        test("F-001 남은 시간: 예산 250ms에서 100ms가 지나면 150ms가 남고, 마감을 넘기면 0이다") {
             val budget = RequestBudget(clock.instant() + Duration.ofMillis(250), clock)
 
             clock.advance(Duration.ofMillis(100))
@@ -99,8 +98,6 @@ class FeedAssemblerBudgetTest :
 
             clock.advance(Duration.ofMillis(200))
             budget.remaining() shouldBe Duration.ZERO
-
-            RequestBudget(null, clock).remaining().shouldBeNull()
         }
 
         test("F-001 post가 끝났을 때 남은 예산이 없으면 user와 like를 부르지 않고, 둘 다 budget_exhausted로 실패한다") {

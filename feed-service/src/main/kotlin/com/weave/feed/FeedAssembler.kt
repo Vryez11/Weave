@@ -30,7 +30,7 @@ import java.util.concurrent.TimeoutException
  * 요청 시간 예산(add-call-isolation design 결정 4): 요청을 받은 시각에 [timeBudget]만큼 뒤를 마감으로 정하고(시계는 [clock]),
  * 의존성마다 마감까지 남은 시간만 기다린다. post가 끝났을 때 남은 시간이 없으면 user와 like를 부르지 않는다. 마감이 지나면
  * 끝나지 않은 의존성마다(부르지 않은 user·like 포함) `budget_exhausted` 실패 로그를 남기고 [TimeBudgetExhaustedException]으로
- * 끝낸 뒤 그 예외로 실패한다. 예산 값(`weave.feed.time-budget`)은 tasks 4.3에서 넣으므로 그전에는 없을 수 있고, 없으면 상한 없이 기다린다.
+ * 끝낸 뒤 그 예외로 실패한다. 예산 값은 `weave.feed.time-budget`이다(아키텍처 4-3).
  */
 @Component
 class FeedAssembler(
@@ -39,14 +39,14 @@ class FeedAssembler(
     private val likeGateway: LikeGateway,
     private val recommendationGateway: RecommendationGateway,
     private val adGateway: AdGateway,
-    @Value("\${weave.feed.time-budget:#{null}}") private val timeBudget: Duration?,
+    @Value("\${weave.feed.time-budget}") private val timeBudget: Duration,
     private val clock: Clock = Clock.systemUTC(),
 ) {
     fun assemble(
         userId: Long,
         size: Int,
     ): FeedResponse {
-        val budget = RequestBudget(timeBudget?.let { clock.instant() + it }, clock)
+        val budget = RequestBudget(clock.instant() + timeBudget, clock)
         val posts = budget.call("post") { postGateway.getLatestPosts(size) }.thenCompose { fillDetails(budget, userId, it) }
         val recommendations = budget.call("recommendation") { recommendationGateway.getRecommendations() }
         val ads = budget.call("ad") { adGateway.getAds() }
@@ -96,21 +96,21 @@ class FeedAssembler(
 }
 
 /**
- * 피드 요청 하나의 마감 시각과 그 요청이 시작한 의존성 호출 (design 결정 4). [deadline]이 없으면 상한 없이 기다린다.
+ * 피드 요청 하나의 마감 시각과 그 요청이 시작한 의존성 호출 (design 결정 4).
  *
  * 마감이 지나면 [expire]가 끝나지 않은 호출을 모두 [TimeBudgetExhaustedException]으로 끝내고 실패 로그를 남긴다. 그 뒤에 시작하려는
  * 호출(다른 스레드에서 post가 막 끝나 부르려던 user·like)은 부르지 않고 같은 방식으로 바로 끝낸다. 먼저 끝낸 호출은 [IsolatedCalls]가
  * 실패 로그를 다시 남기지 않는다.
  */
 internal class RequestBudget(
-    private val deadline: Instant?,
+    private val deadline: Instant,
     private val clock: Clock,
 ) {
     private val started = mutableListOf<Pair<String, CompletableFuture<*>>>()
     private var expired = false
 
-    /** 마감까지 남은 시간. 마감이 지났으면 0이다. 마감이 없으면 null이다. */
-    fun remaining(): Duration? = deadline?.let { maxOf(Duration.between(clock.instant(), it), Duration.ZERO) }
+    /** 마감까지 남은 시간. 마감이 지났으면 0이다. */
+    fun remaining(): Duration = maxOf(Duration.between(clock.instant(), deadline), Duration.ZERO)
 
     /**
      * 남은 시간이 있으면 [start]로 [dependency]를 부른다. 없으면 부르지 않고, 마감 처리 때(이미 지났으면 바로) `budget_exhausted`로 끝날
@@ -137,7 +137,7 @@ internal class RequestBudget(
      * 마감이 지나면 [expire]한 뒤 [TimeBudgetExhaustedException]을 던진다.
      */
     fun <T> await(future: CompletableFuture<T>): T {
-        val remaining = remaining() ?: return future.join()
+        val remaining = remaining()
         try {
             return future.get(remaining.toNanos(), TimeUnit.NANOSECONDS)
         } catch (e: ExecutionException) {
