@@ -216,7 +216,7 @@ feed-service `application.yml`에 근거 주석과 함께 둔다. 환경 변수�
 | 무엇 | 어디 | 방식 |
 |---|---|---|
 | 등급표대로 응답 구성(의존성별 결과 → 응답·영역 결과) | `FeedDegradationTest`(응답 구성 함수) | 단위 |
-| post 결과 흐름(실패면 캐시, 캐시 없으면 예외, 503이면 recommendation·ad를 기다리지 않음, stale 경로의 예산) | `FeedAssemblerTest`, `FeedAssemblerBudgetTest`(기존)에 더한다 | 단위. 가짜 Gateway와 가짜 캐시, 움직이는 시계 |
+| post 결과 흐름(실패면 캐시, 캐시 없으면 예외, 503이면 recommendation·ad를 기다리지 않음, stale 경로의 예산) | 새 `FeedAssemblerPostFlowTest`. 기존 `FeedAssemblerBudgetTest`의 예산 초과·먼저 실패한 의존성 단언은 tasks 2.2 전에 대화형으로 "빠진다"로 바꿨다 | 단위. 가짜 Gateway와 가짜 캐시, 움직이는 시계 |
 | stale 판단, 쓰기 간격·대기열 | `PostStaleCacheTest` | 단위. Redis 템플릿은 MockK |
 | user 캐시 채움(전부·일부·유효 기간) | `UserProfileCacheTest` | 단위. `Ticker` |
 | `graceful-degradation`의 중요·선택 등급 시나리오, 로그, 지표, 설정 덮어쓰기 | `FeedDegradationScenarioTest`, `FeedFallbackLogScenarioTest`, `FeedDegradationMetricsScenarioTest`, `FeedDegradationOverrideScenarioTest` | `Integration`. WireMock |
@@ -226,6 +226,7 @@ feed-service `application.yml`에 근거 주석과 함께 둔다. 환경 변수�
 | 같은 상태에서 시작(post 캐시), 모든 요청이 실패, 리포트 항목, S-02 degrade 비율, 대시보드 | e2e `Compose` 태그 테스트 | `./gradlew :e2e:composeTest` |
 
 - **테스트 기본 설정:** `feed-service/src/test/resources/config/application.yml`의 Redis 주소를 듣지 않는 포트(`localhost:1`)로 둔다. Redis를 쓰지 않는 기존 테스트는 캐시 쓰기가 조용히 실패하는 상태로 돌고(그 자체가 "캐시 저장소가 죽었고 post는 정상"의 확인이다), post 실패를 다루는 테스트만 컨테이너를 띄운다. e2e `ServiceProcesses`의 feed-service 프로세스에도 같은 값을 준다.
+- **`FeedAssembler` 생성자:** `FeedAssemblerTest`, `FeedAssemblerBudgetTest`(커밋됨)가 Gateway 다섯, `timeBudget`, `clock`만으로 직접 만든다. 2.3·2.4에서 더하는 매개변수(user 캐시, post 캐시, 로그·지표)는 기본값(아무것도 하지 않는 캐시, 버리는 지표 등)을 둬 이 테스트가 그대로 컴파일되게 한다.
 - **기존 테스트를 고치는 작업:** 피드 500을 단언하는 커밋된 테스트(`FeedAggregationScenarioTest`, `FeedCallFailureLogScenarioTest`, `FeedCallIsolationScenarioTest`, `FeedSlowDependencyScenarioTest`, `FeedUnreachableScenarioTest` 등과 e2e 판정·Compose 테스트)는 하네스 훅이 Ralph 루프 중에 막으므로 대화형(`/opsx:apply`)으로 고친다.
 - 테스트 이름에 `F-002`를 넣고, 대체 로그 테스트는 `F-004`도 넣는다. 고친 기존 테스트는 바뀐 동작의 기능 ID(`F-002`)로 이름을 바꾼다.
 - Testcontainers는 feed-service에 처음 들어온다. like-service가 이미 Testcontainers(MySQL)를 쓰므로 CI에 Docker가 있다.

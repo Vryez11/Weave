@@ -45,7 +45,7 @@
   - 확인: `FeedDegradationTest`(정상 입력)와 1.2의 응답 구성 시나리오가 통과한다.
 - [ ] 2.2 의존성 결과를 값으로 받고 중요·선택 등급을 대체한다(design 결정 1, 3).
   - `RequestBudget`에 결과를 값으로 돌려주는 기다리기를 더하고, post future와 "post 뒤 user·like" future를 따로 든다. user 실패는 아직 모두 `unknown`, like는 `UNKNOWN`, recommendation·ad는 빈 목록. post 실패는 아직 던진다(2.4).
-  - 확인: `FeedDegradationTest`의 등급별 단언, 1.5의 `FeedDegradationScenarioTest`, 1.2의 예산 시나리오가 통과한다.
+  - 확인: 등급별 단언(`FeedDegradationTest`는 커밋돼 고칠 수 없으니 새 `degradation/FeedDegradationGradeTest`에 둔다), 1.5의 `FeedDegradationScenarioTest`, 1.2의 예산 시나리오, 대화형으로 고친 `FeedAssemblerBudgetTest`의 "빠진다" 세 테스트가 통과한다. `FeedAssembler`에 더하는 매개변수는 기본값을 둔다.
 - [ ] 2.3 user 로컬 캐시를 넣는다(design 결정 7).
   - `UserProfileCache`(Caffeine, `Ticker`는 `Clock`에서, `recordStats`, `CaffeineCacheMetrics`). 성공하면 `putAll`, 실패하면 작성자마다 조회해 채우거나 `unknown`. `weave.user-cache.*` 속성은 구조만 두고 값은 4.2에서 넣는다(그때까지는 테스트 속성으로 준다).
   - `Clock` Bean을 두고 `FeedAssembler`가 받게 한다(design 결정 11).
@@ -53,7 +53,7 @@
 - [ ] 2.4 post stale 캐시와 503을 넣는다(design 결정 4, 5, 8).
   - `PostStaleCache`(키·값 형식, stale 판단, 비동기 쓰기와 키별 쓰기 간격, 대기열 50에서 버림), Lettuce `REJECT_COMMANDS` customizer(`management.health.redis.enabled: false`는 1.1 뒤에 main 설정에 넣었다. Redis 스타터가 Redis 헬스를 켜 bootJar의 헬스가 DOWN이 됐다). post 실패면 요청 스레드에서 읽고, 쓸 수 없으면 `PostsUnavailableException` → `FeedController`가 503(`{"error":"posts_unavailable"}`)이다. 503이면 recommendation·ad를 기다리지 않는다.
   - `weave.post-cache.*`와 Redis 타임아웃은 구조만 두고 값은 4장에서 넣는다(그때까지는 테스트 속성).
-  - 확인: `PostStaleCacheTest`, `FeedAssemblerTest`의 post 흐름 단언, 1.6의 두 시나리오 테스트가 통과한다.
+  - 확인: `PostStaleCacheTest`, 새 `FeedAssemblerPostFlowTest`(post 흐름 단언, design 결정 15), 1.6의 두 시나리오 테스트가 통과한다. `FeedAssembler`에 더하는 매개변수는 기본값을 둬 커밋된 `FeedAssemblerTest`·`FeedAssemblerBudgetTest`가 그대로 컴파일되게 한다.
 - [ ] 2.5 대체 이벤트 로그를 남긴다(design 결정 9).
   - `fallback_applied`를 요청 스레드에서 의존성마다 한 줄. 필드는 design 결정 9.
   - feed-service `CLAUDE.md`에 대체 경로(Assembler 한 곳, 요청 스레드, 로그 한 줄)를 적는다.

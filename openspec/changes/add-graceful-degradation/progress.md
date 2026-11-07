@@ -94,3 +94,9 @@
   - 2.4가 더할 post 흐름 단언(실패면 캐시, 캐시 없으면 예외, 503이면 recommendation·ad를 기다리지 않음, stale 경로의 예산)도 같은 이유로 Ralph가 이 두 파일에 더할 수 없다. 사람이 같이 더해 두거나, design 결정 15를 "새 파일(예: `FeedAssemblerPostFlowTest`)"로 고쳐 Ralph가 새 파일에 두게 한다.
 - 바꾼 파일: progress.md
 ---
+
+## 2026-11-07 대화형 - 2.2 막힘 풀기
+- `FeedAssemblerBudgetTest`의 세 테스트(103·127·149행)를 Ralph 제안대로 "던진다"에서 `degradation.missing` 단언으로 바꿨다(F-001, F-002). 2.2 전이라 지금 `:feed-service:test`에서 이 셋이 실패하는 것이 정상이다. 2.2에서 통과해야 한다.
+- design 결정 15와 tasks 2.2·2.4를 고쳤다: 등급별 단언은 새 `degradation/FeedDegradationGradeTest`, post 흐름 단언은 새 `FeedAssemblerPostFlowTest`에 둔다.
+- **`FeedAssembler`에 매개변수를 더할 때는 기본값을 둔다.** 커밋된 `FeedAssemblerTest`, `FeedAssemblerBudgetTest`가 Gateway 다섯, `timeBudget`, `clock`만으로 직접 만든다(design 결정 15). 기본값이 없으면 컴파일이 깨져 다시 멈춘다.
+---
