@@ -55,6 +55,9 @@ import kotlin.time.Duration.Companion.seconds
         "resilience4j.retry.instances.like.wait-duration=10ms",
         "resilience4j.retry.instances.recommendation.max-attempts=3",
         "resilience4j.retry.instances.recommendation.wait-duration=10ms",
+        // ad는 재시도 인스턴스가 있어도 다시 부르지 않는다(IsolatedCalls.NEVER_RETRIED). 설정만으로 막지 않는 것을 "광고는 다시 부르지 않는다"가 본다
+        "resilience4j.retry.instances.ad.max-attempts=3",
+        "resilience4j.retry.instances.ad.wait-duration=10ms",
         "resilience4j.timelimiter.instances.recommendation.timeout-duration=200ms",
         "weave.retry.budget.ratio=1",
         "weave.retry.budget.min-retries=1000",
@@ -109,7 +112,7 @@ class FeedRetryScenarioTest :
                 }
             }
 
-            test("F-005 광고는 다시 부르지 않는다: ad-service가 503을 주면 200이고 missing은 ad 하나, ad-service는 요청을 한 번만 받는다") {
+            test("F-005 광고는 다시 부르지 않는다: ad 재시도 인스턴스를 최대 3번으로 둬도 ad-service가 503을 주면 200이고 missing은 ad 하나, ad-service는 요청을 한 번만 받는다") {
                 wireMock.stubFailure("ad", 503)
 
                 val response = FeedHttpClient(localPort()).getFeed()

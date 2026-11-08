@@ -133,7 +133,7 @@ class IsolatedCalls(
             isolation.bulkhead.eventPublisher.onCallRejected { rejected.increment() }
             isolation.semaphore.eventPublisher.onCallRejected { rejected.increment() }
             Gauge
-                .builder("weave.retry.after.hold.remaining", holds) { it.remaining(dependency).toNanos() / NANOS_PER_SECOND }
+                .builder("weave.retry.after.hold.remaining", holds) { it.remaining(dependency).secondsAsDouble() }
                 .description("남은 Retry-After 대기 시간. 대기 중이 아니면 0")
                 .baseUnit("seconds")
                 .tag("name", dependency)
@@ -260,9 +260,9 @@ class IsolatedCalls(
                 .atWarn()
                 .addKeyValue("event", "retry_after_hold_started")
                 .addKeyValue("dependency", dependency)
-                .addKeyValue("holdMs", hold.toMillis())
+                .addKeyValue("holdMs", hold.millisOrMax())
                 .addKeyValue("holdUntil", until.toString())
-                .log("{} Retry-After 대기 시작({}ms)", dependency, hold.toMillis())
+                .log("{} Retry-After 대기 시작({}ms)", dependency, hold.millisOrMax())
         }
     }
 
@@ -278,8 +278,11 @@ class IsolatedCalls(
         retryProperties: RetryProperties,
         meterRegistry: MeterRegistry,
     ): RetryLoop {
+        // 외부 API(ad)는 설정과 관계없이 다시 부르지 않는다. 재시도 인스턴스를 설정에 더해도 쿼터를 쓰는 재시도가 생기지 않게 코드로 막는다
+        // (PRD 3장, add-retry-policy design 결정 1)
+        val configured = if (dependency in NEVER_RETRIED) java.util.Optional.empty() else retries.find(dependency)
         val settings =
-            retries.find(dependency).map { retry ->
+            configured.map { retry ->
                 val config = retry.retryConfig
                 val interval = config.getIntervalBiFunction<Any?>()
                 RetryLoop.Settings(
@@ -328,7 +331,8 @@ class IsolatedCalls(
 
         private const val TOO_MANY_REQUESTS = 429
 
-        private const val NANOS_PER_SECOND = 1e9
+        /** 재시도 인스턴스가 있어도 다시 부르지 않는 의존성. 외부 API라 재시도가 쿼터를 쓴다(PRD 3장). */
+        val NEVER_RETRIED = setOf("ad")
 
         private val logger = LoggerFactory.getLogger(IsolatedCalls::class.java)
     }
@@ -373,3 +377,9 @@ private inline fun withMdc(
         if (previous == null) MDC.clear() else MDC.setContextMap(previous)
     }
 }
+
+/** 초(소수). `toNanos`처럼 아주 긴 시간에서 넘치지 않는다. */
+private fun Duration.secondsAsDouble(): Double = seconds + nano / 1e9
+
+/** 밀리초. 넘치면 [Long.MAX_VALUE]다(상한 없는 아주 긴 Retry-After). */
+private fun Duration.millisOrMax(): Long = runCatching { toMillis() }.getOrDefault(Long.MAX_VALUE)
