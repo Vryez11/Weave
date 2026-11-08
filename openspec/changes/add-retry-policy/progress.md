@@ -72,3 +72,12 @@
 - 다음 반복이 알아 둘 것:
   - 2.3의 `RetryAfterHolds`는 대기 중이면 `RetryAfterHoldException(dependency, holdUntil)`을 던지면 된다. 2.4의 재시도 루프는 `RetryPolicy.retryable(error)`로 실패 종류를 보고, 시간 예산·재시도 예산은 따로 본다.
 ---
+
+### 2026-11-08 12:25 - 2.2 재시도 예산을 만든다
+- 한 일: `RetryBudget(ratio, minRetries, window, clock)`. 100ms 칸, 지금 칸 + 앞 `ceil(window ÷ 100ms)` 칸을 센다(창보다 최대 한 칸 길게, 짧게는 세지 않는다). `recordCall()`(원래 호출), `tryAcquireRetry()`(확인과 차감을 `synchronized` 하나로). `RetryProperties`(`weave.retry.budget.ratio`·`min-retries`·`window`, 모두 nullable)와 `Budget.newBudget(clock)`(하나라도 없으면 null = 예산을 보지 않는다). `IsolatedCalls`의 `@EnableConfigurationProperties`에 `RetryProperties`를 더했다(아직 쓰지 않는다).
+- 바꾼 파일: `feed-service/src/main/kotlin/com/weave/feed/gateway/RetryBudget.kt`, `RetryProperties.kt`(새), `IsolatedCalls.kt`(애너테이션 한 줄), 테스트 `gateway/RetryBudgetTest.kt`(새, 9개).
+- 확인: `RetryBudgetTest` 9개 통과, `:feed-service:test`, `ktlintCheck`, 타입 검사, `openspec validate` 통과. `FeedRetryBudgetScenarioTest`는 컨텍스트가 뜨고 지표 0 등록 단언에서 실패한다(2.4, 예상대로).
+- 다음 반복이 알아 둘 것:
+  - 2.4는 생성자에 `RetryProperties`와 `Clock`을 받아 의존성마다 `properties.budget.newBudget(clock)`으로 예산을 하나씩 만든다(null이면 예산 없이 다시 부른다). `call`마다 `recordCall()`(서킷이 막은 호출 포함), 실제로 다시 부르기 직전에 `tryAcquireRetry()`. false면 결정 `budget_exhausted`.
+  - 단위 테스트의 시계는 `MovableClock`(실제 시간 + 이동)이 아니라 테스트 파일 안의 `ManualClock`처럼 손으로만 움직이는 시계를 쓴다. 칸 경계 단언이 실제 시간에 흔들리지 않는다.
+---

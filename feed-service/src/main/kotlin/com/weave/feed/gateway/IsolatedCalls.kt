@@ -50,7 +50,7 @@ import java.util.function.Supplier
  * 그 스레드에서 차례로 돈다. 실험(400 RPS)에서는 문제가 보이지 않아 지켜볼 항목으로만 둔다.
  */
 @Component
-@EnableConfigurationProperties(IsolationProperties::class)
+@EnableConfigurationProperties(IsolationProperties::class, RetryProperties::class)
 class IsolatedCalls(
     circuitBreakers: CircuitBreakerRegistry,
     timeLimiters: TimeLimiterRegistry,
