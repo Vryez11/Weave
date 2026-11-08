@@ -659,7 +659,7 @@ experiments/run-all.sh --list                                 # 돌릴 목록
 - `run-all.sh`는 첫 시나리오 전에 하위 서비스를 데우는 준비 실행(`run.sh S-01`, 같은 `--rps`·`--warmup`, 측정 1분)을 한 번 하고 판정 표에 넣지 않는다. 고도화 3(F-001)부터 막 띄운 하위 서비스가 느려 서킷이 열리면 트래픽이 가지 않아 데워지지 못하고 열림·닫힘을 되풀이한다(400 RPS에서 약 100초, `add-call-isolation` design 결정 10). `run.sh`는 feed-service만 다시 띄우므로 데운 하위 서비스는 남는다. 이미 데운 환경이면 `--skip-warm-up`. `run.sh`만 돌릴 때는 Compose를 띄운 뒤 S-01을 한 번 먼저 돌려 데운다.
 - Compose 프로젝트나 env 파일을 바꿀 때는 `COMPOSE_PROJECT_NAME`, `COMPOSE_ENV_FILE`을 준다(`:e2e:composeTest`는 `weave-compose-test`와 `e2e/build/compose-test.env`를 쓴다).
 
-**리포트.** 실행마다 `experiments/results/<UTC yyyyMMdd-HHmmss>-<S-xx>/`에 `report.md`와 같은 값의 `report.json`, k6 요약 `summary.json`, 요청마다의 원본 `raw.json.gz`, 서킷 상태 질의 결과 `circuit-state.json`을 남긴다.
+**리포트.** 실행마다 `experiments/results/<UTC yyyyMMdd-HHmmss>-<S-xx>/`에 `report.md`와 같은 값의 `report.json`, k6 요약 `summary.json`, 요청마다의 원본 `raw.json.gz`, 서킷 상태 질의 결과 `circuit-state.json`, 판정 입력 `verdict-input.json`(요청 배율 최댓값, ad 429 수. 판정 전에 쓴다)을 남긴다.
 
 | 항목 | 출처 |
 |---|---|
@@ -667,6 +667,9 @@ experiments/run-all.sh --list                                 # 돌릴 목록
 | 측정 요청 수, 보내지 못한 요청 수, p50·p95·p99(실패한 요청 포함). 지연은 k6가 요청 앞뒤로 잰 경과 시간 `feed_latency`다. k6의 `http_req_duration`은 시간 초과된 요청을 0으로 남길 수 있어 쓰지 않는다 | k6 요약 |
 | 가용성 = 200 수 ÷ (측정 요청 수 + 보내지 못한 요청 수) | k6 요약 |
 | 의존성별 호출 p99, 실패율, 요청 배율(하위 서비스가 받은 요청 ÷ 피드 요청) | Prometheus |
+| 의존성별 요청 배율 최댓값(F-005): 측정 구간 안의 20초 구간마다(5초 간격) 계산한 요청 배율 중 가장 큰 값(`max_over_time` 서브쿼리). 재시도 폭주는 서킷이 열리기 전 몇 초에만 생겨 측정 구간 전체 배율로는 묻힌다. 측정이 40초보다 짧으면 측정 구간 전체의 요청 배율 | Prometheus |
+| 의존성별 재시도 결정 수(`weave_retry_calls_total`의 `retried`, `budget_exhausted`, `deadline`, `attempts_exhausted` 증가) | Prometheus |
+| ad-service가 돌려준 429 수(`http_server_requests_seconds_count{status="429"}` 증가, 시계열이 없으면 0)와 429를 받아도 되는 수 = (ceil(측정 초 ÷ 시나리오 quota의 `windowSeconds`) + 1) × ad 동시 호출 상한(`resilience4j_bulkhead_max_thread_pool_size{name="ad"}`). 받아도 되는 수는 측정 구간 안에 ad 요청 한도 장애가 있을 때만 | Prometheus, 시나리오 JSON |
 | 자원 사용량의 측정 구간 최댓값·평균: Tomcat 사용 중 스레드, 의존성별 벌크헤드 사용 중 스레드·대기열(`resilience4j_bulkhead_active_thread_count`, `resilience4j_bulkhead_queue_depth`. ThreadPool 벌크헤드 지표라 Semaphore 모드의 사용량은 담지 않는다), 의존성별 커넥션 풀 사용 중·대기, feed-service CPU | Prometheus |
 | feed-service 지표 수집 비율(측정 구간 `up` 표본 중 1인 비율). 1보다 작으면 자원 사용량이 긁힌 구간만의 값이라고 적는다 | Prometheus |
 | 의존성별 서킷 상태: 측정 구간에 거친 상태를 바뀔 때만 이어 적는다(`CLOSED → OPEN → HALF_OPEN → CLOSED`). `resilience4j_circuitbreaker_state`를 5초 간격 `query_range`로 읽어 그보다 짧게 머문 상태는 빠질 수 있고, 정확한 전이는 `circuit_state_changed` 로그로 본다. 서킷 지표가 없는 의존성은 "없음" | Prometheus, `lib/circuits.sh` |

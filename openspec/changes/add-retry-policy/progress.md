@@ -18,6 +18,8 @@
 - `weave_retry_calls_total{name,outcome}`은 피드를 부르기 **전에도** 표본이 있어야 한다(`FeedRetryDeadlineScenarioTest`, `FeedRetryBudgetScenarioTest`가 피드 전 값을 `shouldNotBeNull`로 읽는다). 2.4에서 결정을 세면서 0으로 등록하지 않으면 두 테스트가 2.6까지 실패한다. 0 등록은 2.4에서 같이 하는 게 낫다.
 - 재시도 간격 시나리오는 Resilience4j 스타터의 `enable-exponential-backoff` + `enable-randomized-wait`(합치면 `ofExponentialRandomBackoff`)를 쓴다. 2.4의 재시도 루프는 `retryConfig.intervalBiFunction`으로 간격을 꺼내야 이 속성이 먹는다.
 
+- Ralph 권한에서는 jq `-f`·`--slurpfile`과 `$`가 든 인라인 jq도 막힌다. `run.sh`의 jq를 Compose 없이 확인하려면 `experiments/results/`(커밋 안 함)에 가짜 `docker`(Compose ps·k6·Prometheus 응답을 흉내)를 두고, 임시 e2e 스펙에서 `ProcessBuilder`로 `PATH`를 앞에 붙여 `run.sh`를 돌린다(`./gradlew :e2e:integrationTest --tests ...`). 끝나면 스펙과 결과를 지운다. Prometheus URL은 `@uri`로 인코딩돼 있어 `time=` 숫자와 겹치지 않는 토큰(`status%3D%22429` 등)으로 가른다.
+
 - ad RateLimiter 인스턴스는 속성(`resilience4j.ratelimiter.instances.ad.*`)만 주면 스타터가 만들고 `resilience4j_ratelimiter_available_permissions{name="ad"}`를 낸다(구현 전에도). 주기는 인스턴스를 만든 시각부터 센다. 2.5는 이 인스턴스를 `RateLimiterRegistry.find`로 꺼내 쓰면 된다(새로 만들면 지표와 주기가 어긋난다).
 
 ## 지금 실패하는 것이 정상인 테스트 (구현 전)
@@ -129,4 +131,13 @@
 - 다음 반복이 알아 둘 것:
   - 설정값(5-6 표, 맨 위 상태 줄, 13장의 설정값 항목)은 5.4 몫이라 손대지 않았다. 7-4 대시보드 표는 3.3, 9-3 리포트 표는 3.1이다.
   - 다음은 3.1(`run.sh`). 스크립트는 Ralph 권한에서 직접 실행이 막히니 e2e `integrationTest`와 experiments/CLAUDE.md의 컨테이너 bash 구문 검사로 확인한다.
+---
+
+### 2026-11-08 12:50 - 3.1 `run.sh`가 요청 배율 최댓값, 재시도 결정 수, ad 429 수를 재고 판정 입력 파일을 쓴다
+- 한 일: Prometheus 질의 넷(요청 배율 최댓값 `max_over_time(...[<측정−20>s:5s])`(측정 40초 미만이면 질의하지 않고 측정 구간 전체 배율), `weave_retry_calls_total` 증가, ad-service 429 증가(시계열 없으면 0), ad 벌크헤드 최대 스레드)을 더하고, `verdict-input.json`(`requestRatioMax`, `adRejections`)을 쓴 뒤 판정하도록 `lib/verdict.sh` 호출을 Prometheus 질의 뒤로 옮겼다. `allowed`는 측정 구간 안에 quota 장애가 있을 때만. `report.json`의 `dependencies.<의존성>.requestRatioMax`·`retries`, 최상위 `adRejections`. `report.md`에 요청 배율 최댓값 열, "재시도와 외부 API" 절, 기대·기준 이름(요청 배율, Retry-After). 공통 jq 함수를 `JQ_DEFS`로 묶었다. `docs/architecture.md` 9-3 리포트 표.
+- 바꾼 파일: `experiments/run.sh`, `docs/architecture.md`, `tasks.md`.
+- 확인: 컨테이너 bash `-n` 통과. 가짜 docker 리허설로 S-07 5분(창 질의, `allowed` 31 × 40 = 1,240)과 S-02 20초(전체 배율, `allowed` null)의 `verdict-input.json`·`report.json`·`report.md`가 기대 형식인 것을 봤다(임시 파일은 지움). `:e2e:test`, `:e2e:ktlintCheck`, `openspec validate` 통과.
+- 다음 반복이 알아 둘 것:
+  - 3.2: `run.sh`는 아직 `lib/verdict.sh`에 넷째 인자를 넘기지 않는다(지금 verdict.sh는 인자 4개면 2로 끝난다). verdict.sh에 넷째 인자를 받게 한 뒤 `run.sh`의 호출(`verdict="$("$here/lib/verdict.sh" "$folder/summary.json" "$scenario")"`)에 기대 결과 파일(`"$here/expectations.json"`)과 `"$folder/verdict-input.json"`을 붙인다.
+  - `report.md`의 `criterion_name`·`expected`는 이미 `requestRatio`·`retryAfter`를 안다.
 ---

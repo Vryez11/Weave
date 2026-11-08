@@ -60,7 +60,7 @@
 
 ## 3. 실험 세트
 
-- [ ] 3.1 `run.sh`가 요청 배율 최댓값, 재시도 결정 수, ad 429 수를 재고 판정 입력 파일을 쓴다(design 결정 10).
+- [x] 3.1 `run.sh`가 요청 배율 최댓값, 재시도 결정 수, ad 429 수를 재고 판정 입력 파일을 쓴다(design 결정 10).
   - Prometheus 질의 셋(요청 배율 최댓값, `weave_retry_calls_total` 증가, ad-service 429 증가)과 ad 동시 호출 상한, 시나리오의 요청 한도 창으로 `allowed`. `verdict-input.json`을 판정 전에 쓴다. `report.json`·`report.md` 항목.
   - `docs/architecture.md` 9-3 리포트 표를 고친다.
   - 확인: 바뀐 스크립트가 `/bin/bash -n`을 통과한다. 동작은 1.6의 Compose 테스트(5.3).
