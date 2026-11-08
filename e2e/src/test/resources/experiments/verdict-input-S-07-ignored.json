@@ -1,0 +1,4 @@
+{
+  "requestRatioMax": { "post": 1.0, "user": 1.0, "like": 1.0, "recommendation": 1.0, "ad": 1.0 },
+  "adRejections": { "rejected": 60000, "allowed": 1240 }
+}

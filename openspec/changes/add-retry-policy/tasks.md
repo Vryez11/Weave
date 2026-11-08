@@ -25,7 +25,7 @@
   - `FeedRetryMetricsScenarioTest`: "재시도와 외부 API 지표"(둘). 지표 이름은 design 결정 9.
   - `FeedRetryOverrideScenarioTest`: "환경 변수로 최대 시도 횟수를 바꾼다"(`RESILIENCE4J_RETRY_INSTANCES_LIKE_MAXATTEMPTS=2`, `FeedIsolationOverrideScenarioTest`와 같은 방식).
   - 확인: 1.2와 같다.
-- [ ] 1.5 (대화형) 실험 세트의 판정 테스트를 델타대로 고친다.
+- [x] 1.5 (대화형) 실험 세트의 판정 테스트를 델타대로 고친다.
   - `ExperimentVerdictScenarioTest`: 판정 입력 파일(넷째 인자) 형식을 KDoc에 정한다(`{"requestRatioMax": {<의존성>: 수|null}, "adRejections": {"rejected": 수|null, "allowed": 수|null}}`). "요청 배율 기준" 셋, "Retry-After 기준"의 두 판정 시나리오를 픽스처(`expectations-stage5.json`, `verdict-input-*.json`, 기존 요약 픽스처)로 더하고, "지금 단계의 기대"를 고도화 5로 바꾼다.
   - 확인: `./gradlew :e2e:integrationTest`에서 새·바뀐 판정 테스트만 실패하고 `./gradlew :e2e:test`는 통과한다.
 - [ ] 1.6 (대화형) Compose 테스트를 델타대로 고친다.
