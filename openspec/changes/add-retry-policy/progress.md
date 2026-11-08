@@ -151,3 +151,12 @@
   - 다음은 3.3(대시보드 "재시도·외부 API" 행). 3.3이 끝나면 4번 묶음이라 Ralph는 BLOCKED로 멈춘다(tasks.md 4장 머리말).
   - `expectations.json`은 아직 고도화 4다(requestRatio 키 없음). 지금 `run.sh`는 판정 입력 파일을 늘 넘기지만 기대에 두 키가 없으면 읽지 않는다.
 ---
+
+### 2026-11-08 13:10 - 3.3 대시보드에 "재시도·외부 API" 행을 더한다
+- 한 일: `feed-experiments.json`에 행(id 26, y 61)과 패널 여섯을 더했다. 의존성별 재시도 결정(`weave_retry_calls_total`, `name`·`outcome`별 초당), 의존성별 요청 배율(하위 서비스 업무 요청 ÷ 피드 요청, `[20s]`, 1.2 선, `run.sh`의 `DOWNSTREAM` 선택자와 같다), ad Retry-After 남은 대기(`weave_retry_after_hold_remaining_seconds{name="ad"}`), ad Retry-After로 막은 호출, ad 요청 수 상한으로 막은 호출, ad-service 429(`or vector(0)`). 대시보드 설명, `docs/architecture.md` 7-4 머리 문장·"패널은 대부분 feed-service 지표" 문장·표의 고도화 5 줄. `docker/CLAUDE.md`에 promtool로 질의 구문만 보는 방법.
+- 바꾼 파일: `docker/grafana/dashboards/feed-experiments.json`, `docs/architecture.md`, `docker/CLAUDE.md`, `tasks.md`.
+- 확인: `jq .` 통과, 패널 id 중복 없음. 새 질의 여섯을 `promtool check rules`로 파싱(SUCCESS). `openspec validate --all --strict` 통과. Compose에서 시계열이 나오는지는 5.3.
+- 다음 반복이 알아 둘 것:
+  - 요청 배율 패널은 Grafana 변수 금지 규칙 때문에 `label_replace`(`$1`)를 못 써 범례가 `{{instance}}`(`post-service:8081` 꼴)다. 피드 요청이 20초 동안 없으면 0으로 나눠 NaN이지만 시계열은 남아 Compose 테스트의 "시계열이 있다"는 지킨다.
+  - 3번 묶음까지 끝남, 4번 묶음은 사람과 함께 `/opsx:apply`로 진행. Ralph는 여기서 BLOCKED로 멈춘다(tasks.md 4장 머리말).
+---

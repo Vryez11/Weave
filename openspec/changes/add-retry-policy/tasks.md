@@ -67,7 +67,7 @@
 - [x] 3.2 판정에 요청 배율·Retry-After 기준을 넣는다(design 결정 10).
   - `slo.json`의 `requestRatio`(1.2), `lib/verdict.sh`의 넷째 인자와 기대 객체의 `requestRatio`·`retryAfter` 키, `run-all.sh` 판정 표의 "기대" 열. `expectations.json`은 아직 바꾸지 않는다(4.5).
   - 확인: 1.5의 판정 테스트 중 "지금 단계의 기대"를 뺀 것이 `./gradlew :e2e:integrationTest`로 통과한다.
-- [ ] 3.3 대시보드에 "재시도·외부 API" 행을 더한다(design 결정 10).
+- [x] 3.3 대시보드에 "재시도·외부 API" 행을 더한다(design 결정 10).
   - `docs/architecture.md` 7-4 표에 줄을 더한다.
   - 확인: `jq . docker/grafana/dashboards/feed-experiments.json`이 통과한다. Compose 확인은 5.3.
 

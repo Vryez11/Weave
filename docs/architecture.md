@@ -539,11 +539,11 @@ traceId는 스레드에 붙은 컨텍스트(MDC, 관찰 컨텍스트)에 있어�
 
 ### 7-4. 대시보드
 
-피드 SLO(가용성, p50·p95·p99), 의존성별 degrade 비율, 서킷 상태, 벌크헤드 사용량·거절, 커넥션 풀 사용량, Tomcat 스레드 사용량을 한 화면에 둔다. 실험 리포트의 그래프도 이 대시보드에서 뜬다.
+피드 SLO(가용성, p50·p95·p99), 의존성별 degrade 비율, 서킷 상태, 벌크헤드 사용량·거절, 커넥션 풀 사용량, Tomcat 스레드 사용량, 재시도 결정과 요청 배율, ad의 Retry-After 대기·요청 수 상한·429를 한 화면에 둔다. 실험 리포트의 그래프도 이 대시보드에서 뜬다.
 
 대시보드는 `add-fault-experiments`(F-007)에서 만들었다. 데이터 소스와 같이 파일로 두고 Grafana가 띄울 때 불러온다. 공급자 설정은 `docker/grafana/provisioning/dashboards/`, 대시보드는 `docker/grafana/dashboards/feed-experiments.json`(uid `weave-feed`, `http://localhost:3000/d/weave-feed`)이다. 화면에서 고친 내용은 저장되지 않으니 JSON을 고친다. 실험 리포트의 Grafana 링크는 이 대시보드에 측정 구간(`from`, `to`)을 붙인 것이다.
 
-지표마다 그 지표를 만드는 단계에서 패널을 더한다. 지금 있는 패널은 모두 feed-service(`instance="feed-service:8090"`, 관리 포트)의 지표다.
+지표마다 그 지표를 만드는 단계에서 패널을 더한다. 패널은 대부분 feed-service(`instance="feed-service:8090"`, 관리 포트)의 지표이고, 요청 배율과 ad-service 429만 하위 서비스가 받은 요청(`instance=~"<의존성>-service:…"`, actuator 제외)을 본다.
 
 | 행 | 패널 | 지표 | 더한 단계 |
 |---|---|---|---|
@@ -552,6 +552,7 @@ traceId는 스레드에 붙은 컨텍스트(MDC, 관찰 컨텍스트)에 있어�
 | 자원 사용량 | Tomcat 사용 중·최대 스레드, 의존성별 커넥션 풀 사용 중·대기, CPU(0.7 선) | `tomcat_threads_*`, `httpcomponents_httpclient_pool_total_connections`(`state="leased"`)·`..._total_pending`(`httpclient`), `process_cpu_usage` | 고도화 2. 공유 풀(`applicationTaskExecutor`) 활성 스레드·대기열 패널은 고도화 3에서 지웠다(조회가 의존성별 벌크헤드로 옮겨 갔다) |
 | 서킷·벌크헤드 | 의존성별 서킷 상태(상태 타임라인, 0 CLOSED·1 HALF_OPEN·2 OPEN), 벌크헤드 사용 중·최대 스레드, 벌크헤드 거절(초당), 시간 상한 초과(초당) | `resilience4j_circuitbreaker_state`(`state="open"`·`"half_open"`), `resilience4j_bulkhead_active_thread_count`·`..._max_thread_pool_size`, `weave_bulkhead_rejected_calls_total`, `resilience4j_timelimiter_calls_total`(`kind="timeout"`). 모두 `name` 라벨이 의존성이다 | 고도화 3 (`add-call-isolation`, F-001) |
 | degrade | 의존성별 degrade 비율(`stale`+`missing` ÷ 전체, 분모가 0이면 0, 1% 선), post 캐시 읽기 결과(초당), user 캐시로 채운 응답(초당), 피드 503(초당) | `weave_feed_sections_total`(`section`, `outcome`), `weave_post_cache_reads_total`(`outcome`), `http_server_requests_seconds_count`(`uri="/feed"`, `status="503"`). 정의는 6-5 | 고도화 4 (`add-graceful-degradation`, F-002) |
+| 재시도·외부 API | 의존성별 재시도 결정(초당, `outcome`별), 의존성별 요청 배율(하위 서비스 업무 요청 ÷ 피드 요청, 20초 창, 1.2 선), ad Retry-After 남은 대기, ad Retry-After로 막은 호출(초당), ad 요청 수 상한으로 막은 호출(초당), ad-service가 돌려준 429(초당, 없으면 0) | `weave_retry_calls_total`(`name`, `outcome`), `http_server_requests_seconds_count`(하위 서비스 `instance`, feed-service `uri="/feed"`), `weave_retry_after_hold_remaining_seconds`·`weave_retry_after_rejected_calls_total`·`weave_ratelimiter_rejected_calls_total`(`name="ad"`), ad-service의 `http_server_requests_seconds_count`(`status="429"`). 요청 배율의 창과 상한은 9장 판정과 같다 | 고도화 5 (`add-retry-policy`, F-005) |
 
 패널 질의에는 Grafana 시간 변수(`$__rate_interval` 등) 말고 변수를 두지 않는다. 장애가 없을 때도 모든 질의가 시계열을 돌려줘야 해서, 실패율처럼 분자가 빌 수 있는 질의는 0으로 채운다. `./gradlew :e2e:composeTest`의 `ExperimentDashboardComposeScenarioTest`가 S-01 짧은 실행 뒤 모든 패널 질의를 Prometheus에 보내 확인한다.
 
