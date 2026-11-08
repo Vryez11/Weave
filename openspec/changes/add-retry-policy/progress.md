@@ -1,7 +1,25 @@
 # 진행 메모: add-retry-policy
 
 ## 알아 둘 패턴
-- 셸의 `ls`는 eza 별칭이라 경로 인자에서 깨진다. `command ls`를 쓴다.
-- 테스트 기본 설정(`feed-service/src/test/resources/config/application.yml`)은 재시도를 끈다(재시도 인스턴스 넷 `max-attempts: 1`, design 결정 12). 재시도를 보는 시나리오만 속성으로 켠다.
+- 셸의 `ls`는 eza 별칭이라 경로 인자에서 깨진다. `command ls`를 쓴다. `grep --include=*.kt`는 zsh glob으로 깨진다. 따옴표로 감싼다.
+- 승인(2026-11-08): proposal·design 그대로. ad 계약 쿼터 초당 600건(가정), Retry-After 최대 대기 60초, 요청 배율 상한 1.2. 끝나면 push·PR·릴리스(v0.6.0)까지 한다.
+- 테스트 기본 설정(`feed-service/src/test/resources/config/application.yml`)은 재시도를 끈다(재시도 인스턴스 넷 `max-attempts: 1`, design 결정 12). 재시도를 보는 시나리오만 `@SpringBootTest(properties)`로 켠다. main 설정에 재시도 인스턴스 구조는 2.4에서, 값은 4.1에서 넣는다.
+- 테스트는 feed-service 내부 클래스(예: `RetryAfterHolds`)를 쓰지 않고 HTTP·로그·지표로만 본다. Ralph 중에는 커밋된 `src/test/` 파일을 훅이 막으므로, 2장 구현이 따라야 할 이름(속성, 지표, 로그 필드)은 테스트 KDoc과 design 결정 4·5·8·9·11에 있는 이름을 그대로 쓴다.
+  - 속성: `resilience4j.retry.instances.<의존성>.*`(Resilience4j 스타터 이름), `weave.retry.budget.ratio`·`min-retries`·`window`, `weave.retry-after.default-hold`·`max-hold`, `resilience4j.ratelimiter.instances.ad.*`.
+  - 지표: `weave_retry_calls_total{name,outcome=retried|budget_exhausted|deadline|attempts_exhausted}`, `weave_retry_after_rejected_calls_total{name}`, `weave_retry_after_hold_remaining_seconds{name}`, `weave_ratelimiter_rejected_calls_total{name="ad"}`. 모두 시작할 때 0으로 등록(대시보드 Compose 테스트가 기대한다).
+  - 로그: `downstream_call_retried`(`dependency`, `attempt`, `cause`, `waitMs`), `retry_after_hold_started`(`dependency`, `holdMs`, `holdUntil`). 실패 원인 `rate_limited`, `retry_after`.
+- Retry-After 대기는 Spring 컨텍스트에 남는다. 429를 주는 시나리오는 끝에 대기가 풀릴 때까지 기다린다(정상 ad 스텁으로 광고가 채워질 때까지 `eventually`). 최대 대기 시간이 다른 시나리오는 다른 클래스로 나눈다.
+- 실험 스크립트 형식의 기준(1.5·1.6에서 정했다): 판정 입력 파일(`verdict.sh` 넷째 인자, `verdict-input.json`)과 두 기준의 `failedThresholds` 문구는 `ExperimentVerdictScenarioTest` KDoc, `report.json`의 `requestRatioMax`·`retries`·`adRejections`는 `ExperimentRunComposeScenarioTest` KDoc, 판정 표 기대 열(`… · 요청 배율 meet · Retry-After meet`)은 `ExperimentRunAllComposeScenarioTest` KDoc. 픽스처 `expectations-stage5.json`, `verdict-input-S-0{7,9}-*.json`.
+- Ralph 세션 권한에서는 셸 변수가 든 명령, `/bin/bash -n`, 실험 스크립트 직접 실행, 인라인 jq, `VAR=값 명령`이 막힌다(고도화 3·4 progress.md). 스크립트는 e2e `integrationTest`(`ExperimentScripts.run`)로 확인한다. `docker compose ...`는 된다. 구문 검사는 experiments/CLAUDE.md의 컨테이너 bash 방법.
+- 결과는 `<모듈>/build/test-results/<태스크>/TEST-*.xml`에서 본다. 클래스 몇 개만 돌리려면 `--tests 'com.weave.feed.<클래스>'`.
+- 전체 `:feed-service:integrationTest`에서 `ResilienceAutoConfigurationTest`가 `parsing HTTP/1.1 status line`으로 실패할 때가 있다(포트 겹침). 혼자 돌리면 통과한다.
+
+## 지금 실패하는 것이 정상인 테스트 (구현 전)
+- **1.6 뒤:** feed-service `integrationTest`: `FeedCircuitBreakerScenarioTest` "4xx는 세지 않는다"(2.4). e2e `integrationTest`: `ExperimentVerdictScenarioTest`의 F-005 여섯(3.2, "지금 단계의 기대"는 4.5). Compose 테스트(5.3)는 3장과 4.5 뒤에 통과한다.
 
 ## 반복 기록
+
+### 대화형 1.1, 1.5, 1.6 (2026-11-08)
+- 1.1: `FeedDegradationScenarioTest` "광고가 속도 조절 응답을 준다"는 끝에 1.2초 기다려 대기가 풀리게 했다. `FeedCircuitBreakerScenarioTest`의 뒤 시나리오는 ad를 보지 않는다.
+- 1.5: `ExperimentVerdictScenarioTest`의 `verdict()`에 `verdictInput` 인자. "판정 입력이 없다"는 표준 오류에 "판정 입력 파일"이 있어야 한다.
+- 1.6: `ExperimentRuns.json(path)`를 더했다. "리포트 항목"은 S-02의 기대가 객체(`availability`, `p99`, `requestRatio`)라고 본다(4.5 뒤 통과). "광고 요청 한도를 넘는 짧은 실행"은 `allowed` = 4 × 40.
