@@ -21,6 +21,7 @@
 - ad RateLimiter 인스턴스는 속성(`resilience4j.ratelimiter.instances.ad.*`)만 주면 스타터가 만들고 `resilience4j_ratelimiter_available_permissions{name="ad"}`를 낸다(구현 전에도). 주기는 인스턴스를 만든 시각부터 센다. 2.5는 이 인스턴스를 `RateLimiterRegistry.find`로 꺼내 쓰면 된다(새로 만들면 지표와 주기가 어긋난다).
 
 ## 지금 실패하는 것이 정상인 테스트 (구현 전)
+- **1.4 뒤:** feed-service `integrationTest`: `FeedRetryLogScenarioTest` 둘(2.4 재시도 줄, 2.3+2.4 대기 줄. 로그는 2.6이 마무리), `FeedRetryMetricsScenarioTest` 둘(2.6, 0 등록은 2.4에서 해도 된다), `FeedRetryOverrideScenarioTest`(2.4. 레지스트리 단언은 지금도 통과하고 like 요청 수 1 ≠ 2로 실패).
 - **1.3 뒤:** feed-service `integrationTest`: `FeedRetryAfterScenarioTest`의 "초로 준다", "HTTP 날짜로 준다", "머리글이 없다"(2.3+2.4), `FeedAdRateLimitScenarioTest`, `FeedAdRateLimitNextPeriodScenarioTest`(2.5). "대기가 끝난다"와 `FeedRetryAfterMaxHoldScenarioTest`는 지금도 통과한다(대기가 없어서 참).
 - **1.6 뒤:** feed-service `integrationTest`: `FeedCircuitBreakerScenarioTest` "4xx는 세지 않는다"(2.4). e2e `integrationTest`: `ExperimentVerdictScenarioTest`의 F-005 여섯(3.2, "지금 단계의 기대"는 4.5). Compose 테스트(5.3)는 3장과 4.5 뒤에 통과한다.
 - **1.2 뒤:** feed-service `integrationTest`: `FeedRetryScenarioTest`의 "한 번 실패한 뒤 성공한다", "계속 실패한다", `FeedRetryConnectFailureScenarioTest`, `FeedRetryCircuitOpensScenarioTest`, `FeedRetryIntervalScenarioTest`, `FeedRetryDeadlineScenarioTest`, `FeedRetryBudgetScenarioTest`, `FeedRetryBudgetWindowScenarioTest`(모두 2.4, 예산 둘은 2.2+2.4). 광고·토글·4xx·시간 상한·열린 서킷 다섯은 지금도 통과한다(재시도가 없어서 참인 동작을 지키는 테스트).
@@ -51,4 +52,15 @@
   - "초로 준다"·"상한을 넘는다"는 ad 서킷을 최근 2개 중 50%에 열리게 둔다. 막은 호출(`retry_after`, `rate_limited`)이 서킷에 실패로 세이면 서킷 상태 단언이 깨진다. `retry_after`는 서킷에 닿지 않게, `RequestNotPermitted`는 서킷 `ignore-exceptions`에 넣는다(design 결정 4, 6).
   - "다음 주기"는 맞추는 피드 하나로 허용을 쓰고 `resilience4j_ratelimiter_available_permissions{name="ad"}`가 1로 돌아올 때(새 주기 시작)까지 기다린 뒤 시나리오를 돈다.
   - HTTP 날짜는 IMF-fixdate(`EEE, dd MMM yyyy HH:mm:ss 'GMT'`)로 보낸다. 2.3의 `RetryAfter.parse`는 이 형식을 읽어야 한다(`DateTimeFormatter.RFC_1123_DATE_TIME`이 읽는다).
+---
+
+### 2026-11-08 12:15 - 1.4 로그·지표·설정 시나리오를 옮긴다
+- 한 일: "재시도와 대기 이벤트 로그" 둘, "재시도와 외부 API 지표" 둘, "환경 변수로 최대 시도 횟수를 바꾼다"를 Kotest 통합 테스트로 옮겼다.
+- 바꾼 파일: `feed-service/src/test/kotlin/com/weave/feed/FeedRetryLogScenarioTest.kt`, `FeedRetryMetricsScenarioTest.kt`, `FeedRetryOverrideScenarioTest.kt`.
+- 확인: 새 테스트 5개 모두 단언 실패(컴파일·컨텍스트 오류 없음). `:feed-service:test`, `ktlintCheck`, 타입 검사, `openspec validate` 통과.
+- 다음 반복이 알아 둘 것:
+  - 로그 숫자 필드(`attempt`, `waitMs`, `holdMs`)는 JSON 숫자든 숫자 문자열이든 통과한다(`longField`). `holdMs`는 정확히 2000이어야 한다(Retry-After 2초 그대로, 남은 시간으로 다시 계산하지 않는다). `holdUntil`은 값만 있으면 된다.
+  - `retry_after_hold_started`의 `traceId`는 429를 받은 첫 피드의 것이어야 한다. 429 시도를 끝낸 스레드(벌크헤드 쪽)에서 남기면 `completingIn`처럼 부른 스레드의 MDC를 펼쳐야 한다.
+  - `FeedRetryMetricsScenarioTest` "지표가 있다"는 피드 전에 의존성 5개 × (`weave_retry_calls_total` 결과 4개, `weave_retry_after_rejected_calls_total`, `weave_retry_after_hold_remaining_seconds`) + `weave_ratelimiter_rejected_calls_total{name="ad"}`를 본다. ad의 재시도 결정도 0으로 등록해야 한다.
+  - `FeedRetryOverrideScenarioTest`는 `RetryRegistry.retry("like").retryConfig.maxAttempts == 2`도 본다(스타터 바인딩이라 지금도 참).
 ---
