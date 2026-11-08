@@ -157,6 +157,16 @@ resilience4j:
       ad: { base-config: default }
 
 weave:
+  # 재시도 예산(add-retry-policy design 결정 5, 10, 11). 의존성마다 최근 10초 원래 호출 수의 10%와 최솟값 중 큰 값까지만 다시 부른다
+  retry:
+    budget:
+      # PRD 10장의 요청 배율 상한(재시도로 늘어나는 하위 요청 20%)의 절반(Google SRE 책의 클라이언트 재시도 예산 10%). S-09 계산에서
+      # 예산이 있으면 20초 구간 배율 약 1.07, 없으면 약 1.33이라 수집 간격·칸 오차를 넣어도 상한 1.2와 갈린다 (design 결정 10)
+      ratio: 0.1
+      # 서킷 판단 창과 같다. 장애 초반 서킷이 열리기 전(약 5초)에 쓸 수 있는 재시도가 그 전 10초 원래 호출의 10%로 묶인다
+      window: 10s
+      # 트래픽이 적을 때(초당 100건 미만)만 쓰인다. 창마다 10건(초당 1건)은 하위 서비스 처리량의 0.25%다
+      min-retries: 10
   # post stale 캐시(Redis). post가 성공할 때마다 마지막 정상 응답을 size별로 남기고, 실패하면 허용 시간 안의 것으로 stale 응답한다
   # (add-graceful-degradation design 결정 4, 5)
   post-cache:
