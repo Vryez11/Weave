@@ -7,6 +7,7 @@ feed-service는 피드 요청 하나에 설정한 시간 예산을 넘겨 하위
 #### Scenario: 의존성마다는 상한 안이지만 합치면 예산을 넘는다
 
 - **GIVEN** 시간 예산이 250ms, post·user·like의 호출 시간 상한이 각각 200ms이고, post-service와 user-service가 각각 150ms 늦게 응답한다
+- **AND** 게시글 작성자의 프로필이 user 로컬 캐시에 없다(있으면 예산을 넘긴 user를 캐시로 채워 빠진 영역이 아니다, `graceful-degradation`)
 - **WHEN** `GET /feed`를 부른다
 - **THEN** 응답이 350ms 안에 오고 200이며 `degradation.missing`에 `user`가 있다
 - **AND** `dependency` `user`, `cause` `budget_exhausted`인 `downstream_call_failed` 줄이 있다
