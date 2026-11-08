@@ -16,7 +16,7 @@
   - `FeedRetryBudgetScenarioTest`: "재시도 예산"(둘). 속성 이름은 `weave.retry.budget.ratio`, `min-retries`, `window`(design 결정 5, 11).
   - "기다리는 동안 호출이 먼저 끝났다"는 2.4의 단위 테스트(`gateway/RetryLoopTest`)로 둔다. 이 작업에서는 파일을 만들지 않는다.
   - 확인: 새 시나리오가 `integrationTest`에서 단언 실패(컴파일 오류가 아니다)하고 `test`는 통과한다.
-- [ ] 1.3 Retry-After와 ad 요청 수 상한 시나리오를 옮긴다.
+- [x] 1.3 Retry-After와 ad 요청 수 상한 시나리오를 옮긴다.
   - `FeedRetryAfterScenarioTest`: "Retry-After 동안 부르지 않는다"(다섯). 속성 `weave.retry-after.default-hold`, `max-hold`. 대기는 컨텍스트에 남으므로 시나리오가 끝날 때 대기가 풀릴 때까지 기다린다(정상 ad 스텁으로 광고가 채워질 때까지 `eventually`). 최대 대기 시간이 다른 시나리오는 다른 클래스(컨텍스트)로 나눈다. 테스트는 feed-service 내부 클래스를 쓰지 않고 HTTP·로그·지표로만 본다(Ralph 중에는 커밋된 테스트를 고칠 수 없다).
   - `FeedAdRateLimitScenarioTest`: "ad 계약 쿼터를 넘기 전에 멈춘다"(둘). 속성 `resilience4j.ratelimiter.instances.ad.limit-for-period`, `limit-refresh-period`, `timeout-duration`.
   - 확인: 1.2와 같다.
