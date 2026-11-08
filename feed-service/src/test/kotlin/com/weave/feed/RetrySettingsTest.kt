@@ -64,11 +64,11 @@ class RetrySettingsTest :
         }
 
         context("재시도 예산 (tasks 4.2)") {
-            test("F-005 재시도 예산은 최근 10초 원래 호출의 10%이고 창마다 최소 10번이다") {
+            test("F-005 재시도 예산은 최근 1초 원래 호출의 10%이고 창마다 최소 1번이다") {
                 val budget = context().getBean(RetryProperties::class.java).budget
                 budget.ratio shouldBe 0.1
-                budget.window shouldBe Duration.ofSeconds(10)
-                budget.minRetries shouldBe 10
+                budget.window shouldBe Duration.ofSeconds(1)
+                budget.minRetries shouldBe 1
             }
         }
 
