@@ -127,7 +127,7 @@
   - 대체가 `FeedAssembler` 한 곳에만 있는지, 응답의 `degradation`이 실제 대체와 맞는지(등급표 단위 테스트), 대체 수단(Redis 읽기·쓰기)이 시간 예산과 헬스 체크를 해치지 않는지, 설정값마다 측정이나 계산이 있는지(design 결정 4~7), 재시도가 없는지 본다.
   - 사람이 Grafana에서 S-06 실행 하나의 측정 구간을 보고, 리포트의 degrade 비율과 그래프가 맞는지 확인한다. (사람의 Grafana 확인은 하지 않았다. Compose 테스트 전에 환경을 내려 데이터가 없어졌고, 다시 측정하지 않기로 사용자가 정했다. 대신 내리기 전 같은 측정 구간의 Prometheus 값으로 맞춰 봤다: S-06 `weave_feed_sections_total{section="post",outcome="stale"}` 119,981 = 캐시 읽기 `hit` 119,981, 503 17 = 읽기 `error` 17, S-04 user `cached` 119,993·`missing` 0. `docs/experiments/graceful-degradation.md`)
   - 확인: 막는 지적이 없다.
-- [ ] 6.2 하네스 규칙 4장의 change 완료 조건을 확인한다.
+- [x] 6.2 하네스 규칙 4장의 change 완료 조건을 확인한다. (2026-11-08: 작업 모두 체크, `./gradlew ktlintCheck build --continue` 통과(feed-service 단위 129·통합 143 등 모든 모듈 실패 0), `:e2e:composeTest` 통과(Compose 20개), `openspec validate --all --strict` 통과, 막는 지적 없음, 장애 실험 세트 결과는 `docs/experiments/graceful-degradation.md`, PRD F-002·F-004·10장 반영. 전체 빌드에서 4.2 뒤 user 캐시와 부딪힌 예산 초과 시나리오를 고쳤다(c1e8802))
   - 장애 실험 세트 결과는 5.1이다. PR 설명에 판정 표와 고도화 3 비교 요약을 적는다.
   - 확인: 체크리스트가 모두 채워진다.
 
