@@ -308,6 +308,8 @@ if [ "$now" -lt "$ready" ]; then
 fi
 
 prometheus_failed=0
+# 판정 입력(요청 배율, ad 429)을 만드는 질의가 실패했다. 그 기준을 기대에 적은 시나리오는 판정하지 못함(2)으로 끝낸다
+verdict_input_failed=0
 # prom <query|query_range> <PromQL>: 측정 구간으로 질의해 .data.result를 쓴다. 실패하면 null을 쓴다.
 # Prometheus는 호스트에 열려 있어도 호스트에 curl이 있다고 보지 않아, 컨테이너 안의 wget으로 부른다
 prom() {
@@ -331,8 +333,8 @@ range="${duration_seconds}s"
 q_p99="$(prom query "histogram_quantile(0.99, sum by (client_name, le) (increase(http_client_requests_seconds_bucket{$FEED}[$range])))")" || prometheus_failed=1
 q_calls="$(prom query "sum by (client_name) (increase(http_client_requests_seconds_count{$FEED}[$range]))")" || prometheus_failed=1
 q_failed="$(prom query "sum by (client_name) (increase(http_client_requests_seconds_count{$FEED,outcome!=\"SUCCESS\"}[$range]))")" || prometheus_failed=1
-q_received="$(prom query "sum by (instance) (increase(http_server_requests_seconds_count{$DOWNSTREAM}[$range]))")" || prometheus_failed=1
-q_feed="$(prom query "sum(increase(http_server_requests_seconds_count{$FEED,uri=\"/feed\"}[$range]))")" || prometheus_failed=1
+q_received="$(prom query "sum by (instance) (increase(http_server_requests_seconds_count{$DOWNSTREAM}[$range]))")" || { prometheus_failed=1; verdict_input_failed=1; }
+q_feed="$(prom query "sum(increase(http_server_requests_seconds_count{$FEED,uri=\"/feed\"}[$range]))")" || { prometheus_failed=1; verdict_input_failed=1; }
 # 요청 배율 최댓값(F-005): 측정 구간 안의 20초 구간마다(5초 간격) 요청 배율을 계산해 가장 큰 값. 재시도 폭주는 서킷이 열리기 전
 # 몇 초에만 생겨 구간이 길면 열린 구간이 지운다. 측정이 짧으면 질의하지 않고 측정 구간 전체의 요청 배율을 쓴다
 q_ratio_max=null
@@ -340,14 +342,14 @@ ratio_windowed=0
 if [ "$duration_seconds" -ge $((RATIO_WINDOW_SECONDS * 2)) ]; then
   ratio_windowed=1
   ratio_window="${RATIO_WINDOW_SECONDS}s"
-  q_ratio_max="$(prom query "max_over_time((sum by (instance) (increase(http_server_requests_seconds_count{$DOWNSTREAM}[$ratio_window])) / scalar(sum(increase(http_server_requests_seconds_count{$FEED,uri=\"/feed\"}[$ratio_window]))))[$((duration_seconds - RATIO_WINDOW_SECONDS))s:5s])")" || prometheus_failed=1
+  q_ratio_max="$(prom query "max_over_time((sum by (instance) (increase(http_server_requests_seconds_count{$DOWNSTREAM}[$ratio_window])) / scalar(sum(increase(http_server_requests_seconds_count{$FEED,uri=\"/feed\"}[$ratio_window]))))[$((duration_seconds - RATIO_WINDOW_SECONDS))s:5s])")" || { prometheus_failed=1; verdict_input_failed=1; }
 fi
 # 재시도 결정 수(F-005). 의존성 5개 × 결정 4개를 feed-service가 시작할 때 0으로 등록한다
 q_retries="$(prom query "sum by (name, outcome) (increase(weave_retry_calls_total{$FEED}[$range]))")" || prometheus_failed=1
 # ad-service가 돌려준 429 수(F-005). 429를 한 번도 돌려주지 않았으면 시계열이 없어 0이다
-q_ad_429="$(prom query "sum(increase(http_server_requests_seconds_count{instance=~\"ad-service:[0-9]+\",uri!~\"/actuator.*\",status=\"429\"}[$range]))")" || prometheus_failed=1
+q_ad_429="$(prom query "sum(increase(http_server_requests_seconds_count{instance=~\"ad-service:[0-9]+\",uri!~\"/actuator.*\",status=\"429\"}[$range]))")" || { prometheus_failed=1; verdict_input_failed=1; }
 # ad 동시 호출 상한. 요청 한도가 넘친 순간 이미 나가 있던 호출 수의 상한이라 429를 받아도 되는 수에 쓴다
-q_ad_bulkhead="$(prom query "max(resilience4j_bulkhead_max_thread_pool_size{$FEED,name=\"ad\"})")" || prometheus_failed=1
+q_ad_bulkhead="$(prom query "max(resilience4j_bulkhead_max_thread_pool_size{$FEED,name=\"ad\"})")" || { prometheus_failed=1; verdict_input_failed=1; }
 q_tomcat="$(prom query_range "sum(tomcat_threads_busy_threads{$FEED})")" || prometheus_failed=1
 # 의존성별 ThreadPool 벌크헤드(F-001). Semaphore 벌크헤드는 지표 이름이 달라 섞이지 않는다
 q_bulkhead_active="$(prom query_range "max by (name) (resilience4j_bulkhead_active_thread_count{$FEED})")" || prometheus_failed=1
@@ -419,6 +421,13 @@ verdict_input="$(
 )" || fail "판정 입력을 만들지 못했다"
 echo "$verdict_input" >"$folder/verdict-input.json" || fail "판정 입력을 쓰지 못했다: $folder/verdict-input.json"
 
+# 판정 입력 질의가 실패했는데 기대가 요청 배율이나 Retry-After 기준을 판정하면, "값 없음"으로 기대와 다름(1)이 되지 않게 2로 끝낸다.
+# 실험 결과가 아니라 측정 실패이기 때문이다
+if [ "$verdict_input_failed" = 1 ] &&
+  jq -e --arg id "$scenario" '.scenarios[$id] | type == "object" and (has("requestRatio") or has("retryAfter"))' \
+    "$here/expectations.json" >/dev/null 2>&1; then
+  fail "판정 입력(요청 배율, ad 429)을 만드는 Prometheus 질의가 실패해 판정하지 못했다. 위의 질의 실패 줄과 Prometheus(127.0.0.1:9090)를 본다"
+fi
 verdict="$("$here/lib/verdict.sh" "$folder/summary.json" "$scenario" "$here/expectations.json" "$folder/verdict-input.json")"
 verdict_status=$?
 [ "$verdict_status" -le 1 ] || fail "판정하지 못했다(lib/verdict.sh 종료 코드 $verdict_status)"
