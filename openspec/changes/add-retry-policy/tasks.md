@@ -28,7 +28,7 @@
 - [x] 1.5 (대화형) 실험 세트의 판정 테스트를 델타대로 고친다.
   - `ExperimentVerdictScenarioTest`: 판정 입력 파일(넷째 인자) 형식을 KDoc에 정한다(`{"requestRatioMax": {<의존성>: 수|null}, "adRejections": {"rejected": 수|null, "allowed": 수|null}}`). "요청 배율 기준" 셋, "Retry-After 기준"의 두 판정 시나리오를 픽스처(`expectations-stage5.json`, `verdict-input-*.json`, 기존 요약 픽스처)로 더하고, "지금 단계의 기대"를 고도화 5로 바꾼다.
   - 확인: `./gradlew :e2e:integrationTest`에서 새·바뀐 판정 테스트만 실패하고 `./gradlew :e2e:test`는 통과한다.
-- [ ] 1.6 (대화형) Compose 테스트를 델타대로 고친다.
+- [x] 1.6 (대화형) Compose 테스트를 델타대로 고친다.
   - `ExperimentRunComposeScenarioTest`: "리포트 항목"(요청 배율 최댓값, 재시도 결정 수, ad 429 수, 판정 입력 파일), 새 "광고 요청 한도를 넘는 짧은 실행". KDoc의 `report.json` 형식에 `requestRatioMax`, `retries`, `adRejections`를 더한다.
   - `ExperimentDashboardComposeScenarioTest`: 재시도 결정 패널, ad Retry-After 대기 패널.
   - 확인: `./gradlew :e2e:compileTestKotlin`이 통과한다. Compose 테스트는 5.3에서 돌린다.

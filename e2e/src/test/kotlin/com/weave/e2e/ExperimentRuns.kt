@@ -73,6 +73,13 @@ object ExperimentRuns {
         }
     }
 
+    /** 결과 폴더의 JSON 파일 하나(예: `verdict-input.json`)를 읽는다. 없으면 실패한다. */
+    fun json(file: Path): Map<String, Any?> =
+        withClue("$file 이 있어야 한다") {
+            file.exists() shouldBe true
+            ComposeEnvironment.readJson(file.readText())
+        }
+
     fun report(folder: Path): Map<String, Any?> {
         val file = folder.resolve("report.json")
         return withClue("$file 이 있어야 한다 (폴더: ${folder.listDirectoryEntries().map { it.name }})") {
