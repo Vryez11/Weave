@@ -5,11 +5,11 @@
 feed-service는 `GET /feed`에 게시글 목록, 추천, 광고로 이루어진 피드를 돌려줘야 한다(SHALL).
 
 - `posts`: 항목마다 `id`, `title`, `content`, `createdAt`, `author`, `like`가 있고, post-service가 준 순서를 지킨다.
-  - `author`: `id`, `nickname`, `profileImageUrl`, `unknown`. 프로필을 알 수 없으면(`graceful-degradation`) `unknown`이 true이고 `nickname`, `profileImageUrl`은 null이다
-  - `like`: `count`, `myLike`(`LIKED`, `NOT_LIKED`, `UNKNOWN`). 좋아요를 알 수 없으면 `count`는 null, `myLike`는 `UNKNOWN`이다
+  - `author`: `id`, `nickname`, `profileImageUrl`, `unknown`
+  - `like`: `count`, `myLike`(`LIKED`, `NOT_LIKED`, `UNKNOWN`)
 - `recommendations`: 항목마다 `postId`, `title`, `reason`
 - `ads`: 항목마다 `id`, `title`, `imageUrl`, `landingUrl`
-- `degradation`: 빠진 영역(`missing`)과 오래된 데이터로 채운 영역(`stale`). 형식은 `graceful-degradation`의 "부분 응답 표시"를 따른다
+- `degradation`: `missing`, `stale`. 모르는 값과 이 형식은 `graceful-degradation`
 
 #### Scenario: 모든 하위 서비스가 정상
 
