@@ -583,7 +583,7 @@ traceId는 스레드에 붙은 컨텍스트(MDC, 관찰 컨텍스트)에 있어�
 | 대상 | 자원 상한 (`deploy.resources.limits`) | 메모 |
 |---|---|---|
 | feed-service | CPU 2, 메모리 1GB | Tomcat 최대 스레드 200을 `application.yml`에 명시한다(Boot 기본값, 4-2). Actuator는 관리 포트 8090(`MANAGEMENT_SERVER_PORT`)이고 헬스 체크와 Prometheus가 이 포트를 본다. 호스트 변수 `FEED_SPRING_APPLICATION_JSON`을 `SPRING_APPLICATION_JSON`으로 넘긴다(없으면 `{}`, 아래) |
-| 하위 서비스 5개 | 각 CPU 1, 메모리 512MB | |
+| 하위 서비스 5개 | 각 CPU 1, 메모리 512MB. like-service만 메모리 768MB | like-service는 JVM이 보는 메모리를 `-XX:MaxRAM=512m`으로 다른 서비스와 같게 둬 힙(128MB)과 GC를 그대로 두고 컨테이너 상한만 올렸다. 512MB에서 고도화 5 실험 세트 중 OOMKilled로 죽었다(힙 128MB에 네이티브 메모리 약 460MB, 2026-11-08) |
 | MySQL, Toxiproxy | 각 CPU 1 | |
 | Redis (`redis:8.2.2`) | CPU 0.5, 메모리 256MB | post stale 캐시(6-3). 캐시라 저장하지 않는다(`--save "" --appendonly no`). 값은 키 최대 50개 × 약 6KB이고 S-06의 읽기 400회/초는 한 코어 처리량에 비해 작다. 호스트 포트는 열지 않고 Toxiproxy 뒤에 두지 않는다. feed-service는 `REDIS_HOST=redis`로 부르고 Redis가 healthy가 된 뒤 뜬다(`add-graceful-degradation` design 결정 12) |
 | Alloy, Prometheus, Grafana | 각 CPU 0.5, 메모리 512MB | 실험 대상이 아니라 상한만 건다. OOM 재시작이 보이면 근거와 함께 올린다 |
