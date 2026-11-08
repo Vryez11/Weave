@@ -81,3 +81,13 @@
   - 2.4는 생성자에 `RetryProperties`와 `Clock`을 받아 의존성마다 `properties.budget.newBudget(clock)`으로 예산을 하나씩 만든다(null이면 예산 없이 다시 부른다). `call`마다 `recordCall()`(서킷이 막은 호출 포함), 실제로 다시 부르기 직전에 `tryAcquireRetry()`. false면 결정 `budget_exhausted`.
   - 단위 테스트의 시계는 `MovableClock`(실제 시간 + 이동)이 아니라 테스트 파일 안의 `ManualClock`처럼 손으로만 움직이는 시계를 쓴다. 칸 경계 단언이 실제 시간에 흔들리지 않는다.
 ---
+
+### 2026-11-08 12:20 - 2.3 Retry-After 대기를 만든다
+- 한 일: `RetryAfter.parse(header, now, defaultHold, maxHold)`(초·IMF-fixdate, 없음·읽지 못함·음수는 기본 대기, 지난 날짜는 0, 기본 대기도 최대 대기로 자른다, Long을 넘는 초는 상한까지). `RetryAfterHolds(clock)`: `check(dep)`(대기 중이면 `RetryAfterHoldException`), `hold(dep, duration)`(늘리기만, 대기를 새로 시작했을 때만 끝 시각을 돌려준다 = 대기 시작 로그 조건, 0 이하면 무시), `remaining(dep)`(게이지용). `RetryAfterProperties`(`weave.retry-after.default-hold`·`max-hold`, 둘 다 nullable: 없으면 기본 대기 0, 상한 없음)를 `IsolatedCalls`의 `@EnableConfigurationProperties`에 더했다(아직 쓰지 않는다).
+- 바꾼 파일: `feed-service/src/main/kotlin/com/weave/feed/gateway/RetryAfter.kt`, `RetryAfterHolds.kt`, `RetryAfterProperties.kt`(새), `IsolatedCalls.kt`(애너테이션), 테스트 `gateway/RetryAfterTest.kt`(6), `gateway/RetryAfterHoldsTest.kt`(7, 시계 `HoldClock`).
+- 확인: 새 단위 테스트 13개 통과, `ktlintCheck`, 타입 검사, `:feed-service:test`, `openspec validate`, `FeedRetryAfterMaxHoldScenarioTest`(컨텍스트) 통과.
+- 다음 반복이 알아 둘 것:
+  - 2.4: 시도가 429(`HttpClientErrorException`/`RestClientResponseException`, 상태 429)로 끝나면 `responseHeaders?.getFirst(RetryAfter.HEADER)`를 `RetryAfter.parse(..., clock.instant(), props.defaultHold, props.maxHold)`에 넘기고 `holds.hold(dep, d)`. 반환값이 null이 아니면 `retry_after_hold_started`(holdMs = `d.toMillis()`, holdUntil = 반환값). `check`는 던지므로 `call` 안에서 실패 future로 바꿔야 한다(서킷을 거치기 전).
+  - 테스트 파일마다 private 시계 클래스 이름이 달라야 한다(같은 패키지에서 `ManualClock` 재선언 불가). 이번엔 `HoldClock`.
+  - 기존 `FeedDegradationScenarioTest`·`FeedCircuitBreakerScenarioTest`는 `weave.retry-after.*`를 주지 않는다. 둘 다 `Retry-After` 초를 주므로 속성이 없어도(상한 없음) 동작한다.
+---

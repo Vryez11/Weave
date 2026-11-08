@@ -41,7 +41,7 @@
 - [x] 2.2 재시도 예산을 만든다(design 결정 5).
   - `RetryBudget`(창, 100ms 칸, 비율, 최솟값, `Clock`). `weave.retry.budget.*` 속성 구조(`RetryProperties`)만 두고 값은 4.2에서 넣는다(그때까지는 속성이 없으면 예산을 보지 않는다).
   - 확인: 단위 테스트 `gateway/RetryBudgetTest`(창 안·밖, 칸 경계, 최솟값과 비율 중 큰 값, 동시에 차감해도 넘지 않는다)가 통과한다.
-- [ ] 2.3 Retry-After 대기를 만든다(design 결정 4).
+- [x] 2.3 Retry-After 대기를 만든다(design 결정 4).
   - `RetryAfter.parse`(초, HTTP 날짜, 없음·읽지 못함, 음수, 상한), `RetryAfterHolds`(의존성별 대기 끝 시각, 늘리기만). `weave.retry-after.*` 속성 구조.
   - 확인: 단위 테스트 `gateway/RetryAfterTest`, `gateway/RetryAfterHoldsTest`가 통과한다.
 - [ ] 2.4 `IsolatedCalls.call`에 재시도 루프와 대기를 넣는다(design 결정 1, 3, 4).
