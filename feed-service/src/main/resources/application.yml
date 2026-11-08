@@ -154,7 +154,10 @@ resilience4j:
         # 근거와 함께 따로 넣는다(design 결정 11). 그때까지는 Resilience4j 기본값(500ns마다 50)이라 사실상 막지 않는다
         timeout-duration: 0
     instances:
-      ad: { base-config: default }
+      # ad 계약 쿼터(가정, PRD 3장): 인스턴스당 초당 600건, 1초 고정 창. 제공자의 1초 창에는 이 RateLimiter의 100ms 주기가 최대 11개
+      # 걸치므로 54 × 11 = 594 ≤ 600. 평균 초당 540건은 실험 피크 400 RPS의 1.35배이고, 주기마다 수요 40건에 54건이라 GC 멈춤 뒤
+      # 몰린 요청 14건까지 막지 않는다. 주기 1초(한도 300)는 피크를 받지 못한다 (add-retry-policy design 결정 6, 11)
+      ad: { base-config: default, limit-refresh-period: 100ms, limit-for-period: 54 }
 
 weave:
   # 재시도 예산(add-retry-policy design 결정 5, 10, 11). 의존성마다 최근 10초 원래 호출 수의 10%와 최솟값 중 큰 값까지만 다시 부른다
