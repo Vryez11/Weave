@@ -83,7 +83,7 @@
   - `./gradlew bootJar` 뒤 Compose를 띄워 S-01로 데우고 `experiments/run.sh S-01`이 0으로 끝나는지, ad degrade(상한으로 막힌 호출)와 요청 배율 최댓값을 본다. 결과를 design 결정 13 아래에 적는다.
   - `experiments/expectations.json`을 고도화 5로 바꾼다(design 결정 10). 설정값 커밋과 섞지 않는다.
   - 확인: S-01이 0으로 끝나고 `./gradlew ktlintCheck build`가 통과한다.
-- [ ] 4.6 재시도 예산 창을 1초로 줄인다(5.1의 첫 실험 세트 뒤, design 결정 5).
+- [x] 4.6 재시도 예산 창을 1초로 줄인다(5.1의 첫 실험 세트 뒤, design 결정 5).
   - 10초 창에서 S-09가 SLO를 지키지 못했다(장애 시작에 쌓인 예산이 한꺼번에 풀린 순간 feed-service가 멈춤). `RetrySettingsTest`를 먼저 고치고 `weave.retry.budget.window: 1s`, `min-retries: 1`을 근거 주석과 함께 넣는다. 설정값 커밋은 따로 한다.
   - 확인: `./gradlew ktlintCheck build`가 통과하고, 5.1을 처음부터 다시 돌린다.
 
