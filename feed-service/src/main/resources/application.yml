@@ -128,8 +128,18 @@ resilience4j:
   retry:
     configs:
       default:
-        # 값(횟수, 간격, 배수, jitter)은 근거와 함께 따로 넣는다(design 결정 11). 그때까지는 1(다시 부르지 않음)이다
-        max-attempts: 1
+        # 요청 하나에 최대 3번(Google SRE 책 22장). user·like가 post 중앙값(20ms) 뒤 시작해 빠른 실패(중앙값 20ms)를 두 번 겪어도
+        # 세 번째 시도의 상한(100ms)까지 약 190ms라 예산 250ms 안이다. 느린 경우는 "남은 예산 ≥ 상한 + 기다림" 조건이 막는다
+        # (add-retry-policy design 결정 3, 11)
+        max-attempts: 3
+        # 10ms, 20ms(×2)를 ±50% 펼쳐 기다린다. 기다림 합(최대 45ms)이 하위 서비스 평시 중앙값(20ms) 두 번 남짓이라 남은 예산을 시도
+        # 자체에 쓴다. 요청 안의 재시도는 순간 실패만 넘기고, 몇 초짜리 장애는 서킷(열림 5초)과 대체가 맡는다. jitter는 같은 순간 실패한
+        # 요청(400 RPS에서 10ms에 4건, 장애 시작이면 수백 건)이 같은 순간 다시 몰리지 않게 한다 (design 결정 11)
+        wait-duration: 10ms
+        enable-exponential-backoff: true
+        exponential-backoff-multiplier: 2
+        enable-randomized-wait: true
+        randomized-wait-factor: 0.5
     instances:
       post: { base-config: default }
       user: { base-config: default }
