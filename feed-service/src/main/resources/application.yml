@@ -170,6 +170,13 @@ weave:
       window: 10s
       # 트래픽이 적을 때(초당 100건 미만)만 쓰인다. 창마다 10건(초당 1건)은 하위 서비스 처리량의 0.25%다
       min-retries: 10
+  # 429의 Retry-After 대기(add-retry-policy design 결정 4, 11). 대기 중인 의존성은 부르지 않고 retry_after로 바로 대체한다
+  retry-after:
+    # Retry-After가 없거나 읽지 못한 429는 쿼터 창 하나(계약 1초 창)만 쉰다
+    default-hold: 1s
+    # 이보다 긴 Retry-After는 쿼터 창이 아니라 일일 한도 소진이나 제공자 장애다. 1분마다 한 번 확인하는 비용(분당 요청 1건)이 광고를
+    # 오래 잃는 비용보다 작다고 본다. 측정이 아니라 판단이고 change 승인 때 확인했다(2026-11-08)
+    max-hold: 60s
   # post stale 캐시(Redis). post가 성공할 때마다 마지막 정상 응답을 size별로 남기고, 실패하면 허용 시간 안의 것으로 stale 응답한다
   # (add-graceful-degradation design 결정 4, 5)
   post-cache:
