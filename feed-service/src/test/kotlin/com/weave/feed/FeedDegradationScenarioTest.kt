@@ -76,13 +76,14 @@ class FeedDegradationScenarioTest :
 
         context("중요·선택 등급의 실패는 피드를 실패시키지 않는다") {
             listOf("user", "like", "recommendation", "ad").forEach { dependency ->
-                test("F-002 중요·선택 등급 하나가 5xx: $dependency 가 503이면 200이 오고 $dependency 에는 한 번만 요청한다") {
+                test("F-002 F-005 중요·선택 등급 하나가 5xx: $dependency 가 503이면 200이 오고 $dependency 에는 최대 시도 횟수(테스트 기본 설정에서 1)보다 많이 요청하지 않는다") {
                     wireMock.stubAllHealthy()
                     wireMock.stubFailure(dependency, 503)
 
                     val response = feed().getFeed()
 
                     response.status shouldBe 200
+                    // 테스트 기본 설정(config/application.yml)은 재시도를 꺼 최대 시도 횟수가 1이다. ad는 재시도 인스턴스가 없다(add-retry-policy design 결정 12)
                     withClue("$dependency 가 받은 요청") { wireMock.requestsTo(wireMock.paths.getValue(dependency)) shouldHaveSize 1 }
                 }
             }
@@ -141,6 +142,9 @@ class FeedDegradationScenarioTest :
                 body["ads"] shouldBe emptyList<Any>()
                 body.missing() shouldBe listOf("ad")
                 withClue("ad가 받은 요청") { wireMock.requestsTo("/ads") shouldHaveSize 1 }
+                // F-005부터 feed-service는 Retry-After 동안 ad를 부르지 않는다. 대기는 컨텍스트에 남으므로, 뒤 시나리오가 광고를
+                // 기다리지 않게 대기(1초)가 끝날 때까지 기다린다(add-retry-policy design 결정 4, 12)
+                Thread.sleep(RETRY_AFTER_WAIT_MS)
             }
         }
 
@@ -231,3 +235,6 @@ private suspend fun circuitBreakerRegistry(): CircuitBreakerRegistry =
 
 /** 앞 시나리오가 남긴 서킷 상태와 기록을 지운다. 레지스트리의 서킷을 모두 닫힘으로 되돌린다. */
 private suspend fun resetCircuits() = circuitBreakerRegistry().allCircuitBreakers.forEach { it.reset() }
+
+/** "광고가 속도 조절 응답을 준다"의 `Retry-After: 1`이 끝날 때까지 기다리는 시간. 1초에 초 단위 경계 여유를 더했다. */
+private const val RETRY_AFTER_WAIT_MS = 1_200L

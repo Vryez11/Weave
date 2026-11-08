@@ -6,10 +6,10 @@
 
 **1.1, 1.5, 1.6은 이미 커밋된 테스트를 고치므로 Ralph 루프가 아니라 대화형(`/opsx:apply`)으로 먼저 끝낸다**(하네스 규칙 2-2의 훅). Ralph가 이 셋 중 체크되지 않은 작업을 만나면 구현하지 말고 progress.md에 적은 뒤 `<promise>BLOCKED</promise>`로 멈춘다.
 
-- [ ] 1.1 (대화형) `call-isolation`·`graceful-degradation` 델타를 기존 feed-service 테스트에 옮긴다.
+- [x] 1.1 (대화형) `call-isolation`·`graceful-degradation` 델타를 기존 feed-service 테스트에 옮긴다.
   - 테스트 기본 설정(`src/test/resources/config/application.yml`)에 재시도 인스턴스 넷(post, user, like, recommendation)의 `max-attempts: 1`을 둔다(design 결정 12). 아직 인스턴스가 없어도 속성만으로는 컨텍스트가 뜬다.
-  - `FeedCircuitBreakerScenarioTest`의 "4xx는 세지 않는다": ad 429에 `Retry-After: 60`, ad-service 요청 1개·recommendation 20개. 이 클래스는 시나리오마다 Retry-After 대기를 지운다(도구는 2.3에서 생기니 이 작업에서는 리플렉션 없이 쓸 수 있게 `RetryAfterHolds` 이름과 `clear()`를 KDoc에 정해 두고, 지우는 줄은 2.3에서 더한다. 그때까지 이 시나리오를 클래스 마지막에 둔다).
-  - `FeedDegradationScenarioTest`의 "중요·선택 등급 하나가 5xx": "최대 시도 횟수보다 많이 요청하지 않는다"(테스트 기본 설정에서 1). "광고가 속도 조절 응답을 준다"는 그대로다.
+  - `FeedCircuitBreakerScenarioTest`의 "4xx는 세지 않는다": ad 429에 `Retry-After: 60`, ad-service 요청 1개·recommendation 20개. 대기는 컨텍스트에 남지만 이 클래스의 뒤 시나리오는 ad를 보지 않는다.
+  - `FeedDegradationScenarioTest`의 "중요·선택 등급 하나가 5xx": "최대 시도 횟수보다 많이 요청하지 않는다"(테스트 기본 설정에서 1). "광고가 속도 조절 응답을 준다"는 끝에 대기(1초)가 끝날 때까지 기다려 뒤 시나리오가 광고를 잃지 않게 한다.
   - 확인: `./gradlew :feed-service:integrationTest`에서 "4xx는 세지 않는다"만 새로 실패하고(ad 요청 20 ≠ 1), `./gradlew :feed-service:test`는 통과한다.
 - [ ] 1.2 `retry-policy`의 재시도 시나리오를 옮긴다.
   - `FeedRetryScenarioTest`: "멱등한 조회만 재시도한다"(넷), "재시도하는 실패"(다섯), "재시도 간격", "남은 예산이 모자라다". 재시도를 켜는 속성(`resilience4j.retry.instances.<의존성>.max-attempts`, `wait-duration` 등)과 서킷 설정을 클래스마다 준다. 첫 요청만 503은 WireMock 시나리오 상태로 만든다. 연결 실패는 듣지 않는 포트.
@@ -17,7 +17,7 @@
   - "기다리는 동안 호출이 먼저 끝났다"는 2.4의 단위 테스트(`gateway/RetryLoopTest`)로 둔다. 이 작업에서는 파일을 만들지 않는다.
   - 확인: 새 시나리오가 `integrationTest`에서 단언 실패(컴파일 오류가 아니다)하고 `test`는 통과한다.
 - [ ] 1.3 Retry-After와 ad 요청 수 상한 시나리오를 옮긴다.
-  - `FeedRetryAfterScenarioTest`: "Retry-After 동안 부르지 않는다"(다섯). 속성 `weave.retry-after.default-hold`, `max-hold`. 시나리오마다 대기를 지운다(2.3 전까지는 시나리오마다 다른 Spring 컨텍스트나 순서로 피하고, 방법을 KDoc에 적는다).
+  - `FeedRetryAfterScenarioTest`: "Retry-After 동안 부르지 않는다"(다섯). 속성 `weave.retry-after.default-hold`, `max-hold`. 대기는 컨텍스트에 남으므로 시나리오가 끝날 때 대기가 풀릴 때까지 기다린다(정상 ad 스텁으로 광고가 채워질 때까지 `eventually`). 최대 대기 시간이 다른 시나리오는 다른 클래스(컨텍스트)로 나눈다. 테스트는 feed-service 내부 클래스를 쓰지 않고 HTTP·로그·지표로만 본다(Ralph 중에는 커밋된 테스트를 고칠 수 없다).
   - `FeedAdRateLimitScenarioTest`: "ad 계약 쿼터를 넘기 전에 멈춘다"(둘). 속성 `resilience4j.ratelimiter.instances.ad.limit-for-period`, `limit-refresh-period`, `timeout-duration`.
   - 확인: 1.2와 같다.
 - [ ] 1.4 로그·지표·설정 시나리오를 옮긴다.
@@ -42,7 +42,7 @@
   - `RetryBudget`(창, 100ms 칸, 비율, 최솟값, `Clock`). `weave.retry.budget.*` 속성 구조(`RetryProperties`)만 두고 값은 4.2에서 넣는다(그때까지는 속성이 없으면 예산을 보지 않는다).
   - 확인: 단위 테스트 `gateway/RetryBudgetTest`(창 안·밖, 칸 경계, 최솟값과 비율 중 큰 값, 동시에 차감해도 넘지 않는다)가 통과한다.
 - [ ] 2.3 Retry-After 대기를 만든다(design 결정 4).
-  - `RetryAfter.parse`(초, HTTP 날짜, 없음·읽지 못함, 음수, 상한), `RetryAfterHolds`(의존성별 대기 끝 시각, 늘리기만, `clear()`는 테스트용). `weave.retry-after.*` 속성 구조. 1.1·1.3에서 미뤄 둔 대기 지우기를 테스트에 더한다.
+  - `RetryAfter.parse`(초, HTTP 날짜, 없음·읽지 못함, 음수, 상한), `RetryAfterHolds`(의존성별 대기 끝 시각, 늘리기만). `weave.retry-after.*` 속성 구조.
   - 확인: 단위 테스트 `gateway/RetryAfterTest`, `gateway/RetryAfterHoldsTest`가 통과한다.
 - [ ] 2.4 `IsolatedCalls.call`에 재시도 루프와 대기를 넣는다(design 결정 1, 3, 4).
   - 순서 `재시도 → 대기 → 서킷 → (RateLimiter, 2.5) → TimeLimiter → 벌크헤드`. `RetryRegistry.find`로 설정을 꺼낸다. 마감은 `RequestDeadline`(`RequestBudget.call`이 `start()` 동안 둔다). `isolation-retry` 스케줄러, 다음 시도는 부른 스레드의 trace 문맥·MDC로 시작한다. 이미 끝난 호출은 다시 부르지 않는다. 429면 대기를 시작한다.

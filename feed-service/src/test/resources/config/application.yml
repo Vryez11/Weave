@@ -20,6 +20,15 @@ spring:
       ad: { connect-timeout: 2s, read-timeout: 2s }
 
 resilience4j:
+  # 재시도를 끈다(add-retry-policy design 결정 12). 하위 서비스 실패 시 요청 수를 단언하는 테스트가 재시도와 재시도 예산 상태
+  # (컨텍스트에 남는다)에 흔들리지 않게 한다. 재시도를 보는 시나리오만 @SpringBootTest(properties)로 max-attempts를 준다.
+  # 실제 값은 RetrySettingsTest(main 설정만 읽는다)와 장애 실험 세트가 확인한다
+  retry:
+    instances:
+      post: { max-attempts: 1 }
+      user: { max-attempts: 1 }
+      like: { max-attempts: 1 }
+      recommendation: { max-attempts: 1 }
   timelimiter:
     instances:
       post: { timeout-duration: 2s }

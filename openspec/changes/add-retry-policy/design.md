@@ -150,7 +150,7 @@ Retry(재시도 루프) → Retry-After 대기 → CircuitBreaker → RateLimite
 ### 12. 테스트
 
 - **테스트 기본 설정은 재시도를 끈다.** `feed-service/src/test/resources/config/application.yml`에 재시도 인스턴스 넷의 `max-attempts: 1`을 둔다. 하위 서비스 실패 시 요청 수를 단언하는 기존 테스트(서킷, 대체, 실패 로그)가 재시도와 예산 상태(컨텍스트에 남는다)에 흔들리지 않게 한다. 재시도를 보는 시나리오만 `@SpringBootTest(properties)`로 켠다. 실제 값은 `RetrySettingsTest`(main 설정만 읽는다, `IsolationSettingsTest`와 같은 방식)와 실험 세트가 확인한다.
-- **Retry-After 대기는 컨텍스트에 남는다.** 429를 주는 시나리오가 있는 클래스는 시나리오마다 대기를 지운다(`RetryAfterHolds.clear()`, 서킷 `reset()`과 같은 방식). 테스트 도구에서만 쓴다.
+- **Retry-After 대기는 컨텍스트에 남는다.** 429를 주는 시나리오는 끝날 때 대기가 풀릴 때까지 기다리거나(정상 ad로 광고가 채워질 때까지), 뒤 시나리오가 ad를 보지 않게 둔다. 대기를 지우는 테스트 전용 API는 두지 않는다. 테스트가 HTTP·로그·지표만 보게 해, Ralph 루프 중에 커밋된 테스트를 고칠 일이 없게 한다.
 - 단위(Spring 없음): `RetryBudget`(창, 칸, 최솟값, `Clock`), `RetryAfter` 머리글 읽기(초, HTTP 날짜, 없음, 음수, 상한), `RetryPolicy.retryable`, `DownstreamFailure`의 새 분류, 재시도 루프("기다리는 동안 호출이 먼저 끝났다": 가짜 시도 함수와 스케줄러로).
 - 통합(`@Tags("Integration")`, WireMock): `retry-policy` 시나리오 대부분. 첫 요청만 503인 것은 WireMock 시나리오 상태(`inScenario`)로 만든다. 간격은 WireMock이 기록한 요청 시각으로 잰다. 연결 실패는 듣지 않는 포트.
 - 테스트 이름에 `F-005`를 넣고, 로그 시나리오는 `F-004`도 넣는다.

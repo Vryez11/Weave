@@ -85,15 +85,18 @@ class FeedCircuitBreakerScenarioTest :
             }
         }
 
-        test("F-001 4xx는 세지 않는다: ad가 429, recommendation이 404를 줄 때 피드를 20번 부르면 두 서킷은 닫혀 있어 각각 요청 20개를 받는다") {
-            wireMock.stubFailure("ad", 429)
+        // ad의 Retry-After 대기(60초)는 컨텍스트에 남는다. 이 클래스의 뒤 시나리오는 ad를 보지 않는다(add-retry-policy design 결정 12)
+        test(
+            "F-001 F-005 4xx는 세지 않는다: ad가 429와 Retry-After 60, recommendation이 404를 줄 때 피드를 20번 부르면 두 서킷은 닫혀 있고 recommendation은 20개, ad는 1개를 받는다",
+        ) {
+            wireMock.stubFailure("ad", 429, retryAfterSeconds = 60)
             wireMock.stubFailure("recommendation", 404)
             val client = FeedHttpClient(localPort())
 
             LogCapture().use { capture ->
                 repeat(20) { client.getFeed() }
 
-                wireMock.requestsTo("/ads") shouldHaveSize 20
+                withClue("Retry-After 동안 부르지 않는 ad가 받은 요청") { wireMock.requestsTo("/ads") shouldHaveSize 1 }
                 wireMock.requestsTo("/recommendations") shouldHaveSize 20
                 listOf("ad", "recommendation").forEach { dependency ->
                     withClue("$dependency 의 circuit_open downstream_call_failed 줄") {
