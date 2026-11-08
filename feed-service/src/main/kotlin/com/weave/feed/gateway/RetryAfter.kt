@@ -19,7 +19,7 @@ object RetryAfter {
 
     /**
      * [header]를 [now] 기준의 대기 시간으로 바꾼다. [defaultHold]가 null이면 읽지 못한 머리글에 대기하지 않고, [maxHold]가 null이면 상한을 두지 않는다
-     * (값은 tasks 4.4에서 넣는다).
+     * (값은 main `application.yml`, tasks 4.4). HTTP 날짜는 IMF-fixdate(RFC 1123)만 읽는다. RFC 850·asctime 형식은 읽지 못한 머리글로 보고 기본 대기를 쓴다.
      */
     fun parse(
         header: String?,

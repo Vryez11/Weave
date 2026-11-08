@@ -6,7 +6,7 @@ import java.time.Duration
 /**
  * Retry-After 대기 설정 `weave.retry-after.*` (add-retry-policy design 결정 4, 11).
  *
- * 값은 근거와 함께 tasks 4.4에서 main `application.yml`에 넣는다. 그때까지 없으면 읽지 못한 머리글에 대기하지 않고 상한도 두지 않는다([RetryAfter.parse]).
+ * 값과 근거는 main `application.yml`(tasks 4.4)에 있다. 없으면(설정으로 지우면) 읽지 못한 머리글에 대기하지 않고 상한도 두지 않는다([RetryAfter.parse]).
  */
 @ConfigurationProperties("weave.retry-after")
 data class RetryAfterProperties(

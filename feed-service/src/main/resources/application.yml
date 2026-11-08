@@ -151,7 +151,7 @@ resilience4j:
     configs:
       default:
         # 허용을 기다리지 않는다. ad 호출은 요청 스레드에서 시작하므로 기다리면 요청 스레드가 묶인다 (design 결정 6). 주기와 주기당 한도는
-        # 근거와 함께 따로 넣는다(design 결정 11). 그때까지는 Resilience4j 기본값(500ns마다 50)이라 사실상 막지 않는다
+        # 인스턴스마다 둔다. 인스턴스에 값이 없으면 Resilience4j 기본값(500ns마다 50)이라 사실상 막지 않는다
         timeout-duration: 0
     instances:
       # ad 계약 쿼터(가정, PRD 3장): 인스턴스당 초당 600건, 1초 고정 창. 제공자의 1초 창에는 이 RateLimiter의 100ms 주기가 최대 11개

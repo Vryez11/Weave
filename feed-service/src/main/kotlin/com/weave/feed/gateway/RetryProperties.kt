@@ -7,7 +7,7 @@ import java.time.Duration
 /**
  * 재시도 설정 `weave.retry.*` (add-retry-policy design 결정 5, 11). 시도 횟수와 간격은 Resilience4j 스타터의 `resilience4j.retry.*`다.
  *
- * 예산 값은 근거와 함께 tasks 4.2에서 main `application.yml`에 넣는다. 그때까지 셋 중 하나라도 없으면 예산을 보지 않는다([Budget.newBudget]).
+ * 값과 근거는 main `application.yml`(tasks 4.2)에 있다. 셋 중 하나라도 없으면(설정으로 지우면) 예산을 보지 않는다([Budget.newBudget]).
  */
 @ConfigurationProperties("weave.retry")
 data class RetryProperties(
