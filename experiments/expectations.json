@@ -1,18 +1,14 @@
 {
-  "stage": "고도화 4",
+  "stage": "고도화 5",
   "scenarios": {
-    "S-01": {
-      "availability": "meet",
-      "p99": "meet",
-      "degradeRatio": "meet"
-    },
-    "S-02": "meet",
-    "S-03": "meet",
-    "S-04": "meet",
-    "S-05": "meet",
-    "S-06": "meet",
-    "S-07": "meet",
-    "S-08": "meet",
-    "S-09": "meet"
+    "S-01": { "availability": "meet", "p99": "meet", "degradeRatio": "meet", "requestRatio": "meet" },
+    "S-02": { "availability": "meet", "p99": "meet", "requestRatio": "meet" },
+    "S-03": { "availability": "meet", "p99": "meet", "requestRatio": "meet" },
+    "S-04": { "availability": "meet", "p99": "meet", "requestRatio": "meet" },
+    "S-05": { "availability": "meet", "p99": "meet", "requestRatio": "meet" },
+    "S-06": { "availability": "meet", "p99": "meet", "requestRatio": "meet" },
+    "S-07": { "availability": "meet", "p99": "meet", "requestRatio": "meet", "retryAfter": "meet" },
+    "S-08": { "availability": "meet", "p99": "meet", "requestRatio": "meet" },
+    "S-09": { "availability": "meet", "p99": "meet", "requestRatio": "meet" }
   }
 }
