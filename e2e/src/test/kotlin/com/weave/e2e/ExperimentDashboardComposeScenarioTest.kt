@@ -55,6 +55,12 @@ class ExperimentDashboardComposeScenarioTest :
                 // feed-service가 시작할 때 0부터 등록해 장애가 없어도 시계열이 있다. 503 수는 http_server_requests_seconds의 status로 본다
                 "weave_feed_sections_total",
                 "weave_post_cache_reads_total",
+                // 의존성별 재시도 결정, ad의 Retry-After 대기와 요청 수 상한으로 막은 호출 (add-retry-policy design 결정 9, 10).
+                // feed-service가 시작할 때 0부터 등록한다. ad-service의 429는 http_server_requests_seconds의 status로 본다
+                "weave_retry_calls_total",
+                "weave_retry_after_hold_remaining_seconds",
+                "weave_retry_after_rejected_calls_total",
+                "weave_ratelimiter_rejected_calls_total",
             )
         // MVP의 공유 풀 패널은 고도화 3에서 지웠다
         val removedMetrics = listOf("executor_active_threads", "executor_queued_tasks")
@@ -77,7 +83,9 @@ class ExperimentDashboardComposeScenarioTest :
                 own + queries(panel["panels"].asList())
             }
 
-        test("F-002 대시보드를 불러온다: S-01을 짧게 돌린 뒤 Grafana에 피드 실험 대시보드가 있고, 서킷 상태·벌크헤드·degrade 비율 패널이 있으며, 패널 질의가 모두 오류 없이 시계열을 돌려준다") {
+        test(
+            "F-002 F-005 대시보드를 불러온다: S-01을 짧게 돌린 뒤 Grafana에 피드 실험 대시보드가 있고, 서킷 상태·벌크헤드·degrade 비율·재시도 결정·Retry-After 대기 패널이 있으며, 패널 질의가 모두 오류 없이 시계열을 돌려준다",
+        ) {
             val run =
                 ComposeEnvironment.experiment(
                     "run.sh",

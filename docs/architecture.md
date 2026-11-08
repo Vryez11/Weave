@@ -1,7 +1,7 @@
 # 아키텍처
 
 - 작성일: 2026-11-04
-- 상태: 초안. 고도화 4(`add-graceful-degradation`, F-002)까지 반영했다. 격리 설정값과 근거는 4-3과 5-6, 대체 설정값은 6-4, 결과는 [고도화 3 결과](experiments/call-isolation.md)와 [고도화 4 결과](experiments/graceful-degradation.md)에 있다.
+- 상태: 초안. 고도화 5(`add-retry-policy`, F-005)까지 반영했다. 격리·재시도 설정값과 근거는 4-3과 5-6, 대체 설정값은 6-4, 결과는 [고도화 3 결과](experiments/call-isolation.md), [고도화 4 결과](experiments/graceful-degradation.md), [고도화 5 결과](experiments/retry-policy.md)에 있다.
 - 근거: [PRD](prd.md)의 단계, SLO, 의존성 등급. 기능 ID별 세부 설계는 OpenSpec change에서 정한다.
 
 ## 1. 결정 요약
@@ -116,7 +116,7 @@ sequenceDiagram
 | MVP | 없음. 타임아웃은 라이브러리 기본값, 병렬 호출은 공유 스레드 풀 하나(Boot의 기본 `applicationTaskExecutor`) |
 | 고도화 3 | 조회는 `IsolatedCalls`가 의존성마다 서킷 브레이커 → 호출 시간 상한(TimeLimiter) → ThreadPool 벌크헤드로 감싸고, HttpClient 그룹마다 연결·응답·커넥션 대기 타임아웃과 커넥션 풀 크기를 둔다. `FeedAssembler`가 요청 시간 예산(`RequestBudget`)으로 기다린다. 좋아요 토글은 요청 스레드에서 like 서킷과 Semaphore 벌크헤드 `like-toggle`을 거친다. 공유 풀(`applicationTaskExecutor`)은 비교 실험용 Semaphore 모드(`weave.isolation.bulkhead-type: semaphore`)에서만 조회를 돌린다 |
 | 고도화 4 | 고도화 3 그대로 감싸고, `FeedAssembler`가 의존성마다 결과를 값으로 받아(`RequestBudget.awaitResult`) 등급대로 대체한다(6장). post가 실패하면 요청 스레드에서 Redis stale 캐시(`PostStaleCache`)를 읽고, 그것도 안 되면 503이다. user 실패는 Caffeine 로컬 캐시(`UserProfileCache`)로 채운다. 응답에 `degradation`이 붙는다 |
-| 고도화 5 | 재시도(멱등한 호출만), ad의 RateLimiter와 Retry-After |
+| 고도화 5 | 조회는 `IsolatedCalls`가 재시도 루프(`RetryLoop`) → Retry-After 대기(`RetryAfterHolds`) → 서킷 브레이커 → 요청 수 상한(RateLimiter, ad만) → TimeLimiter → ThreadPool 벌크헤드로 감싼다. 재시도는 멱등한 조회(post, user, like, recommendation)만, 재시도할 실패(5xx, 연결 실패, 커넥션 풀 대기를 뺀 입출력 실패)에만, 요청의 남은 시간 예산(`RequestDeadline`)과 의존성별 재시도 예산(`RetryBudget`) 안에서 한다. ad(외부 API)와 좋아요 토글은 다시 부르지 않는다. 429를 받으면 `Retry-After` 동안 그 의존성을 부르지 않는다(5-4, 5-5) |
 
 MVP의 "공유 스레드 풀 하나 + 기본 타임아웃"은 실무에서 흔한 실수를 일부러 재현한 것이다. 하위 서비스 하나가 느려지면 공유 풀과 Tomcat 스레드가 함께 묶여 피드 전체가 느려지는 모습을 고도화 2에서 기준선으로 남긴다. 기본값(풀 크기, 큐 크기, HttpClient의 응답 타임아웃)은 `add-feed-aggregation` change에서 실제 값을 확인해 기록한다.
 
@@ -180,7 +180,7 @@ p99 300ms(PRD 2장) 안에 응답하기 위한 나눔이다. 하위 서비스의
 ```mermaid
 flowchart LR
     asm["FeedAssembler<br/>호출 순서 · 시간 예산 · 등급별 대체"] --> gw["PostGateway 등<br/>의존성마다 하나의 Bean"]
-    gw --> iso["IsolatedCalls<br/>서킷 → TimeLimiter → 벌크헤드<br/>실패 로그"]
+    gw --> iso["IsolatedCalls<br/>재시도 → Retry-After 대기 → 서킷<br/>→ RateLimiter → TimeLimiter → 벌크헤드<br/>실패 로그"]
     iso --> http["PostClient 등<br/>@HttpExchange"]
     http --> rc["RestClient<br/>+ HttpClient 5 풀"]
 ```
@@ -191,7 +191,9 @@ flowchart LR
   - 감싸는 순서(5-4)가 aspect 순서 속성에 흩어지지 않고, self-invocation처럼 프록시를 거치지 않는 호출이 조용히 빠지는 일이 없다. "격리를 거치지 않는 호출이 없다"를 Gateway가 `IsolatedCalls`만 쓰는지로 확인한다.
   - AOP 의존성을 더하지 않는다.
 - 요청 스레드에서 동기로 부르는 좋아요 토글은 `isolated.callBlocking("like", IsolatedCalls.LIKE_TOGGLE) { ... }`로 부른다. 조회와 같은 `like` 서킷과 Semaphore 벌크헤드 `like-toggle`을 거치고 TimeLimiter는 쓰지 않는다(그룹의 응답 타임아웃이 같은 역할을 한다, design 결정 6).
-- 실패 로그(`downstream_call_failed`)도 `IsolatedCalls`가 감싼 future의 결과에서 한 번만 남긴다. 시간 상한이나 요청 시간 예산이 먼저 끝낸 호출의 뒤늦은 실패는 남기지 않는다.
+- 실패 로그(`downstream_call_failed`)도 `IsolatedCalls`가 감싼 future의 결과에서 한 번만 남긴다. 시간 상한이나 요청 시간 예산이 먼저 끝낸 호출의 뒤늦은 실패는 남기지 않는다. 다시 부른 시도의 실패는 실패 로그가 아니라 `downstream_call_retried` 줄의 `cause`로 남고, 실패 로그는 마지막 시도의 실패로 한 번이다(`add-retry-policy` design 결정 8).
+- **재시도 루프는 Resilience4j `Retry`가 아니라 `IsolatedCalls`(`RetryLoop`)가 직접 돈다**(`add-retry-policy` design 결정 1). 다시 부를지는 실패 종류만이 아니라 그 요청의 남은 시간, 의존성의 재시도 예산, 요청 시간 예산이 이미 끝냈는지를 시도마다 봐야 해서다. 설정(최대 시도 횟수, 간격 함수)만 스타터가 만든 `RetryRegistry`에서 의존성 이름으로 꺼내고(`RetryRegistry.find`, 인스턴스가 없는 ad는 다시 부르지 않는다), 스타터의 `resilience4j_retry_calls_total`은 늘 0이다. 재시도 결정은 `weave_retry_calls_total`로 센다.
+- 마감은 `RequestBudget.call`이 `start()`를 부르는 동안만 ThreadLocal `RequestDeadline`에 둔다. Gateway가 `IsolatedCalls.call`을 그 안에서 동기로 부른다는 구조에 기댄다(마감이 없으면 시간 조건 없이 시도 횟수만 본다).
 - 서킷 상태 전이 로그(`circuit_state_changed`)는 `CircuitStateLog`가 레지스트리의 서킷마다 건다(design 결정 9).
 - **fallback은 `FeedAssembler` 한 곳에서 한다**(`add-graceful-degradation` design 결정 1). Gateway와 `IsolatedCalls`는 실패를 그대로 넘기고(실패 로그만 남긴다), `FeedAssembler`가 의존성별 결과를 받아 PRD 3장의 등급표대로 응답을 만든다(6장). Resilience4j fallback이나 Gateway에서 대체하지 않는 이유는 둘이다. 응답의 `degradation`은 무엇을 대체했는지 알아야 만들 수 있고, 대체에는 요청 문맥(post 캐시의 `size`, user 대체의 작성자 ID)이 필요하다. 이렇게 두면 F-005의 재시도는 `IsolatedCalls` 안에 들어가 "재시도가 다 실패한 뒤에 대체한다"는 순서가 구조로 정해진다.
 
@@ -213,7 +215,9 @@ resilience4j:
         permitted-number-of-calls-in-half-open-state: ...
         automatic-transition-from-open-to-half-open-enabled: true
         record-failure-predicate: com.weave.feed.gateway.CircuitFailurePredicate   # 5-5
-        ignore-exceptions: io.github.resilience4j.bulkhead.BulkheadFullException
+        ignore-exceptions:                 # 부르지 않은 호출은 성공으로도 세지 않는다 (5-5)
+          - io.github.resilience4j.bulkhead.BulkheadFullException
+          - io.github.resilience4j.ratelimiter.RequestNotPermitted
     instances:
       post: { base-config: default }     # user, like, recommendation, ad도 같다
   timelimiter:
@@ -232,25 +236,44 @@ resilience4j:
       default:
         max-wait-duration: 0
     instances: { like-toggle: ..., post: ..., ... }
-  retry: { ... }                         # 고도화 5
-  ratelimiter: { ... }                   # ad 쿼터 (고도화 5)
+  retry:                                 # 멱등한 조회의 재시도 (고도화 5). IsolatedCalls가 설정만 꺼내 쓴다 (5-2)
+    configs:
+      default:
+        max-attempts: ...                # wait-duration, exponential-backoff-multiplier, randomized-wait-factor도
+    instances:
+      post: { base-config: default }     # user, like, recommendation도 같다. ad는 두지 않는다(다시 부르지 않는다)
+  ratelimiter:                           # ad 계약 쿼터 (고도화 5). 인스턴스가 있는 의존성만 감싼다
+    configs:
+      default:
+        timeout-duration: 0              # 허용을 기다리지 않는다
+    instances:
+      ad: { base-config: default }       # limit-refresh-period, limit-for-period
 
 weave:
   isolation:
     bulkhead-type: thread-pool           # thread-pool | semaphore (5-2)
+  retry:
+    budget:                              # 의존성별 재시도 예산 (RetryProperties, RetryBudget). 셋 중 하나라도 없으면 예산을 보지 않는다
+      ratio: ...                         # 창 안 원래 호출 수에 대한 재시도 비율
+      min-retries: ...                   # 창마다 최소 재시도 수
+      window: ...
+  retry-after:                           # 429의 Retry-After 대기 (RetryAfterProperties, RetryAfterHolds)
+    default-hold: ...                    # 머리글이 없거나 읽지 못할 때
+    max-hold: ...                        # 이보다 긴 Retry-After는 여기서 자른다
 ```
 
 HTTP 클라이언트의 타임아웃과 풀 크기는 Boot 그룹 설정(`spring.http.serviceclient.<그룹>.connect-timeout`, `read-timeout`)과 `weave.http-client.*`(`HttpClientProperties`: `connection-request-timeout`, `max-connections-per-route`, `groups.<그룹>.max-connections`), 요청 시간 예산은 `weave.feed.time-budget`이다.
 
 ### 5-4. 적용 순서
 
-순서는 바깥에서 안쪽으로 `Retry → CircuitBreaker → RateLimiter → TimeLimiter → Bulkhead → 호출`이다(Resilience4j aspect의 기본 순서와 같다). 순서는 코드 한 곳, `IsolatedCalls.call`에만 있다(5-2). 고도화 3에는 CircuitBreaker → TimeLimiter → Bulkhead가 있고, Retry와 RateLimiter는 고도화 5에서 같은 곳에 더한다. 좋아요 토글(`IsolatedCalls.callBlocking`)은 CircuitBreaker → Semaphore 벌크헤드 → 호출이다.
+순서는 바깥에서 안쪽으로 `Retry → Retry-After 대기 → CircuitBreaker → RateLimiter → TimeLimiter → Bulkhead → 호출`이다(Retry-After 대기를 뺀 순서는 Resilience4j aspect의 기본 순서와 같다). 순서는 코드 한 곳, `IsolatedCalls.call`에만 있다(5-2). 고도화 3에 CircuitBreaker → TimeLimiter → Bulkhead를 두었고, 고도화 5(`add-retry-policy` design 결정 1, 4, 6)에서 재시도 루프, Retry-After 대기, RateLimiter를 같은 곳에 더했다. 좋아요 토글(`IsolatedCalls.callBlocking`)은 CircuitBreaker → Semaphore 벌크헤드 → 호출이고 다시 부르지 않는다.
 
 | 순서 (바깥 → 안) | 이렇게 둔 이유 |
 |---|---|
-| Retry (고도화 5) | 재시도 한 번 한 번이 서킷 브레이커를 거쳐, 실패가 서킷에 그대로 집계되고 서킷이 열리면 재시도가 바로 멈춘다 |
+| Retry (`RetryLoop`, 고도화 5) | 재시도 한 번 한 번이 대기·서킷 브레이커를 거쳐, 실패가 서킷에 그대로 집계되고 서킷이 열리면 다음 시도가 `circuit_open`(재시도하지 않는 실패)으로 끝나 재시도가 바로 멈춘다. 시간 상한과 벌크헤드도 시도마다 다시 적용된다. 기다리는 동안은 스레드도 벌크헤드 자리도 잡지 않고, 다음 시도를 `isolation-retry` 스케줄러에 예약한다 |
+| Retry-After 대기 (`RetryAfterHolds`, 고도화 5) | 429의 `Retry-After`가 끝날 때까지 그 의존성을 부르지 않는다. 서킷 바깥이라 막은 호출(`retry_after`)은 서킷에 닿지 않고 쿼터도 쓰지 않는다. 서킷을 강제로 여는 방법은 저절로 돌아오지 않고 429를 장애처럼 보이게 해서 쓰지 않았다(design 결정 4) |
 | CircuitBreaker | 열려 있으면 RateLimiter, 벌크헤드 자원을 쓰기 전에 바로 실패한다 |
-| RateLimiter (고도화 5) | 쿼터는 실제로 나가는 호출에만 쓴다 |
+| RateLimiter (고도화 5, ad만) | 쿼터는 실제로 나가는 호출에만 쓴다. 허용을 기다리지 않고(`timeout-duration: 0`) `RequestNotPermitted`로 바로 끝난다. 요청 스레드에서 ad 호출을 시작하므로 기다리면 요청 스레드가 묶인다 |
 | TimeLimiter | 벌크헤드에서 자리를 잡는 시간까지 호출 시간 상한에 포함한다. 시간 예산은 사용자가 기다리는 시간 기준이기 때문이다 |
 | Bulkhead | 실제 호출을 의존성별 스레드 풀에서 돌린다. Semaphore 모드면 의존성별 허가 수를 잡고 `applicationTaskExecutor`에서 돌린다 |
 
@@ -258,16 +281,20 @@ HTTP 클라이언트의 타임아웃과 풀 크기는 Boot 그룹 설정(`spring
 
 | 분류 | 예외·응답 | 실패 로그 `cause` | 서킷 | 재시도 |
 |---|---|---|---|---|
-| 하위 서비스 문제 | 호출 시간 상한·응답 타임아웃, 연결 실패, 그 밖의 입출력 실패, 5xx | `timeout`, `connect_failure`, `io_failure`, `http_<상태 코드>` | 실패로 센다 | 멱등한 호출만 (고도화 5) |
+| 하위 서비스 문제 | 연결 실패, 그 밖의 입출력 실패, 5xx | `connect_failure`, `io_failure`, `http_<상태 코드>` | 실패로 센다 | 멱등한 조회만 한다(고도화 5). 입출력 실패 중 커넥션 풀 대기 초과(`ConnectionRequestTimeoutException`)는 feed 쪽 자원 부족이라 안 한다 |
+| 하위 서비스 문제 (느림) | 호출 시간 상한·응답 타임아웃 | `timeout` | 실패로 센다 | 안 한다. 느린 의존성에 다시 보내면 부하만 키우고, 남은 예산에 다시 부른 시도의 상한이 들어가지 않는다 |
 | 요청 문제 | 4xx(429 제외) | `http_<상태 코드>` | 세지 않는다 | 안 한다 |
-| 속도 조절 | 429 + Retry-After (ad) | `http_429` | 세지 않는다(4xx). F-005가 Retry-After 처리와 함께 다시 정한다 | 안 한다. Retry-After 동안 호출하지 않는다 |
+| 속도 조절 | 429 + Retry-After (ad) | `http_429` | 세지 않는다(4xx) | 안 한다. `Retry-After` 동안 그 의존성을 부르지 않는다(아래) |
 | 우리 쪽 거절 | 벌크헤드 가득 참, 서킷 열림, 요청 시간 예산 초과 | `bulkhead_full`, `circuit_open`, `budget_exhausted` | 세지 않는다 | 안 한다 |
+| 우리 쪽 거절 (고도화 5) | 요청 수 상한(`RequestNotPermitted`, ad), Retry-After 대기 중(`RetryAfterHoldException`) | `rate_limited`, `retry_after` | 세지 않는다(`rate_limited`는 `ignore-exceptions`, `retry_after`는 서킷 바깥이라 닿지 않는다) | 안 한다 |
 
-- 실패 로그의 `cause`와 서킷의 판정은 같은 분류를 쓴다(`DownstreamFailure.of`, `DownstreamFailure.countsAsCircuitFailure`). 서킷에는 `record-failure-predicate`로 `CircuitFailurePredicate`를 넘긴다(`add-call-isolation` design 결정 7).
-- Resilience4j는 실패 판정이 거짓인 예외를 성공으로 센다. 4xx는 하위 서비스가 응답한 것이라 성공으로 세도 되지만, 벌크헤드 거절(`BulkheadFullException`)은 부르지도 않은 호출이라 `ignore-exceptions`로 아예 세지 않는다. 성공으로 세면 절반이 거절되는 장애(S-02)에서 실패율이 묽어진다.
+- 실패 로그의 `cause`와 서킷의 판정은 같은 분류를 쓴다(`DownstreamFailure.of`, `DownstreamFailure.countsAsCircuitFailure`). 서킷에는 `record-failure-predicate`로 `CircuitFailurePredicate`를 넘긴다(`add-call-isolation` design 결정 7). 다시 부를지(`RetryPolicy.retryable`)도 같은 분류로 정한다(`add-retry-policy` design 결정 2).
+- Resilience4j는 실패 판정이 거짓인 예외를 성공으로 센다. 4xx는 하위 서비스가 응답한 것이라 성공으로 세도 되지만, 벌크헤드 거절(`BulkheadFullException`)과 요청 수 상한 거절(`RequestNotPermitted`)은 부르지도 않은 호출이라 `ignore-exceptions`로 아예 세지 않는다. 성공으로 세면 절반이 거절되는 장애(S-02)에서 실패율이 묽어진다.
 - 서킷 열림(`CallNotPermittedException`)은 서킷이 막은 호출이라 서킷에 다시 기록되지 않는다. 예산 초과(`TimeBudgetExhaustedException`)는 `FeedAssembler`가 서킷 밖에서 끝내는 것이라 서킷에 닿지 않는다.
 
-Retry-After 동안 호출을 막는 방법(서킷을 그 시간만큼 열어 두기, 별도 대기 상태 등)은 `add-retry-policy`에서 정한다.
+**Retry-After 대기 (`add-retry-policy` design 결정 4).** 시도가 429로 끝나면 `IsolatedCalls`가 응답 머리글 `Retry-After`(초 또는 HTTP 날짜)를 `RetryAfter.parse`로 읽어 그 의존성의 대기 끝 시각을 `RetryAfterHolds`에 둔다. 머리글이 없거나 읽지 못하면 기본 대기(`weave.retry-after.default-hold`), 긴 값은 최대 대기(`weave.retry-after.max-hold`)로 자르고, 이미 대기 중이면 더 늦은 시각으로만 늘린다. 대기 중인 호출은 서킷도 RateLimiter도 거치지 않고 `retry_after`로 바로 끝난다. 429를 주는 것은 ad뿐이지만 의존성 이름으로 가르지 않는다. 대기를 새로 시작할 때만 `retry_after_hold_started` 로그를 남기고, 막은 호출은 실패 로그와 `weave_retry_after_rejected_calls_total`로 센다. 남은 대기 시간은 `weave_retry_after_hold_remaining_seconds`다.
+
+**재시도 판정 순서 (`RetryLoop`, design 결정 2, 3, 5).** 재시도할 실패가 나면 시도 횟수(`max-attempts`) → 남은 시간(`마감 − 지금 ≥ 그 의존성의 TimeLimiter 상한 + 기다릴 시간`) → 재시도 예산(`창 안의 재시도 수 < max(min-retries, floor(ratio × 창 안의 원래 호출 수))`) 순서로 보고, 결정 하나를 `weave_retry_calls_total{outcome=retried|attempts_exhausted|deadline|budget_exhausted}`로 센다. 시간을 예산보다 먼저 봐 보내지 않을 재시도로 예산을 쓰지 않는다. 다시 부르기로 하면 `downstream_call_retried`(`dependency`, `attempt`, `cause`, `waitMs`)를 남긴다. 예약한 재시도가 돌기 전에 요청 시간 예산이 호출을 먼저 끝냈으면 보내지 않는다.
 
 ### 5-6. 설정값을 정하는 방법
 
@@ -295,6 +322,17 @@ Retry-After 동안 호출을 막는 방법(서킷을 그 시간만큼 열어 두
 | 서킷: 실패율 문턱 | 50% | 같음 | 기준선 S-01의 호출 실패율 0 |
 | 서킷: 느린 호출 기준, 문턱 | 80ms, 50% | 160ms, 50% | 상한의 80%. 평시에 경계를 넘는 비율 0.17% 이하 |
 | 서킷: 열림 유지 시간, 반열림 시험 호출 | 5초, 10개 | 같음 | S-08 복구 시간 목표 20초(PRD 10장)에서 거꾸로 정했다 |
+
+**정한 값 (F-005, 2026-11-08).** feed-service `application.yml`에 근거 주석과 함께 있고, `RetrySettingsTest`가 main 설정만 읽어 확인한다. 자세한 내용은 `add-retry-policy` design 결정 5, 6, 11이다.
+
+| 값 | 설정 | 근거 |
+|---|---|---|
+| 최대 시도 횟수 | 3 (post, user, like, recommendation). ad와 좋아요 토글은 다시 부르지 않는다 | Google SRE 책 22장의 "요청 하나에 최대 3번". user·like가 post 중앙값(20ms) 뒤 시작해 빠른 실패(중앙값 20ms)를 두 번 겪어도 세 번째 시도의 상한(100ms)까지 약 190ms라 요청 시간 예산 250ms 안이다 |
+| 재시도 전 기다림 | 10ms, 20ms(지수 ×2), ±50% | 기다림 합(최대 45ms)이 하위 서비스 평시 중앙값 두 번 남짓이라 남은 예산을 시도 자체에 쓴다. jitter는 장애 시작에 같은 순간 실패한 수백 건이 같은 순간 다시 몰리지 않게 한다 |
+| 남은 시간 조건 | 마감 − 지금 ≥ 그 의존성의 호출 시간 상한 + 기다림 | 끝까지 기다리지 못할 시도는 보내지 않는다(design 결정 3) |
+| 재시도 예산 | 의존성마다 최근 1초(100ms 칸 10개) 원래 호출의 10%, 창마다 최소 1번 | 비율은 Google SRE 책 22장의 클라이언트별 재시도 예산 10%. 장애가 시작되는 순간 풀리는 재시도는 창에 쌓인 예산 전부라, 창 1초면 400 RPS에서 40번(100ms 칸 하나의 평시 호출 수)이다. 처음에는 서킷 판단 창과 같은 10초였는데, S-09에서 장애 시작에 재시도가 0.5초 안에 약 120~320번 몰린 직후 feed-service가 0.2~0.7초 멈추고 503이 났다. 1초로 줄인 뒤 503은 줄었지만 멈춤의 원인은 가리지 못했다([고도화 5 결과](experiments/retry-policy.md)). 계산한 S-09 장애 초반 요청 배율은 예산이 있으면 약 1.03, 없으면 약 1.33이고, 판정 상한 1.2(PRD 10장)가 둘을 가른다 |
+| ad 요청 수 상한 | 100ms마다 54건, 기다리지 않음 | 계약 쿼터 초당 600건(가정, PRD 3장). 상한 주기가 제공자의 1초 창과 맞지 않아 어느 1초 창에도 주기 11개가 걸친다. 54 × 11 = 594 ≤ 600. 평균 초당 540건은 피크 400 RPS의 1.35배 |
+| Retry-After 기본 대기, 최대 대기 | 1초, 60초 | 머리글이 없는 429는 계약 쿼터 창 하나만 쉰다. 60초보다 긴 값은 일일 한도 소진이나 제공자 장애로 보고 1분마다 한 번 확인한다(판단, change 승인 때 확인) |
 
 ## 6. Graceful Degradation 구현
 
@@ -494,6 +532,7 @@ traceId는 스레드에 붙은 컨텍스트(MDC, 관찰 컨텍스트)에 있어�
 |---|---|
 | Spring `TaskExecutor` (`applicationTaskExecutor`) | `spring.task.execution.propagate-context=true`(라이브러리 기본값, 7-1). Boot가 `ContextPropagatingTaskDecorator`를 붙인다. `TaskDecorator` Bean을 직접 두지 않는다 |
 | Resilience4j ThreadPool 벌크헤드 | `resilience4j.thread-pool-bulkhead.configs.default.context-propagators`에 `TraceContextPropagator`(feed-service)를 등록한다. 일을 넣는 스레드에서 Micrometer Context Propagation 스냅샷을 뜨고 벌크헤드 스레드에서 펼친다(관찰과 MDC). 벌크헤드 스레드는 결과 future를 끝내기 전에 문맥을 닫으므로, 결과에 이어 붙인 일(post 뒤의 user·like 호출)은 `IsolatedCalls`가 부른 스레드의 스냅샷을 펼친 채로 future를 끝내 잇는다 |
+| 재시도 예약 (`isolation-retry` 스케줄러, 고도화 5) | `IsolatedCalls.call`이 부른 스레드의 스냅샷(`traceContexts.captureAll()`)과 MDC를 받아 두고, 예약한 다음 시도와 `downstream_call_retried` 로그를 그 문맥을 펼친 채 돌린다. 다시 부른 호출의 `traceparent`와 로그에 같은 traceId가 이어진다(`add-retry-policy` design 결정 1). `retry_after_hold_started`도 같은 MDC로 남긴다 |
 | 직접 만든 `Executor` | Micrometer Context Propagation의 `ContextExecutorService.wrap(executor, ContextSnapshotFactory)`로 감싼다 |
 
 고치기 전에 끊기는 것을 테스트로 먼저 보였고, 고친 뒤에도 "전파가 없으면 끊긴다"를 기록으로 남겨 두었다.
@@ -511,11 +550,11 @@ traceId는 스레드에 붙은 컨텍스트(MDC, 관찰 컨텍스트)에 있어�
 
 ### 7-4. 대시보드
 
-피드 SLO(가용성, p50·p95·p99), 의존성별 degrade 비율, 서킷 상태, 벌크헤드 사용량·거절, 커넥션 풀 사용량, Tomcat 스레드 사용량을 한 화면에 둔다. 실험 리포트의 그래프도 이 대시보드에서 뜬다.
+피드 SLO(가용성, p50·p95·p99), 의존성별 degrade 비율, 서킷 상태, 벌크헤드 사용량·거절, 커넥션 풀 사용량, Tomcat 스레드 사용량, 재시도 결정과 요청 배율, ad의 Retry-After 대기·요청 수 상한·429를 한 화면에 둔다. 실험 리포트의 그래프도 이 대시보드에서 뜬다.
 
 대시보드는 `add-fault-experiments`(F-007)에서 만들었다. 데이터 소스와 같이 파일로 두고 Grafana가 띄울 때 불러온다. 공급자 설정은 `docker/grafana/provisioning/dashboards/`, 대시보드는 `docker/grafana/dashboards/feed-experiments.json`(uid `weave-feed`, `http://localhost:3000/d/weave-feed`)이다. 화면에서 고친 내용은 저장되지 않으니 JSON을 고친다. 실험 리포트의 Grafana 링크는 이 대시보드에 측정 구간(`from`, `to`)을 붙인 것이다.
 
-지표마다 그 지표를 만드는 단계에서 패널을 더한다. 지금 있는 패널은 모두 feed-service(`instance="feed-service:8090"`, 관리 포트)의 지표다.
+지표마다 그 지표를 만드는 단계에서 패널을 더한다. 패널은 대부분 feed-service(`instance="feed-service:8090"`, 관리 포트)의 지표이고, 요청 배율과 ad-service 429만 하위 서비스가 받은 요청(`instance=~"<의존성>-service:…"`, actuator 제외)을 본다.
 
 | 행 | 패널 | 지표 | 더한 단계 |
 |---|---|---|---|
@@ -524,6 +563,7 @@ traceId는 스레드에 붙은 컨텍스트(MDC, 관찰 컨텍스트)에 있어�
 | 자원 사용량 | Tomcat 사용 중·최대 스레드, 의존성별 커넥션 풀 사용 중·대기, CPU(0.7 선) | `tomcat_threads_*`, `httpcomponents_httpclient_pool_total_connections`(`state="leased"`)·`..._total_pending`(`httpclient`), `process_cpu_usage` | 고도화 2. 공유 풀(`applicationTaskExecutor`) 활성 스레드·대기열 패널은 고도화 3에서 지웠다(조회가 의존성별 벌크헤드로 옮겨 갔다) |
 | 서킷·벌크헤드 | 의존성별 서킷 상태(상태 타임라인, 0 CLOSED·1 HALF_OPEN·2 OPEN), 벌크헤드 사용 중·최대 스레드, 벌크헤드 거절(초당), 시간 상한 초과(초당) | `resilience4j_circuitbreaker_state`(`state="open"`·`"half_open"`), `resilience4j_bulkhead_active_thread_count`·`..._max_thread_pool_size`, `weave_bulkhead_rejected_calls_total`, `resilience4j_timelimiter_calls_total`(`kind="timeout"`). 모두 `name` 라벨이 의존성이다 | 고도화 3 (`add-call-isolation`, F-001) |
 | degrade | 의존성별 degrade 비율(`stale`+`missing` ÷ 전체, 분모가 0이면 0, 1% 선), post 캐시 읽기 결과(초당), user 캐시로 채운 응답(초당), 피드 503(초당) | `weave_feed_sections_total`(`section`, `outcome`), `weave_post_cache_reads_total`(`outcome`), `http_server_requests_seconds_count`(`uri="/feed"`, `status="503"`). 정의는 6-5 | 고도화 4 (`add-graceful-degradation`, F-002) |
+| 재시도·외부 API | 의존성별 재시도 결정(초당, `outcome`별), 의존성별 요청 배율(하위 서비스 업무 요청 ÷ 피드 요청, 20초 창, 1.2 선), ad Retry-After 남은 대기, ad Retry-After로 막은 호출(초당), ad 요청 수 상한으로 막은 호출(초당), ad-service가 돌려준 429(초당, 없으면 0) | `weave_retry_calls_total`(`name`, `outcome`), `http_server_requests_seconds_count`(하위 서비스 `instance`, feed-service `uri="/feed"`), `weave_retry_after_hold_remaining_seconds`·`weave_retry_after_rejected_calls_total`·`weave_ratelimiter_rejected_calls_total`(`name="ad"`), ad-service의 `http_server_requests_seconds_count`(`status="429"`). 요청 배율의 창과 상한은 9장 판정과 같다 | 고도화 5 (`add-retry-policy`, F-005) |
 
 패널 질의에는 Grafana 시간 변수(`$__rate_interval` 등) 말고 변수를 두지 않는다. 장애가 없을 때도 모든 질의가 시계열을 돌려줘야 해서, 실패율처럼 분자가 빌 수 있는 질의는 0으로 채운다. `./gradlew :e2e:composeTest`의 `ExperimentDashboardComposeScenarioTest`가 S-01 짧은 실행 뒤 모든 패널 질의를 Prometheus에 보내 확인한다.
 
@@ -554,7 +594,7 @@ traceId는 스레드에 붙은 컨텍스트(MDC, 관찰 컨텍스트)에 있어�
 | 대상 | 자원 상한 (`deploy.resources.limits`) | 메모 |
 |---|---|---|
 | feed-service | CPU 2, 메모리 1GB | Tomcat 최대 스레드 200을 `application.yml`에 명시한다(Boot 기본값, 4-2). Actuator는 관리 포트 8090(`MANAGEMENT_SERVER_PORT`)이고 헬스 체크와 Prometheus가 이 포트를 본다. 호스트 변수 `FEED_SPRING_APPLICATION_JSON`을 `SPRING_APPLICATION_JSON`으로 넘긴다(없으면 `{}`, 아래) |
-| 하위 서비스 5개 | 각 CPU 1, 메모리 512MB | |
+| 하위 서비스 5개 | 각 CPU 1, 메모리 512MB. like-service만 메모리 768MB | like-service는 JVM이 보는 메모리를 `-XX:MaxRAM=512m`으로 다른 서비스와 같게 둬 힙(128MB)과 GC를 그대로 두고 컨테이너 상한만 올렸다. 512MB에서 고도화 5 실험 세트 중 OOMKilled로 죽었다(힙 128MB에 네이티브 메모리 약 460MB, 2026-11-08) |
 | MySQL, Toxiproxy | 각 CPU 1 | |
 | Redis (`redis:8.2.2`) | CPU 0.5, 메모리 256MB | post stale 캐시(6-3). 캐시라 저장하지 않는다(`--save "" --appendonly no`). 값은 키 최대 50개 × 약 6KB이고 S-06의 읽기 400회/초는 한 코어 처리량에 비해 작다. 호스트 포트는 열지 않고 Toxiproxy 뒤에 두지 않는다. feed-service는 `REDIS_HOST=redis`로 부르고 Redis가 healthy가 된 뒤 뜬다(`add-graceful-degradation` design 결정 12) |
 | Alloy, Prometheus, Grafana | 각 CPU 0.5, 메모리 512MB | 실험 대상이 아니라 상한만 건다. OOM 재시작이 보이면 근거와 함께 올린다 |
@@ -596,8 +636,8 @@ feed-service는 하위 서비스를 의존성마다 하나인 프록시를 거�
 experiments/
 ├── run.sh  run-all.sh       # 명령 (아래)
 ├── config.json              # 기본 RPS, 준비·측정 시간, k6 요청 시간 초과 5초, 사용자 ID 범위
-├── slo.json                 # PRD 2장 SLO(가용성 99.9%, p99 300ms, 평시 degrade 비율 1% 미만). k6 threshold는 여기서만 읽는다
-├── expectations.json        # 단계별 기대 결과(시나리오마다 meet/miss, 또는 기준마다 {availability, p99[, degradeRatio]})
+├── slo.json                 # PRD 2장 SLO(가용성 99.9%, p99 300ms, 평시 degrade 비율 1% 미만)와 요청 배율 상한 1.2(PRD 10장). k6 threshold는 여기서만 읽는다
+├── expectations.json        # 단계별 기대 결과(시나리오마다 meet/miss, 또는 기준마다 {availability, p99[, degradeRatio, requestRatio, retryAfter]})
 ├── scenarios/S-01.json ...  # 설명, PRD 4장 문장, 장애 시간표(측정 시작부터 잰 초, 동작, 대상)
 ├── k6/                      # feed.js(부하·장애·판정), faults.js, contract.js, reset.js
 ├── lib/                     # verdict.sh(판정), windows.sh(10초 구간, 복구 시간), circuits.sh(서킷 상태 이어 적기), degrade.sh(degrade 비율)
@@ -626,12 +666,12 @@ experiments/run-all.sh --list                                 # 돌릴 목록
 ```
 
 - `run.sh`는 장애를 되돌리고 feed-service를 다시 띄우고(앞 실행이 묶어 둔 스레드와 user 로컬 캐시를 지운다) post 캐시를 비워(`docker compose exec -T redis redis-cli FLUSHDB`, 준비 구간이 다시 채운다) 같은 상태에서 시작한다. Redis가 떠 있지 않으면 캐시를 쓸 수 없는 상태가 그 실험의 조건일 수 있어 비우지 않고 표준 오류에 한 줄 적은 뒤 계속한다. 캐시는 장애가 아니라 끝날 때는 비우지 않는다. k6가 준비 구간 뒤 측정 구간 동안 같은 RPS로 `GET /feed`를 보내고, 시간표대로 장애를 넣고 거둔다. 끝나면(실패하거나 Ctrl-C로 멈춰도) 장애를 모두 되돌린다.
-- 판정: k6 threshold는 늘 `slo.json`이고 측정 구간 요청만 센다. 가용성은 k6가 보내지 못한 요청도 실패로 넣어 `lib/verdict.sh`가 다시 계산한다. 기준(가용성, p99)마다의 충족 여부가 그 단계의 기대(`expectations.json`)와 모두 같으면 0, 하나라도 다르면 1, 실행하지 못하면 2로 끝난다. 기대는 시나리오마다 두 기준을 함께(`meet`, `miss`) 적거나 `{"availability": "miss", "p99": "meet"}`처럼 기준마다 적는다(add-call-isolation design 결정 10). 고도화 2의 기대는 S-01만 `meet`이다. `miss`인 기준을 지키면 장애가 재현되지 않은 것이라 기대와 다르다. 기대 객체에 `degradeRatio`가 있으면 의존성 5개의 degrade 비율(`lib/degrade.sh`)이 모두 `slo.json`의 `degradeRatio`(0.01)보다 작아야 그 기준을 지킨 것이다(200 응답이 없으면 지키지 못함). 장애 시나리오는 실패한 의존성만큼 오르는 것이 정상이라 적지 않는다(add-graceful-degradation design 결정 12). 판정 출력의 `criteria`와 기대와 다른 기준 `mismatchedCriteria`가 `report.json`에, 기준별 결과가 `report.md` 판정 줄 아래에 들어간다.
+- 판정: k6 threshold는 늘 `slo.json`이고 측정 구간 요청만 센다. 가용성은 k6가 보내지 못한 요청도 실패로 넣어 `lib/verdict.sh`가 다시 계산한다. 기준(가용성, p99)마다의 충족 여부가 그 단계의 기대(`expectations.json`)와 모두 같으면 0, 하나라도 다르면 1, 실행하지 못하면 2로 끝난다. 기대는 시나리오마다 두 기준을 함께(`meet`, `miss`) 적거나 `{"availability": "miss", "p99": "meet"}`처럼 기준마다 적는다(add-call-isolation design 결정 10). 고도화 2의 기대는 S-01만 `meet`이다. `miss`인 기준을 지키면 장애가 재현되지 않은 것이라 기대와 다르다. 기대 객체에 `degradeRatio`가 있으면 의존성 5개의 degrade 비율(`lib/degrade.sh`)이 모두 `slo.json`의 `degradeRatio`(0.01)보다 작아야 그 기준을 지킨 것이다(200 응답이 없으면 지키지 못함). 장애 시나리오는 실패한 의존성만큼 오르는 것이 정상이라 적지 않는다(add-graceful-degradation design 결정 12). 기대 객체에 `requestRatio`가 있으면 의존성 5개의 요청 배율 최댓값이 모두 `slo.json`의 `requestRatio`(1.2) 이하, `retryAfter`가 있으면 ad-service가 돌려준 429 수가 429를 받아도 되는 수 이하여야 그 기준을 지킨 것이다(값이 없으면 지키지 못함). 두 값은 `run.sh`가 결과 폴더의 `verdict-input.json`에 써서 `lib/verdict.sh`의 넷째 인자로 넘기고, 두 키가 있는데 파일이 없으면 판정하지 못한다(add-retry-policy design 결정 10). 판정 출력의 `criteria`와 기대와 다른 기준 `mismatchedCriteria`가 `report.json`에, 기준별 결과가 `report.md` 판정 줄 아래에 들어간다.
 - `run-all.sh`는 시나리오마다 `run.sh`를 부르고, 기대와 다르거나 실행하지 못한 시나리오가 있어도 끝까지 돈 뒤 판정 표(마크다운)를 출력한다. 종료 코드는 가장 나쁜 것이다.
 - `run-all.sh`는 첫 시나리오 전에 하위 서비스를 데우는 준비 실행(`run.sh S-01`, 같은 `--rps`·`--warmup`, 측정 1분)을 한 번 하고 판정 표에 넣지 않는다. 고도화 3(F-001)부터 막 띄운 하위 서비스가 느려 서킷이 열리면 트래픽이 가지 않아 데워지지 못하고 열림·닫힘을 되풀이한다(400 RPS에서 약 100초, `add-call-isolation` design 결정 10). `run.sh`는 feed-service만 다시 띄우므로 데운 하위 서비스는 남는다. 이미 데운 환경이면 `--skip-warm-up`. `run.sh`만 돌릴 때는 Compose를 띄운 뒤 S-01을 한 번 먼저 돌려 데운다.
 - Compose 프로젝트나 env 파일을 바꿀 때는 `COMPOSE_PROJECT_NAME`, `COMPOSE_ENV_FILE`을 준다(`:e2e:composeTest`는 `weave-compose-test`와 `e2e/build/compose-test.env`를 쓴다).
 
-**리포트.** 실행마다 `experiments/results/<UTC yyyyMMdd-HHmmss>-<S-xx>/`에 `report.md`와 같은 값의 `report.json`, k6 요약 `summary.json`, 요청마다의 원본 `raw.json.gz`, 서킷 상태 질의 결과 `circuit-state.json`을 남긴다.
+**리포트.** 실행마다 `experiments/results/<UTC yyyyMMdd-HHmmss>-<S-xx>/`에 `report.md`와 같은 값의 `report.json`, k6 요약 `summary.json`, 요청마다의 원본 `raw.json.gz`, 서킷 상태 질의 결과 `circuit-state.json`, 판정 입력 `verdict-input.json`(요청 배율 최댓값, ad 429 수. 판정 전에 쓴다)을 남긴다.
 
 | 항목 | 출처 |
 |---|---|
@@ -639,6 +679,9 @@ experiments/run-all.sh --list                                 # 돌릴 목록
 | 측정 요청 수, 보내지 못한 요청 수, p50·p95·p99(실패한 요청 포함). 지연은 k6가 요청 앞뒤로 잰 경과 시간 `feed_latency`다. k6의 `http_req_duration`은 시간 초과된 요청을 0으로 남길 수 있어 쓰지 않는다 | k6 요약 |
 | 가용성 = 200 수 ÷ (측정 요청 수 + 보내지 못한 요청 수) | k6 요약 |
 | 의존성별 호출 p99, 실패율, 요청 배율(하위 서비스가 받은 요청 ÷ 피드 요청) | Prometheus |
+| 의존성별 요청 배율 최댓값(F-005): 측정 구간 안의 20초 구간마다(5초 간격) 계산한 요청 배율 중 가장 큰 값(`max_over_time` 서브쿼리). 재시도 폭주는 서킷이 열리기 전 몇 초에만 생겨 측정 구간 전체 배율로는 묻힌다. 측정이 40초보다 짧으면 측정 구간 전체의 요청 배율 | Prometheus |
+| 의존성별 재시도 결정 수(`weave_retry_calls_total`의 `retried`, `budget_exhausted`, `deadline`, `attempts_exhausted` 증가) | Prometheus |
+| ad-service가 돌려준 429 수(`http_server_requests_seconds_count{status="429"}` 증가, 시계열이 없으면 0)와 429를 받아도 되는 수 = (ceil(측정 초 ÷ 시나리오 quota의 `windowSeconds`) + 1) × ad 동시 호출 상한(`resilience4j_bulkhead_max_thread_pool_size{name="ad"}`). 받아도 되는 수는 측정 구간 안에 ad 요청 한도 장애가 있을 때만 | Prometheus, 시나리오 JSON |
 | 자원 사용량의 측정 구간 최댓값·평균: Tomcat 사용 중 스레드, 의존성별 벌크헤드 사용 중 스레드·대기열(`resilience4j_bulkhead_active_thread_count`, `resilience4j_bulkhead_queue_depth`. ThreadPool 벌크헤드 지표라 Semaphore 모드의 사용량은 담지 않는다), 의존성별 커넥션 풀 사용 중·대기, feed-service CPU | Prometheus |
 | feed-service 지표 수집 비율(측정 구간 `up` 표본 중 1인 비율). 1보다 작으면 자원 사용량이 긁힌 구간만의 값이라고 적는다 | Prometheus |
 | 의존성별 서킷 상태: 측정 구간에 거친 상태를 바뀔 때만 이어 적는다(`CLOSED → OPEN → HALF_OPEN → CLOSED`). `resilience4j_circuitbreaker_state`를 5초 간격 `query_range`로 읽어 그보다 짧게 머문 상태는 빠질 수 있고, 정확한 전이는 `circuit_state_changed` 로그로 본다. 서킷 지표가 없는 의존성은 "없음" | Prometheus, `lib/circuits.sh` |
@@ -680,15 +723,16 @@ experiments/run-all.sh --list                                 # 돌릴 목록
 | `add-fault-experiments` (F-007) | 9장, 7-4 대시보드, 기준선 기록, 4-3과 5-6을 채울 측정 |
 | `add-call-isolation` (F-001) | 5-2 ~ 5-6, 7-3의 벌크헤드 전파, Resilience4j 4.1.2 호환 확인, 가상 스레드 + Semaphore 벌크헤드 비교(S-02). 5-2의 어노테이션 방식은 `IsolatedCalls` 한 곳에서 감싸는 방식으로 바꿨다(design 결정 1) |
 | `add-graceful-degradation` (F-002) | 6장, 5-2의 fallback 위치. 응답 구성의 출발점이던 "Assembler가 성공·캐시 대체·실패를 받는다"를 의존성별 `Result`와 영역 결과(`SectionOutcome`)로 구체화했고, 6장에 없던 응답 계약·503 본문·대체 로그·Redis 장애 설정을 정했다(design 결정 1~10) |
-| `add-retry-policy` (F-005) | 5-5의 429 처리, Retry·RateLimiter 설정 |
+| `add-retry-policy` (F-005) | 5-5의 429 처리, Retry·RateLimiter 설정. 재시도 루프는 Resilience4j `Retry`가 아니라 `IsolatedCalls`(`RetryLoop`)가 직접 돌고 설정만 레지스트리에서 꺼낸다(design 결정 1). 5-4 순서에 Retry-After 대기를 더했고, 429 처리 방식(서킷 바깥의 의존성별 대기, `RetryAfterHolds`)과 재시도 예산(`RetryBudget`), 새 실패 분류(`rate_limited`, `retry_after`)를 정했다(design 결정 2~7) |
 | `add-idempotent-like` (F-003) | 8장의 고도화 6 항목(카운터 방식 비교 포함), 10장의 속성 기반 테스트 |
 
 ## 13. 남은 것
 
-- 429와 Retry-After 처리 방식: `add-retry-policy`
 - 좋아요 순서 판단 방법: `add-idempotent-like`
 - S-11의 몰림 부하 크기와 카운터 분할 수: `add-idempotent-like`
 - 장애를 넣지 않은 like-service의 순간 막힘(고도화 3의 S-04·S-08·S-09)과 like-service 컨테이너 메모리(G1에서 512MiB 중 약 500MiB)의 원인: [고도화 3 결과](experiments/call-isolation.md) "남은 것". 고도화 4부터는 피드 실패가 아니라 like degrade로 드러난다(S-01 0.51%, S-04 3.3%, [고도화 4 결과](experiments/graceful-degradation.md))
+- 장애 시작 순간의 feed-service 멈춤(0.2~0.7초, 고도화 5의 재시도가 있는 모든 구성의 S-09). GC·BLOCKED 스레드는 아니었고, 5초 수집 간격으로는 가르지 못한다. safepoint 로그와 `AsyncAppender` 대기열을 재면 가를 수 있다: [고도화 5 결과](experiments/retry-policy.md) "남은 것"
+- like-service의 네이티브 메모리(힙 128MB에 약 460MB, 9-1): 고도화 5 실험 세트 중 512MB에서 OOMKilled로 죽어 컨테이너 상한만 768MB로 올렸다. 원인은 가리지 못했다
 - post 실패와 같은 순간의 캐시 읽기 실패(고도화 4의 S-01 503 6건, S-06 17건)의 원인. S-06의 11건은 Lettuce 지표에 남지 않아, 읽기 오류를 종류별로 세야 가를 수 있다: [고도화 4 결과](experiments/graceful-degradation.md) "남은 것"
 
 정한 것:
@@ -700,3 +744,5 @@ experiments/run-all.sh --list                                 # 돌릴 목록
 - fallback을 둘 곳(F-002): Gateway나 Resilience4j fallback이 아니라 `FeedAssembler` 한 곳(5-2, `add-graceful-degradation` design 결정 1)
 - post 캐시 키 구조와 응답 계약(F-002): `size`별 키 `weave:feed:posts:latest:v1:size:{size}`, 응답의 `degradation`(6-1·6-3, design 결정 2·4)
 - 대체 설정값(F-002, 6-4): Redis 읽기 상한 30ms(S-06의 GET 지연 측정), user 캐시 1시간·10,000명(판단과 잰 항목 크기), post stale 허용 10분(PRD)·쓰기 간격 1초(계산)
+- 429와 Retry-After 처리 방식(F-005): 서킷을 강제로 열지 않고, 재시도 루프 바로 안·서킷 바깥에 의존성별 대기(`RetryAfterHolds`)를 둔다. 대기 중인 호출은 서킷에 닿지 않고 `retry_after`로 끝난다(5-4, 5-5, `add-retry-policy` design 결정 4)
+- 재시도·외부 API 설정값(F-005, 5-6): 최대 3번·10ms·20ms(±50%)·남은 시간 안, 재시도 예산 10%(1초 창, 최소 1번), ad 상한 100ms마다 54건(계약 쿼터 초당 600건 가정), Retry-After 기본 1초·최대 60초. 결과는 [고도화 5 결과](experiments/retry-policy.md)

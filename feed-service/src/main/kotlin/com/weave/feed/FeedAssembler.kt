@@ -16,6 +16,7 @@ import com.weave.feed.gateway.DownstreamFailure
 import com.weave.feed.gateway.LikeGateway
 import com.weave.feed.gateway.PostGateway
 import com.weave.feed.gateway.RecommendationGateway
+import com.weave.feed.gateway.RequestDeadline
 import com.weave.feed.gateway.TimeBudgetExhaustedException
 import com.weave.feed.gateway.UserGateway
 import org.springframework.beans.factory.annotation.Value
@@ -170,7 +171,8 @@ internal class RequestBudget(
 
     /**
      * 남은 시간이 있으면 [start]로 [dependency]를 부른다. 없으면 부르지 않고, 마감 처리 때(이미 지났으면 바로) `budget_exhausted`로 끝날
-     * future를 돌려준다.
+     * future를 돌려준다. [start]가 도는 동안 마감을 [RequestDeadline]에 둬, 재시도 루프가 남은 시간 예산 안에서만 다시 부르게 한다
+     * (add-retry-policy design 결정 3).
      */
     fun <T> call(
         dependency: String,
@@ -179,7 +181,7 @@ internal class RequestBudget(
         val notCalled = CompletableFuture<T>()
         synchronized(this) {
             if (!expired) {
-                val future = if (remaining() == Duration.ZERO) notCalled else start()
+                val future = if (remaining() == Duration.ZERO) notCalled else RequestDeadline.within(deadline, start)
                 started += dependency to future
                 return future
             }

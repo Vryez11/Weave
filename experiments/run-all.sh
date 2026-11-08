@@ -127,10 +127,13 @@ on_signal() {
 }
 trap on_signal INT TERM
 
-# 판정 표의 기대 열. 기준별 기대(객체)는 "가용성 miss · p99 meet"으로 적고, degrade 비율 기준이 있으면
-# " · degrade 비율 meet"을 덧붙인다
+# 판정 표의 기대 열. 기준별 기대(객체)는 "가용성 miss · p99 meet"으로 적고, degrade 비율·요청 배율·Retry-After 기준이
+# 있으면 " · degrade 비율 meet", " · 요청 배율 meet", " · Retry-After meet"을 이 순서로 덧붙인다
 expectation_text='if type == "object"
-  then "가용성 \(.availability) · p99 \(.p99)" + (if has("degradeRatio") then " · degrade 비율 \(.degradeRatio)" else "" end)
+  then "가용성 \(.availability) · p99 \(.p99)"
+    + (if has("degradeRatio") then " · degrade 비율 \(.degradeRatio)" else "" end)
+    + (if has("requestRatio") then " · 요청 배율 \(.requestRatio)" else "" end)
+    + (if has("retryAfter") then " · Retry-After \(.retryAfter)" else "" end)
   else . end'
 
 expectation_of() {

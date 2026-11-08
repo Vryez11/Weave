@@ -19,7 +19,15 @@
 
 - 추천 하나가 느려지면 MVP에서는 Tomcat 스레드 200개가 모두 묶여 피드 전체가 멈췄다. 호출 격리 뒤에는 최대 45개만 쓴다.
 - 장애를 거둔 뒤 SLO를 다시 지키기까지 MVP는 40초 걸렸다. 호출 격리 뒤에는 10초다.
-- 평시(S-01) degrade 비율은 0.52%로 기준(1% 미만) 안이다.
+- 평시(S-01) degrade 비율은 고도화 4에서 0.52%, 고도화 5 세트에서 0%로 기준(1% 미만) 안이다.
+
+고도화 5에서는 재시도를 붙이면서 그 재시도가 장애를 키우지 않게 묶었다. 같은 장애에서 가용성과 p99는 고도화 4를 그대로 지켰다.
+
+| 장애 | 고치기 전 | 고도화 5 |
+|---|---|---|
+| S-09 프로필·좋아요 짧은 5xx: 재시도 수 (user) | 예산 없는 재시도 5,673번 | **재시도 예산으로 614번** |
+| S-09 하위 요청 배율 최댓값 (user, 상한 1.2) | 1.224 | **1.02** |
+| S-07 광고 요청 한도 초과: ad-service의 429 | 약 59,400건 (Retry-After 무시) | **30건**, 상한을 한도 아래로 두면 **0건** |
 
 ## 목차
 
@@ -35,7 +43,8 @@
    - [2-3. 고도화 2: 장애 실험 세트와 기준선](#2-3-고도화-2-장애-실험-세트와-기준선-f-007)
    - [2-4. 고도화 3: 하위 서비스 호출 격리](#2-4-고도화-3-하위-서비스-호출-격리-f-001)
    - [2-5. 고도화 4: 등급별 Graceful Degradation](#2-5-고도화-4-등급별-graceful-degradation-f-002)
-   - [2-6. 남은 것](#2-6-남은-것)
+   - [2-6. 고도화 5: 재시도와 외부 API 정책](#2-6-고도화-5-재시도와-외부-api-정책-f-005)
+   - [2-7. 남은 것](#2-7-남은-것)
 3. [개발 방식](#3-개발-방식)
 4. [실행과 테스트](#4-실행과-테스트)
 
@@ -53,7 +62,7 @@
 |---|---|---|
 | 장애 격리 | 타임아웃·요청 시간 예산, Resilience4j 서킷 브레이커와 벌크헤드로 느리거나 죽은 하위 서비스를 가둔다 | 완료 (고도화 3) |
 | 등급별 Graceful Degradation | 하위 서비스를 필수·중요·선택으로 나누고, 등급마다 실패했을 때의 응답을 다르게 한다 | 완료 (고도화 4) |
-| traceId 로그 | traceId 하나로 6개 서비스의 로그와 트레이스를 시간순으로 본다 | 완료 (고도화 1, 3, 4) |
+| traceId 로그 | traceId 하나로 6개 서비스의 로그와 트레이스를 시간순으로 본다 | 완료 (고도화 1, 3, 4, 5) |
 | 좋아요 정합성 | 상태 기반 API와 멱등성으로 재시도·중복·순서 뒤바뀜에도 좋아요가 정확하다 | 예정 (고도화 6) |
 
 ### 1-2. 시스템 구성
@@ -133,7 +142,7 @@ flowchart LR
 |---|---|
 | 언어·프레임워크 | Kotlin 2.3, Spring Boot 4.1 (Spring MVC), JDK 25, Gradle 9 Kotlin DSL 멀티 모듈 |
 | HTTP 클라이언트 | `RestClient` + Apache HttpClient 5, HTTP Interface(`@HttpExchange`) |
-| 장애 대응 | Resilience4j 2.4 (서킷 브레이커, ThreadPool 벌크헤드, TimeLimiter) |
+| 장애 대응 | Resilience4j 2.4 (서킷 브레이커, ThreadPool 벌크헤드, TimeLimiter, RateLimiter). 재시도 루프와 재시도 예산은 직접 구현 |
 | 저장소·캐시 | MySQL 9 + JPA + Flyway, Redis (post stale 캐시), Caffeine (user 로컬 캐시) |
 | 관찰 | logback + logstash-logback-encoder, Micrometer Tracing + OpenTelemetry, Grafana Alloy, Loki, Tempo, Prometheus, Grafana |
 | 장애 실험 | Toxiproxy (네트워크 장애), 앱 수준 장애 주입, k6 |
@@ -150,8 +159,8 @@ flowchart LR
 | 고도화 1 | traceId 로그 수집 | F-004 | `v0.2.0` |
 | 고도화 2 | 장애 주입, 장애 실험 세트, MVP 기준선 | F-007 | `v0.3.0` |
 | 고도화 3 | 타임아웃·시간 예산, 서킷 브레이커, 벌크헤드 | F-001 | `v0.4.0` |
-| 고도화 4 | 등급별 Graceful Degradation | F-002 | 릴리스 전 |
-| 고도화 5 | 재시도 예산, 외부 API(ad)의 Retry-After와 쿼터 | F-005 | 예정 |
+| 고도화 4 | 등급별 Graceful Degradation | F-002 | `v0.5.0` |
+| 고도화 5 | 재시도 예산, 외부 API(ad)의 Retry-After와 쿼터 | F-005 | `v0.6.0` |
 | 고도화 6 | 좋아요 상태 기반 API와 멱등성, 인기 글 몰림의 카운터 방식 비교 | F-003 | 예정 |
 
 판정 기준(SLO)은 처음에 정해 두고 바꾸지 않았다.
@@ -166,7 +175,7 @@ flowchart LR
 
 ## 2. 단계별 기록: 보려던 것, 결정, 결과
 
-자세한 숫자와 근거는 [MVP 기준선](docs/experiments/baseline-mvp.md), [고도화 3 결과](docs/experiments/call-isolation.md), [고도화 4 결과](docs/experiments/graceful-degradation.md), [아키텍처](docs/architecture.md)에 있다.
+자세한 숫자와 근거는 [MVP 기준선](docs/experiments/baseline-mvp.md), [고도화 3 결과](docs/experiments/call-isolation.md), [고도화 4 결과](docs/experiments/graceful-degradation.md), [고도화 5 결과](docs/experiments/retry-policy.md), [아키텍처](docs/architecture.md)에 있다.
 
 ### 2-1. MVP: 보호 장치 없는 피드 (F-006)
 
@@ -304,11 +313,52 @@ Loki에서 `{service=~".+"} | traceId="<traceId>"` 한 줄로 6개 서비스의 
 - **고도화 3에서는 서킷이 피드를 더 나쁘게 만들던 곳이 이제 득이 된다.** S-05에서 like 서킷이 열린 동안 피드가 모두 실패해 가용성이 기준선(0.50)보다 낮은 0.064였는데, 같은 서킷 동작이 이제 사용자에게 `UNKNOWN`으로만 보인다.
 - **한계:** 실험 데이터가 고정이라(작성자 50명) user 캐시 적중률이 100%였다. 실제로 캐시에 없는 작성자가 얼마나 될지는 이 실험으로 알 수 없다.
 
-### 2-6. 남은 것
+### 2-6. 고도화 5: 재시도와 외부 API 정책 (F-005)
+
+**보려던 것.** 순간 실패는 재시도로 넘기되, 재시도가 장애 중에 하위 서비스 요청을 불리지 않는지. 고칠 수 없고 한도가 있는 외부 API(ad)의 한도를 날리지 않는지.
+
+**결정.**
+
+- **재시도는 멱등한 조회만, 재시도할 실패만, 남은 시간 안에서만 한다.** 5xx·연결 실패·입출력 실패만 다시 부르고 시간 초과·4xx·서킷 거절은 부르지 않는다. 남은 요청 시간이 `시도 상한 + 기다림`보다 짧으면 보내지 않는다. Resilience4j `Retry`로는 시도마다 이것을 볼 수 없어 루프를 직접 썼다(`RetryLoop`). 기다리는 동안 스레드도 벌크헤드 자리도 잡지 않는다.
+- **재시도 예산으로 비율을 묶는다.** 의존성마다 최근 창의 원래 호출 수에 비율을 곱한 만큼만 다시 부른다.
+- **ad는 다시 부르지 않고, 429의 Retry-After 동안 부르지 않으며, 계약 쿼터 전에 스스로 멈춘다.** 대기는 서킷 바깥에 둔다. 서킷을 강제로 열면 429가 장애처럼 보이고 저절로 돌아오지 않는다.
+
+| 값 | 정한 값 | 근거 |
+|---|---|---|
+| 최대 시도, 기다림 | 3번, 10ms·20ms(±50%) | Google SRE 책의 "요청 하나에 최대 3번". 빠른 실패 두 번을 겪어도 세 번째 시도의 상한까지 약 190ms로 예산 250ms 안 |
+| 재시도 예산 | 최근 1초 원래 호출의 10% (창마다 최소 1번) | 비율은 Google SRE 책. 창은 처음 10초였다가 측정 뒤 줄였다(아래) |
+| 요청 배율 상한 (판정) | 20초 구간 최댓값 1.2 | 계산한 S-09 배율이 예산 있으면 약 1.03, 없으면 약 1.33이라 둘을 가른다 |
+| ad 요청 수 상한 | 100ms마다 54건 | 계약 쿼터 초당 600건(가정). 상한 주기가 제공자의 1초 창과 맞지 않아 어느 1초에도 11주기가 걸친다. 54 × 11 = 594 |
+| Retry-After | 기본 1초, 최대 60초 | 머리글이 없으면 쿼터 창 하나만 쉰다. 60초를 넘으면 일일 한도나 제공자 장애로 보고 1분마다 확인한다 |
+
+**결과.** 9개 시나리오 모두 가용성, p99, 요청 배율 상한을 지켰다.
+
+| 구성 (S-09) | 요청 배율 최댓값 user | 재시도 user | 503 |
+|---|---|---|---|
+| 예산 없음 | 1.224 (상한 초과) | 5,673 | 44 |
+| 예산 10%, 창 10초 (처음 값) | 1.059~1.064 | 1,199~1,229 | 18~313 |
+| **예산 10%, 창 1초** | **1.02** | **614** | **2** |
+
+| 구성 (S-07) | ad-service의 429 | ad degrade |
+|---|---|---|
+| 고도화 4 (Retry-After를 보지 않음) | 약 59,400 | 0.50 |
+| **Retry-After 대기 + 상한 54** | **30** | 0.50 |
+| 상한을 한도 아래로 (18) | **0** | 0.55 |
+
+**측정이 설정을 바꿨다.** 처음에는 예산 창을 서킷 판단 창과 같은 10초로 뒀는데, S-09 첫 실행에서 가용성 0.9974로 SLO를 지키지 못했다. 장애가 시작되자 재시도가 몰린 직후 feed-service가 약 0.7초 멈춰 모든 의존성의 벌크헤드가 찼다. 평시 10초 동안 쌓인 예산이 한 번에 쓰일 수 있는 구조여서 창을 1초로 줄였고, 503은 2건이 됐다.
+
+**한계도 그대로 적는다.**
+
+- 멈춤 자체는 줄었지만 없어지지 않았다(최종 세트 0.3초). 예산 없는 실행의 첫 장애에서는 503이 없어, 재시도 양 하나로 설명되지 않는다. GC나 BLOCKED 스레드는 아니었고 5초 수집 간격으로는 원인을 가르지 못했다.
+- 재시도가 살리는 응답은 이 실험 세트에서 작다(S-09 like degrade 0.148 → 0.145). 몇 초 이상 이어지는 장애는 서킷이 금방 열리기 때문이다. 순간 실패를 넘기는 이득은 통합 테스트로 확인했고, 실험 세트가 보이는 것은 늘어나는 요청을 묶었다는 것이다.
+- 실험 세트 중 like-service가 512MB에서 OOMKilled로 죽어 컨테이너 상한을 768MB로 올렸다. 힙(128MB)과 GC는 그대로 뒀고, 네이티브 메모리가 왜 약 460MB까지 오르는지는 못 가렸다.
+
+### 2-7. 남은 것
 
 | 무엇 | 어디서 |
 |---|---|
-| 재시도 예산(S-09), ad의 Retry-After와 쿼터(S-07) | 고도화 5 (F-005) |
+| 장애 시작 순간의 feed-service 멈춤(0.2~0.7초). safepoint 로그와 로그 대기열을 재면 가를 수 있다 | [고도화 5 결과](docs/experiments/retry-policy.md) "남은 것" |
+| like-service 네이티브 메모리(힙 128MB에 약 460MB) | 같은 문서 |
 | 토글 좋아요가 재시도·중복에 깨지는 것을 재현하고 상태 기반 API와 멱등성으로 바꾸기, 인기 글 몰림의 카운터 방식 비교(S-10, S-11) | 고도화 6 (F-003) |
 | 장애를 넣지 않은 like-service의 순간 막힘. 평시 like degrade 0.5%의 대부분이다. 메모리 압박, 관찰 파이프라인 포화, 호스트 순간 멈춤 중 무엇인지 아직 가리지 못했다 | [고도화 4 결과](docs/experiments/graceful-degradation.md) "남은 것" |
 | post 실패와 캐시 읽기 실패가 같은 순간에 오는 503 (S-06에서 0.014%) | 같은 문서 |
@@ -396,7 +446,7 @@ curl -i -H 'X-User-Id: 1' 'http://localhost:8080/feed?size=10'
 |---|---|
 | `http://localhost:8080/feed?size=10` | 피드 (헤더 `X-User-Id`) |
 | `http://localhost:3000` | Grafana. Explore에서 Loki로 `{service=~".+"} \| traceId="<traceId>"`를 조회하고, 로그의 traceId 링크로 Tempo 트레이스를 연다 |
-| `http://localhost:3000/d/weave-feed` | 피드 실험 대시보드 (피드 SLO, 의존성별 호출, 자원 사용량, 서킷·벌크헤드, degrade 비율) |
+| `http://localhost:3000/d/weave-feed` | 피드 실험 대시보드 (피드 SLO, 의존성별 호출, 자원 사용량, 서킷·벌크헤드, degrade 비율, 재시도·외부 API) |
 | `http://localhost:9090` | Prometheus |
 | `http://localhost:8474` | Toxiproxy 관리 API |
 
@@ -430,7 +480,7 @@ S-01~S-09 전체 (약 1시간). 첫 시나리오 전에 하위 서비스를 데�
 experiments/run-all.sh
 ```
 
-- 리포트는 `experiments/results/<시각>-<ID>/report.md`에 남는다. 판정, p50·p95·p99, 가용성, 의존성별 호출 지연과 degrade 비율, 자원 사용량, 서킷 상태, 10초 구간 표, 측정 구간을 붙인 Grafana 링크가 들어 있다.
+- 리포트는 `experiments/results/<시각>-<ID>/report.md`에 남는다. 판정, p50·p95·p99, 가용성, 의존성별 호출 지연과 degrade 비율, 요청 배율과 재시도 결정 수, ad 429 수, 자원 사용량, 서킷 상태, 10초 구간 표, 측정 구간을 붙인 Grafana 링크가 들어 있다.
 - 종료 코드는 0 기대와 같음, 1 기대와 다름, 2 실행하지 못함이다.
 - feed-service 설정을 바꿔 돌리려면 `FEED_SPRING_APPLICATION_JSON`으로 덮어 다시 띄운다. 끝나면 변수 없이 다시 띄운다. 예를 들어 가상 스레드 비교는 아래처럼 띄웠다.
 
@@ -458,6 +508,6 @@ FEED_SPRING_APPLICATION_JSON='{"weave.isolation.bulkhead-type":"semaphore","spri
 |---|---|
 | [PRD](docs/prd.md) | 단계, SLO, 의존성 등급, 장애 시나리오, 기능 ID와 수용 기준, 정한 것과 이유 |
 | [아키텍처](docs/architecture.md) | 요청 흐름, 시간 예산, Resilience4j 구성과 설정값 근거, 대체 구현, 관찰, 실험 환경 |
-| [MVP 기준선](docs/experiments/baseline-mvp.md), [고도화 3 결과](docs/experiments/call-isolation.md), [고도화 4 결과](docs/experiments/graceful-degradation.md) | 단계별 장애 실험 결과와 비교 |
+| [MVP 기준선](docs/experiments/baseline-mvp.md), [고도화 3 결과](docs/experiments/call-isolation.md), [고도화 4 결과](docs/experiments/graceful-degradation.md), [고도화 5 결과](docs/experiments/retry-policy.md) | 단계별 장애 실험 결과와 비교 |
 | `openspec/specs/`, `openspec/changes/archive/` | 동작 스펙과 change별 설계 결정 |
 | [conventions/](conventions/) | 하네스, 스펙, 커밋, 브랜치 규칙 |
