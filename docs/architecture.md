@@ -1,7 +1,7 @@
 # 아키텍처
 
 - 작성일: 2026-11-04
-- 상태: 초안. 고도화 4(`add-graceful-degradation`, F-002)까지 반영했다. 격리 설정값과 근거는 4-3과 5-6, 대체 설정값은 6-4, 결과는 [고도화 3 결과](experiments/call-isolation.md)와 [고도화 4 결과](experiments/graceful-degradation.md)에 있다.
+- 상태: 초안. 고도화 5(`add-retry-policy`, F-005)까지 반영했다. 격리·재시도 설정값과 근거는 4-3과 5-6, 대체 설정값은 6-4, 결과는 [고도화 3 결과](experiments/call-isolation.md), [고도화 4 결과](experiments/graceful-degradation.md), [고도화 5 결과](experiments/retry-policy.md)에 있다.
 - 근거: [PRD](prd.md)의 단계, SLO, 의존성 등급. 기능 ID별 세부 설계는 OpenSpec change에서 정한다.
 
 ## 1. 결정 요약
@@ -322,6 +322,17 @@ HTTP 클라이언트의 타임아웃과 풀 크기는 Boot 그룹 설정(`spring
 | 서킷: 실패율 문턱 | 50% | 같음 | 기준선 S-01의 호출 실패율 0 |
 | 서킷: 느린 호출 기준, 문턱 | 80ms, 50% | 160ms, 50% | 상한의 80%. 평시에 경계를 넘는 비율 0.17% 이하 |
 | 서킷: 열림 유지 시간, 반열림 시험 호출 | 5초, 10개 | 같음 | S-08 복구 시간 목표 20초(PRD 10장)에서 거꾸로 정했다 |
+
+**정한 값 (F-005, 2026-11-08).** feed-service `application.yml`에 근거 주석과 함께 있고, `RetrySettingsTest`가 main 설정만 읽어 확인한다. 자세한 내용은 `add-retry-policy` design 결정 5, 6, 11이다.
+
+| 값 | 설정 | 근거 |
+|---|---|---|
+| 최대 시도 횟수 | 3 (post, user, like, recommendation). ad와 좋아요 토글은 다시 부르지 않는다 | Google SRE 책 22장의 "요청 하나에 최대 3번". user·like가 post 중앙값(20ms) 뒤 시작해 빠른 실패(중앙값 20ms)를 두 번 겪어도 세 번째 시도의 상한(100ms)까지 약 190ms라 요청 시간 예산 250ms 안이다 |
+| 재시도 전 기다림 | 10ms, 20ms(지수 ×2), ±50% | 기다림 합(최대 45ms)이 하위 서비스 평시 중앙값 두 번 남짓이라 남은 예산을 시도 자체에 쓴다. jitter는 장애 시작에 같은 순간 실패한 수백 건이 같은 순간 다시 몰리지 않게 한다 |
+| 남은 시간 조건 | 마감 − 지금 ≥ 그 의존성의 호출 시간 상한 + 기다림 | 끝까지 기다리지 못할 시도는 보내지 않는다(design 결정 3) |
+| 재시도 예산 | 의존성마다 최근 1초(100ms 칸 10개) 원래 호출의 10%, 창마다 최소 1번 | 비율은 Google SRE 책 22장의 클라이언트별 재시도 예산 10%. 장애가 시작되는 순간 풀리는 재시도는 창에 쌓인 예산 전부라, 창 1초면 400 RPS에서 40번(100ms 칸 하나의 평시 호출 수)이다. 처음에는 서킷 판단 창과 같은 10초였는데, S-09에서 장애 시작에 재시도가 0.5초 안에 약 120~320번 몰린 직후 feed-service가 0.2~0.7초 멈추고 503이 났다. 1초로 줄인 뒤 503은 줄었지만 멈춤의 원인은 가리지 못했다([고도화 5 결과](experiments/retry-policy.md)). 계산한 S-09 장애 초반 요청 배율은 예산이 있으면 약 1.03, 없으면 약 1.33이고, 판정 상한 1.2(PRD 10장)가 둘을 가른다 |
+| ad 요청 수 상한 | 100ms마다 54건, 기다리지 않음 | 계약 쿼터 초당 600건(가정, PRD 3장). 상한 주기가 제공자의 1초 창과 맞지 않아 어느 1초 창에도 주기 11개가 걸친다. 54 × 11 = 594 ≤ 600. 평균 초당 540건은 피크 400 RPS의 1.35배 |
+| Retry-After 기본 대기, 최대 대기 | 1초, 60초 | 머리글이 없는 429는 계약 쿼터 창 하나만 쉰다. 60초보다 긴 값은 일일 한도 소진이나 제공자 장애로 보고 1분마다 한 번 확인한다(판단, change 승인 때 확인) |
 
 ## 6. Graceful Degradation 구현
 
@@ -720,6 +731,8 @@ experiments/run-all.sh --list                                 # 돌릴 목록
 - 좋아요 순서 판단 방법: `add-idempotent-like`
 - S-11의 몰림 부하 크기와 카운터 분할 수: `add-idempotent-like`
 - 장애를 넣지 않은 like-service의 순간 막힘(고도화 3의 S-04·S-08·S-09)과 like-service 컨테이너 메모리(G1에서 512MiB 중 약 500MiB)의 원인: [고도화 3 결과](experiments/call-isolation.md) "남은 것". 고도화 4부터는 피드 실패가 아니라 like degrade로 드러난다(S-01 0.51%, S-04 3.3%, [고도화 4 결과](experiments/graceful-degradation.md))
+- 장애 시작 순간의 feed-service 멈춤(0.2~0.7초, 고도화 5의 재시도가 있는 모든 구성의 S-09). GC·BLOCKED 스레드는 아니었고, 5초 수집 간격으로는 가르지 못한다. safepoint 로그와 `AsyncAppender` 대기열을 재면 가를 수 있다: [고도화 5 결과](experiments/retry-policy.md) "남은 것"
+- like-service의 네이티브 메모리(힙 128MB에 약 460MB, 9-1): 고도화 5 실험 세트 중 512MB에서 OOMKilled로 죽어 컨테이너 상한만 768MB로 올렸다. 원인은 가리지 못했다
 - post 실패와 같은 순간의 캐시 읽기 실패(고도화 4의 S-01 503 6건, S-06 17건)의 원인. S-06의 11건은 Lettuce 지표에 남지 않아, 읽기 오류를 종류별로 세야 가를 수 있다: [고도화 4 결과](experiments/graceful-degradation.md) "남은 것"
 
 정한 것:
@@ -732,3 +745,4 @@ experiments/run-all.sh --list                                 # 돌릴 목록
 - post 캐시 키 구조와 응답 계약(F-002): `size`별 키 `weave:feed:posts:latest:v1:size:{size}`, 응답의 `degradation`(6-1·6-3, design 결정 2·4)
 - 대체 설정값(F-002, 6-4): Redis 읽기 상한 30ms(S-06의 GET 지연 측정), user 캐시 1시간·10,000명(판단과 잰 항목 크기), post stale 허용 10분(PRD)·쓰기 간격 1초(계산)
 - 429와 Retry-After 처리 방식(F-005): 서킷을 강제로 열지 않고, 재시도 루프 바로 안·서킷 바깥에 의존성별 대기(`RetryAfterHolds`)를 둔다. 대기 중인 호출은 서킷에 닿지 않고 `retry_after`로 끝난다(5-4, 5-5, `add-retry-policy` design 결정 4)
+- 재시도·외부 API 설정값(F-005, 5-6): 최대 3번·10ms·20ms(±50%)·남은 시간 안, 재시도 예산 10%(1초 창, 최소 1번), ad 상한 100ms마다 54건(계약 쿼터 초당 600건 가정), Retry-After 기본 1초·최대 60초. 결과는 [고도화 5 결과](experiments/retry-policy.md)
