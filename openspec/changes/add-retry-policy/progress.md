@@ -64,3 +64,11 @@
   - `FeedRetryMetricsScenarioTest` "지표가 있다"는 피드 전에 의존성 5개 × (`weave_retry_calls_total` 결과 4개, `weave_retry_after_rejected_calls_total`, `weave_retry_after_hold_remaining_seconds`) + `weave_ratelimiter_rejected_calls_total{name="ad"}`를 본다. ad의 재시도 결정도 0으로 등록해야 한다.
   - `FeedRetryOverrideScenarioTest`는 `RetryRegistry.retry("like").retryConfig.maxAttempts == 2`도 본다(스타터 바인딩이라 지금도 참).
 ---
+
+### 2026-11-08 12:14 - 2.1 실패 분류와 재시도 판정을 더한다
+- 한 일: `DownstreamFailure.of`에 `rate_limited`(`RequestNotPermitted`), `retry_after`(`RetryAfterHoldException`)를 더했다. 서킷 판정은 그대로라 둘 다 세지 않는다. `RetryPolicy.retryable`은 5xx, `connect_failure`, 원인 사슬에 `ConnectionRequestTimeoutException`이 없는 `io_failure`만 참이다.
+- 바꾼 파일: `feed-service/src/main/kotlin/com/weave/feed/gateway/DownstreamFailure.kt`(`RetryAfterHoldException(dependency, holdUntil: Instant)`도 여기, `unwrap`·`causeChain`을 `internal`로), `RetryPolicy.kt`(새), 테스트 `gateway/RetryPolicyTest.kt`, `gateway/DownstreamFailureRetryCauseTest.kt`(새), feed-service `CLAUDE.md` 분류 줄.
+- 확인: gateway 단위 테스트 45개 통과(기존 `DownstreamFailureTest` 22개 그대로), `:feed-service:test`, `ktlintCheck`, 타입 검사, `openspec validate` 통과.
+- 다음 반복이 알아 둘 것:
+  - 2.3의 `RetryAfterHolds`는 대기 중이면 `RetryAfterHoldException(dependency, holdUntil)`을 던지면 된다. 2.4의 재시도 루프는 `RetryPolicy.retryable(error)`로 실패 종류를 보고, 시간 예산·재시도 예산은 따로 본다.
+---

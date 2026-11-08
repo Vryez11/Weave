@@ -35,7 +35,7 @@
 
 ## 2. 구현
 
-- [ ] 2.1 실패 분류와 재시도 판정을 더한다(design 결정 2, 7).
+- [x] 2.1 실패 분류와 재시도 판정을 더한다(design 결정 2, 7).
   - `DownstreamFailure`에 `rate_limited`(`RequestNotPermitted`)와 `retry_after`(`RetryAfterHoldException`). 서킷 판정은 그대로다. `RetryPolicy.retryable`(5xx, `connect_failure`, 커넥션 풀 대기를 뺀 `io_failure`).
   - 확인: 새 단위 테스트 `gateway/RetryPolicyTest`, `gateway/DownstreamFailureRetryCauseTest`가 통과하고 기존 `DownstreamFailureTest`가 그대로 통과한다.
 - [ ] 2.2 재시도 예산을 만든다(design 결정 5).
