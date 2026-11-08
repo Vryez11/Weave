@@ -23,14 +23,14 @@ feed-service가 하위 서비스 호출 실패를 의존성 등급대로 대체�
 
 ### Requirement: 중요·선택 등급의 실패는 피드를 실패시키지 않는다 (F-002)
 
-user, like, recommendation, ad 호출이 실패해도(5xx, 4xx, 연결 실패, 호출 시간 상한 초과, 서킷 열림, 벌크헤드 거절, 요청 시간 예산 초과) `GET /feed`는 200이어야 한다(SHALL). 실패한 의존성은 등급대로 대체하고, 다시 부르지 않는다. 재시도는 F-005에서 정한다.
+user, like, recommendation, ad 호출이 실패해도(5xx, 4xx, 연결 실패, 호출 시간 상한 초과, 서킷 열림, 벌크헤드 거절, 요청 시간 예산 초과, 요청 수 상한, Retry-After 대기) `GET /feed`는 200이어야 한다(SHALL). 실패한 의존성은 재시도(`retry-policy`)가 끝난 뒤의 마지막 실패로 등급대로 대체한다. 대체를 정한 뒤에는 다시 부르지 않는다.
 
 #### Scenario: 중요·선택 등급 하나가 5xx
 
 - **GIVEN** user, like, recommendation, ad 중 하나가 503을 준다
 - **WHEN** `GET /feed`를 부른다
 - **THEN** 200이 온다. 네 의존성 각각에 대해 같다
-- **AND** 실패한 의존성에는 한 번만 요청한다
+- **AND** 실패한 의존성에는 그 의존성의 최대 시도 횟수(`retry-policy`)보다 많이 요청하지 않는다
 
 #### Scenario: 중요·선택 등급이 모두 실패한다
 

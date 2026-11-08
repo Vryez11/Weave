@@ -9,8 +9,9 @@
 # 4. 장애를 되돌리고 feed-service를 다시 띄워 healthy가 될 때까지 기다린다(앞 실행이 남긴 스레드와 user 캐시를 지운다).
 #    그 뒤 post 캐시(redis)를 비운다. redis가 떠 있지 않으면 표준 오류에 한 줄 적고 계속한다.
 # 5. results/<UTC yyyyMMdd-HHmmss>-<S-xx>/에 k6 요약(summary.json)과 원본(raw.json, 끝나면 raw.json.gz)을 쓴다.
-# 6. k6가 0이나 99(threshold 넘음)로 끝나면 판정(lib/verdict.sh), degrade 비율(lib/degrade.sh), 10초 구간(lib/windows.sh), Prometheus 질의로
-#    report.json과 report.md를 쓴다. report.json 형식은 e2e ExperimentRunComposeScenarioTest KDoc이 정한다.
+# 6. k6가 0이나 99(threshold 넘음)로 끝나면 degrade 비율(lib/degrade.sh), 10초 구간(lib/windows.sh), Prometheus 질의로 값을 모으고,
+#    판정 입력(verdict-input.json: 요청 배율 최댓값, ad 429 수)을 쓴 뒤 판정(lib/verdict.sh)해 report.json과 report.md를 쓴다.
+#    report.json 형식은 e2e ExperimentRunComposeScenarioTest KDoc, 판정 입력 형식은 ExperimentVerdictScenarioTest KDoc이 정한다.
 # 7. 종료 코드: 0 기대와 같음, 1 기대와 다름, 2 실행하지 못함(잘못된 인자, 환경 없음, 되돌리기 실패, k6 실패, 중단).
 #
 # - 옵션 기본값은 config.json이다. 시간은 h·m·s를 이어 쓴다(예: 20s, 5m, 1m30s).
@@ -33,6 +34,12 @@ GRAFANA_URL="http://localhost:3000"
 SCRAPE_MARGIN_SECONDS=10
 # Prometheus의 feed-service 대상(prometheus.yml의 static_configs). 관리 포트다(compose.yaml MANAGEMENT_SERVER_PORT)
 FEED='instance="feed-service:8090"'
+# 하위 서비스 5개가 받은 업무 요청(Actuator 제외). 요청 배율의 분자다
+DOWNSTREAM='instance=~"(post|user|like|recommendation|ad)-service:[0-9]+",uri!~"/actuator.*"'
+# 요청 배율 최댓값의 구간(add-retry-policy design 결정 10). 측정이 이 두 배보다 짧으면 측정 구간 전체의 요청 배율 하나로 둔다
+RATIO_WINDOW_SECONDS=20
+# 재시도 결정(weave_retry_calls_total의 outcome, add-retry-policy design 결정 9)
+RETRY_OUTCOMES="retried budget_exhausted deadline attempts_exhausted"
 
 log() { echo "run.sh: $*" >&2; }
 fail() {
@@ -283,10 +290,6 @@ gzip -f "$folder/raw.json" || fail "k6 원본을 gzip하지 못했다: $folder/r
 
 # ---------- 6. 판정과 리포트 ----------
 
-verdict="$("$here/lib/verdict.sh" "$folder/summary.json" "$scenario")"
-verdict_status=$?
-[ "$verdict_status" -le 1 ] || fail "판정하지 못했다(lib/verdict.sh 종료 코드 $verdict_status)"
-
 degrade_ratio="$("$here/lib/degrade.sh" "$folder/summary.json")" ||
   fail "degrade 비율을 계산하지 못했다(lib/degrade.sh)"
 
@@ -305,6 +308,8 @@ if [ "$now" -lt "$ready" ]; then
 fi
 
 prometheus_failed=0
+# 판정 입력(요청 배율, ad 429)을 만드는 질의가 실패했다. 그 기준을 기대에 적은 시나리오는 판정하지 못함(2)으로 끝낸다
+verdict_input_failed=0
 # prom <query|query_range> <PromQL>: 측정 구간으로 질의해 .data.result를 쓴다. 실패하면 null을 쓴다.
 # Prometheus는 호스트에 열려 있어도 호스트에 curl이 있다고 보지 않아, 컨테이너 안의 wget으로 부른다
 prom() {
@@ -328,8 +333,23 @@ range="${duration_seconds}s"
 q_p99="$(prom query "histogram_quantile(0.99, sum by (client_name, le) (increase(http_client_requests_seconds_bucket{$FEED}[$range])))")" || prometheus_failed=1
 q_calls="$(prom query "sum by (client_name) (increase(http_client_requests_seconds_count{$FEED}[$range]))")" || prometheus_failed=1
 q_failed="$(prom query "sum by (client_name) (increase(http_client_requests_seconds_count{$FEED,outcome!=\"SUCCESS\"}[$range]))")" || prometheus_failed=1
-q_received="$(prom query "sum by (instance) (increase(http_server_requests_seconds_count{instance=~\"(post|user|like|recommendation|ad)-service:[0-9]+\",uri!~\"/actuator.*\"}[$range]))")" || prometheus_failed=1
-q_feed="$(prom query "sum(increase(http_server_requests_seconds_count{$FEED,uri=\"/feed\"}[$range]))")" || prometheus_failed=1
+q_received="$(prom query "sum by (instance) (increase(http_server_requests_seconds_count{$DOWNSTREAM}[$range]))")" || { prometheus_failed=1; verdict_input_failed=1; }
+q_feed="$(prom query "sum(increase(http_server_requests_seconds_count{$FEED,uri=\"/feed\"}[$range]))")" || { prometheus_failed=1; verdict_input_failed=1; }
+# 요청 배율 최댓값(F-005): 측정 구간 안의 20초 구간마다(5초 간격) 요청 배율을 계산해 가장 큰 값. 재시도 폭주는 서킷이 열리기 전
+# 몇 초에만 생겨 구간이 길면 열린 구간이 지운다. 측정이 짧으면 질의하지 않고 측정 구간 전체의 요청 배율을 쓴다
+q_ratio_max=null
+ratio_windowed=0
+if [ "$duration_seconds" -ge $((RATIO_WINDOW_SECONDS * 2)) ]; then
+  ratio_windowed=1
+  ratio_window="${RATIO_WINDOW_SECONDS}s"
+  q_ratio_max="$(prom query "max_over_time((sum by (instance) (increase(http_server_requests_seconds_count{$DOWNSTREAM}[$ratio_window])) / scalar(sum(increase(http_server_requests_seconds_count{$FEED,uri=\"/feed\"}[$ratio_window]))))[$((duration_seconds - RATIO_WINDOW_SECONDS))s:5s])")" || { prometheus_failed=1; verdict_input_failed=1; }
+fi
+# 재시도 결정 수(F-005). 의존성 5개 × 결정 4개를 feed-service가 시작할 때 0으로 등록한다
+q_retries="$(prom query "sum by (name, outcome) (increase(weave_retry_calls_total{$FEED}[$range]))")" || prometheus_failed=1
+# ad-service가 돌려준 429 수(F-005). 429를 한 번도 돌려주지 않았으면 시계열이 없어 0이다
+q_ad_429="$(prom query "sum(increase(http_server_requests_seconds_count{instance=~\"ad-service:[0-9]+\",uri!~\"/actuator.*\",status=\"429\"}[$range]))")" || { prometheus_failed=1; verdict_input_failed=1; }
+# ad 동시 호출 상한. 요청 한도가 넘친 순간 이미 나가 있던 호출 수의 상한이라 429를 받아도 되는 수에 쓴다
+q_ad_bulkhead="$(prom query "max(resilience4j_bulkhead_max_thread_pool_size{$FEED,name=\"ad\"})")" || { prometheus_failed=1; verdict_input_failed=1; }
 q_tomcat="$(prom query_range "sum(tomcat_threads_busy_threads{$FEED})")" || prometheus_failed=1
 # 의존성별 ThreadPool 벌크헤드(F-001). Semaphore 벌크헤드는 지표 이름이 달라 섞이지 않는다
 q_bulkhead_active="$(prom query_range "max by (name) (resilience4j_bulkhead_active_thread_count{$FEED})")" || prometheus_failed=1
@@ -349,6 +369,68 @@ else
 fi
 # 측정 구간에 feed-service 지표를 긁은 비율. 1보다 작으면 자원 사용량은 긁힌 구간만의 값이다
 q_up="$(prom query_range "up{$FEED}")" || prometheus_failed=1
+
+JQ_DEFS='
+  def round_to($digits): pow(10; $digits) as $f | . * $f | round / $f;
+  # Prometheus 값은 문자열이다. NaN·Inf는 null로 둔다
+  def num: if type == "string" and test("^[-+]?[0-9]*\\.?[0-9]+([eE][-+]?[0-9]+)?$") then tonumber else null end;
+  def instant_by($label): if . == null then null else map({key: .metric[$label], value: (.value[1] | num)}) | from_entries end;
+  def instant_single: if . == null then null else (.[0].value[1] // null | num) end;
+  # 하위 서비스 대상(instance="<의존성>-service:<포트>")의 값을 의존성 이름으로 묶는다
+  def by_service: if . == null then null
+    else map({key: (.metric.instance | sub("-service:[0-9]+$"; "")), value: (.value[1] | num)}) | from_entries end;
+  # 요청 배율 = 하위 서비스가 받은 업무 요청 ÷ 피드 요청
+  def request_ratio($receivedBy; $feedRequests; $n):
+    if $receivedBy == null or $feedRequests == null or $feedRequests == 0 then null
+    else (($receivedBy[$n] // 0) / $feedRequests) | round_to(3) end;
+'
+
+# 판정 입력(F-005). 형식은 e2e ExperimentVerdictScenarioTest KDoc. 429를 받아도 되는 수는 측정 구간 안에 ad 요청 한도 장애(quota)가
+# 있을 때만 = (ceil(측정 초 ÷ 한도 창) + 1) × ad 동시 호출 상한(add-retry-policy design 결정 10)
+verdict_input="$(
+  jq -n \
+    --arg dependencies "$DEPENDENCIES" \
+    --argjson durationSeconds "$duration_seconds" \
+    --argjson ratioWindowed "$ratio_windowed" \
+    --slurpfile definition "$here/scenarios/$scenario.json" \
+    --argjson received "$q_received" \
+    --argjson feed "$q_feed" \
+    --argjson ratioMax "$q_ratio_max" \
+    --argjson ad429 "$q_ad_429" \
+    --argjson adBulkhead "$q_ad_bulkhead" "$JQ_DEFS"'
+    ($dependencies | split(" ")) as $names
+    | ($received | by_service) as $receivedBy
+    | ($feed | instant_single) as $feedRequests
+    | ($ratioMax | by_service) as $ratioMaxBy
+    | ([($definition[0].faults // [])[] | select(.action == "quota" and .at < $durationSeconds) | .windowSeconds] | first) as $quotaWindow
+    | ($adBulkhead | instant_single) as $adThreads
+    | {
+        requestRatioMax: ($names | map(. as $n | {key: $n, value:
+          (if $ratioWindowed == 0 then request_ratio($receivedBy; $feedRequests; $n)
+           elif $ratioMaxBy == null then null
+           else (if $ratioMaxBy | has($n) then $ratioMaxBy[$n] else 0 end) | if . == null then null else round_to(3) end
+           end)}) | from_entries),
+        adRejections: {
+          rejected: (if $ad429 == null then null
+                     else ($ad429[0].value[1] // "0" | num) | if . == null then null else round end end),
+          allowed: (if $quotaWindow == null or $adThreads == null then null
+                    else (($durationSeconds / $quotaWindow | ceil) + 1) * $adThreads | round end)
+        }
+      }
+  '
+)" || fail "판정 입력을 만들지 못했다"
+echo "$verdict_input" >"$folder/verdict-input.json" || fail "판정 입력을 쓰지 못했다: $folder/verdict-input.json"
+
+# 판정 입력 질의가 실패했는데 기대가 요청 배율이나 Retry-After 기준을 판정하면, "값 없음"으로 기대와 다름(1)이 되지 않게 2로 끝낸다.
+# 실험 결과가 아니라 측정 실패이기 때문이다
+if [ "$verdict_input_failed" = 1 ] &&
+  jq -e --arg id "$scenario" '.scenarios[$id] | type == "object" and (has("requestRatio") or has("retryAfter"))' \
+    "$here/expectations.json" >/dev/null 2>&1; then
+  fail "판정 입력(요청 배율, ad 429)을 만드는 Prometheus 질의가 실패해 판정하지 못했다. 위의 질의 실패 줄과 Prometheus(127.0.0.1:9090)를 본다"
+fi
+verdict="$("$here/lib/verdict.sh" "$folder/summary.json" "$scenario" "$here/expectations.json" "$folder/verdict-input.json")"
+verdict_status=$?
+[ "$verdict_status" -le 1 ] || fail "판정하지 못했다(lib/verdict.sh 종료 코드 $verdict_status)"
 
 commit="$(git -C "$root" rev-parse --short HEAD 2>/dev/null)" || commit="unknown"
 if [ "$commit" != unknown ] && [ -n "$(git -C "$root" status --porcelain 2>/dev/null)" ]; then
@@ -385,12 +467,10 @@ report="$(
     --argjson leased "$q_leased" \
     --argjson pending "$q_pending" \
     --argjson circuitState "$circuit_state" \
-    --argjson up "$q_up" '
-    def round_to($digits): pow(10; $digits) as $f | . * $f | round / $f;
-    # Prometheus 값은 문자열이다. NaN·Inf는 null로 둔다
-    def num: if type == "string" and test("^[-+]?[0-9]*\\.?[0-9]+([eE][-+]?[0-9]+)?$") then tonumber else null end;
-    def instant_by($label): if . == null then null else map({key: .metric[$label], value: (.value[1] | num)}) | from_entries end;
-    def instant_single: if . == null then null else (.[0].value[1] // null | num) end;
+    --argjson up "$q_up" \
+    --argjson verdictInput "$verdict_input" \
+    --argjson retries "$q_retries" \
+    --arg retryOutcomes "$RETRY_OUTCOMES" "$JQ_DEFS"'
     def stats: [.[]?.values[]?[1] | num | select(. != null)] as $v
       | if ($v | length) == 0 then {max: null, avg: null}
         else {max: ($v | max | round_to(4)), avg: ($v | add / length | round_to(4))} end;
@@ -410,10 +490,11 @@ report="$(
     | ($p99 | instant_by("client_name")) as $p99By
     | ($calls | instant_by("client_name")) as $callsBy
     | ($failed | instant_by("client_name")) as $failedBy
-    | (if $received == null then null
-       else $received | map({key: (.metric.instance | sub("-service:[0-9]+$"; "")), value: (.value[1] | num)}) | from_entries
-       end) as $receivedBy
+    | ($received | by_service) as $receivedBy
     | ($feed | instant_single) as $feedRequests
+    | (if $retries == null then null
+       else $retries | map({key: "\(.metric.name) \(.metric.outcome)", value: (.value[1] | num)}) | from_entries
+       end) as $retriesBy
 
     | ($windows.faults // []) as $sent
     | [$sent[] | select(.action != "clear" and .action != "reset")] as $injects
@@ -446,9 +527,14 @@ report="$(
           p99Ms: (if $p99By == null or $p99By[$n] == null then null else $p99By[$n] * 1000 | round_to(1) end),
           failureRate: (if $callsBy == null or $failedBy == null or ($callsBy[$n] // 0) == 0 then null
                         else (($failedBy[$n] // 0) / $callsBy[$n]) | round_to(4) end),
-          requestRatio: (if $receivedBy == null or $feedRequests == null or $feedRequests == 0 then null
-                         else (($receivedBy[$n] // 0) / $feedRequests) | round_to(3) end)
+          requestRatio: request_ratio($receivedBy; $feedRequests; $n),
+          requestRatioMax: $verdictInput.requestRatioMax[$n],
+          # 측정 구간의 재시도 결정 수. 질의가 실패하면 결정마다 null
+          retries: ($retryOutcomes | split(" ") | map(. as $o | {key: $o, value:
+            (if $retriesBy == null then null else ($retriesBy["\($n) \($o)"] // 0 | round) end)}) | from_entries)
         }}) | from_entries),
+        # ad-service가 돌려준 429 수와 429를 받아도 되는 수. 판정 입력 그대로
+        adRejections: $verdictInput.adRejections,
         resources: {
           tomcatBusyThreads: ($tomcat | stats),
           feedCpuUsage: ($cpu | stats),
@@ -501,10 +587,13 @@ jq -r '
   def utc: . / 1000 | floor | todate;
   def row(cells): "| " + (cells | map(show) | join(" | ")) + " |";
   # label은 jq 예약어(label $name | ... break)라 함수 이름으로 쓰지 않는다
-  def criterion_name: {availability: "가용성", p99: "p99", degradeRatio: "degrade 비율", other: "그 밖의 기준"}[.];
+  def criterion_name: {availability: "가용성", p99: "p99", degradeRatio: "degrade 비율", requestRatio: "요청 배율",
+                       retryAfter: "Retry-After", other: "그 밖의 기준"}[.];
   def expected: if type == "string" then (if . == "meet" then "SLO 충족(meet)" else "SLO 미충족(miss)" end)
                 else "가용성 \(.availability) · p99 \(.p99)"
-                     + (if has("degradeRatio") then " · degrade 비율 \(.degradeRatio)" else "" end) end;
+                     + (if has("degradeRatio") then " · degrade 비율 \(.degradeRatio)" else "" end)
+                     + (if has("requestRatio") then " · 요청 배율 \(.requestRatio)" else "" end)
+                     + (if has("retryAfter") then " · Retry-After \(.retryAfter)" else "" end) end;
   [
     "# 장애 실험 리포트: \(.scenario) \(.title // "")",
     "",
@@ -548,13 +637,31 @@ jq -r '
     "",
     "## 의존성",
     "",
-    "| 의존성 | 호출 p99 | 호출 실패율 | 요청 배율 | 서킷 상태 |",
-    "|---|---|---|---|---|",
+    "| 의존성 | 호출 p99 | 호출 실패율 | 요청 배율 | 요청 배율 최댓값 | 서킷 상태 |",
+    "|---|---|---|---|---|---|",
     (.circuitState as $circuits
       | .dependencies | to_entries[]
-      | row([.key, (.value.p99Ms | ms), .value.failureRate, .value.requestRatio, ($circuits[.key]? // null)])),
+      | row([.key, (.value.p99Ms | ms), .value.failureRate, .value.requestRatio, .value.requestRatioMax, ($circuits[.key]? // null)])),
     "",
     "서킷 상태는 측정 구간을 5초 간격으로 본 표본에서 바뀔 때만 이어 적었다. 5초보다 짧게 머문 상태는 빠질 수 있고, 정확한 전이는 `circuit_state_changed` 로그로 본다.",
+    "",
+    "요청 배율 최댓값은 측정 구간 안의 20초 구간(5초 간격) 요청 배율 중 가장 큰 값이다. 측정이 40초보다 짧으면 측정 구간 전체의 요청 배율이다.",
+    "",
+    "## 재시도와 외부 API",
+    "",
+    "| 의존성 | 다시 부름 | 재시도 예산 소진 | 남은 시간 부족 | 시도 횟수 소진 |",
+    "|---|---|---|---|---|",
+    (.dependencies | to_entries[]
+      | row([.key, .value.retries.retried, .value.retries.budget_exhausted, .value.retries.deadline, .value.retries.attempts_exhausted])),
+    "",
+    "재시도할 수 있는 실패마다 결정 하나를 센다(`weave_retry_calls_total`). ad는 다시 부르지 않아 늘 0이다.",
+    "",
+    "| 항목 | 값 |",
+    "|---|---|",
+    row(["ad-service가 돌려준 429 수", .adRejections.rejected]),
+    row(["429를 받아도 되는 수", .adRejections.allowed]),
+    "",
+    "429를 받아도 되는 수 = (측정 구간에 걸친 ad 요청 한도 창 수 + 1) × ad 동시 호출 상한. 시나리오에 ad 요청 한도 장애가 없으면 값 없음이다.",
     "",
     "## 자원 사용량 (측정 구간)",
     "",

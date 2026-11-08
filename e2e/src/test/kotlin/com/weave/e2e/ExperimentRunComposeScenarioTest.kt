@@ -29,7 +29,7 @@ import kotlin.time.Duration.Companion.minutes
  * `fault-experiments` 스펙 중 `experiments/run.sh`의 시나리오 (F-007, F-001, F-002).
  * "짧게 돌린다", "없는 시나리오", "환경이 떠 있지 않다", "앞에 남은 장애", "앞에 남은 post 캐시", "정상 종료 뒤", "중간에 멈춘다",
  * "준비 구간은 세지 않는다", "모든 요청이 실패한다", "시간 초과된 요청", "리포트 항목", "선택 의존성이 느리다"(degrade 비율),
- * "부하 도구가 실패한다", "Tomcat 스레드가 모두 묶여도 긁힌다"(feed-service의 실험 지표).
+ * "부하 도구가 실패한다", "Tomcat 스레드가 모두 묶여도 긁힌다"(feed-service의 실험 지표), "광고 요청 한도를 넘는 짧은 실행"(Retry-After 기준, F-005).
  *
  * 고도화 4(add-graceful-degradation)부터 선택 의존성이 실패해도 피드는 200이고(S-02 짧은 실행은 SLO 충족), post가 실패하면
  * post 캐시(Redis)로 대체한다. "모든 요청이 실패한다"는 Redis를 멈춰 캐시를 읽지 못하게 한 뒤 S-06을 돌린다.
@@ -64,8 +64,11 @@ import kotlin.time.Duration.Companion.minutes
  *   "verdict": "SLO 충족, 기대와 같음",    // 판정 값(expectation부터 failedThresholds까지)은 lib/verdict.sh의 출력 그대로(ExperimentVerdictScenarioTest)
  *   "failedThresholds": [],
  *   "dependencies": {                    // 의존성 5개 모두
- *     "post": { "p99Ms": 48.2, "failureRate": 0.0, "requestRatio": 1.0 }, ...
+ *     "post": { "p99Ms": 48.2, "failureRate": 0.0, "requestRatio": 1.0,
+ *               "requestRatioMax": 1.0,   // 요청 배율의 20초 구간 최댓값. 측정이 40초보다 짧으면 requestRatio와 같은 값(F-005)
+ *               "retries": { "retried": 0, "budget_exhausted": 0, "deadline": 0, "attempts_exhausted": 0 } }, ...  // 측정 구간 재시도 결정 수
  *   },
+ *   "adRejections": { "rejected": 0, "allowed": null },  // ad-service가 돌려준 429 수, 429를 받아도 되는 수(시나리오에 quota 장애가 있을 때만, F-005)
  *   "resources": {                       // 측정 구간의 최댓값·평균
  *     "tomcatBusyThreads": { "max": 16, "avg": 15.2 },
  *     "feedCpuUsage": { "max": .., "avg": .. },
@@ -88,6 +91,8 @@ import kotlin.time.Duration.Companion.minutes
  *   "recovery": null                     // lib/windows.sh의 recovery
  * }
  * ```
+ * - 결과 폴더의 `verdict-input.json`은 판정 스크립트에 넘긴 판정 입력이다(`requestRatioMax`, `adRejections`. 형식은 [ExperimentVerdictScenarioTest]).
+ *   `allowed` = (ceil(측정 초 ÷ 시나리오 quota의 `windowSeconds`) + 1) × ad 벌크헤드 최대 스레드(`resilience4j_bulkhead_max_thread_pool_size{name="ad"}`)
  * - `faults`의 시각은 측정 시작부터 잰 초(`lib/windows.sh`의 `faults`와 같은 기준)다. 거둔 시각은 같은 `target`의 다음 `clear`,
  *   없으면 `teardown()`의 되돌리기(`action: reset`)다. 측정 시간을 줄여 돌려 측정 구간 밖에 놓인 항목은 `skipped: true`이고
  *   두 시각이 `null`이다(`report.md`에는 "건너뜀").
@@ -168,10 +173,11 @@ class ExperimentRunComposeScenarioTest :
                 listOf("p50", "p95", "p99").forEach { latency[it].asDouble() shouldBeGreaterThan 0.0 }
                 report["availability"].asDouble() shouldBeInRangeOf 0.0..1.0
                 report["sloMet"] shouldBe true
-                report["expectation"] shouldBe "meet"
+                // 고도화 5(F-005)부터 기대는 기준마다의 객체다
+                report["expectation"] shouldBe mapOf("availability" to "meet", "p99" to "meet", "requestRatio" to "meet")
                 report["matchesExpectation"] shouldBe true
                 val criteria = report["criteria"].asMap()
-                listOf("availability", "p99").forEach { name ->
+                listOf("availability", "p99", "requestRatio").forEach { name ->
                     val criterion = criteria[name].asMap()
                     withClue("기준 $name: $criterion") {
                         (criterion["met"] is Boolean) shouldBe true
@@ -186,7 +192,22 @@ class ExperimentRunComposeScenarioTest :
                         dependency["p99Ms"].asDouble() shouldBeGreaterThanOrEqualTo 0.0
                         dependency["failureRate"].asDouble() shouldBeInRangeOf 0.0..1.0
                         dependency["requestRatio"].asDouble() shouldBeGreaterThan 0.0
+                        dependency["requestRatioMax"].asDouble() shouldBeGreaterThan 0.0
+                        val retries = dependency["retries"].asMap()
+                        retries.keys shouldBe setOf("retried", "budget_exhausted", "deadline", "attempts_exhausted")
+                        retries.values.forEach { it.asDouble() shouldBeGreaterThanOrEqualTo 0.0 }
                     }
+                }
+                val adRejections = report["adRejections"].asMap()
+                withClue("adRejections: $adRejections") {
+                    adRejections["rejected"].asDouble() shouldBeGreaterThanOrEqualTo 0.0
+                    // S-02에는 ad 요청 한도 장애가 없다
+                    adRejections["allowed"].shouldBeNull()
+                }
+                val verdictInput = ExperimentRuns.json(folder.resolve("verdict-input.json"))
+                withClue("verdict-input.json: $verdictInput") {
+                    verdictInput["requestRatioMax"].asMap().keys shouldBe ExperimentRuns.dependencies.keys
+                    verdictInput["adRejections"].asMap() shouldBe adRejections
                 }
 
                 val resources = report["resources"].asMap()
@@ -247,6 +268,24 @@ class ExperimentRunComposeScenarioTest :
                 markdown shouldContain "SLO 충족, 기대와 같음"
                 markdown shouldContain "degrade"
                 markdown shouldContain "CLOSED"
+                markdown shouldContain "요청 배율 최댓값"
+                markdown shouldContain "429"
+            }
+        }
+
+        test(
+            "F-005 광고 요청 한도를 넘는 짧은 실행: S-07을 20 RPS·측정 30초로 돌리면 ad-service 429 수는 받아도 되는 수(4 × ad 동시 호출 상한) 이하이고 Retry-After 기준을 지키며 ad degrade 비율은 0보다 크다",
+        ) {
+            val (result, folder) = run("S-07", "--rps", "20", "--warmup", "5s", "--duration", "30s")
+            val report = ExperimentRuns.report(folder)
+            withClue("$result\nreport.json: $report") {
+                val adRejections = report["adRejections"].asMap()
+                val allowed = adRejections["allowed"].asDouble()
+                // 창 10초, 측정 30초: ceil(30 / 10) + 1 = 4개 창. ad 벌크헤드는 main 값(40)이다
+                allowed shouldBe 4.0 * 40
+                adRejections["rejected"].asDouble() shouldBeLessThanOrEqualTo allowed
+                report["criteria"].asMap()["retryAfter"].asMap()["met"] shouldBe true
+                report["degradeRatio"].asMap()["ad"].asDouble() shouldBeGreaterThan 0.0
             }
         }
 

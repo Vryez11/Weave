@@ -129,6 +129,8 @@ services:
       dockerfile: ../../../docker/service.Dockerfile
     environment:
       <<: *downstream-environment
+      # JVM이 보는 메모리는 다른 하위 서비스와 같은 512MB로 둬 힙(25%, 128MB)과 GC 동작을 그대로 둔다. 컨테이너 상한만 아래에서 올린다
+      JAVA_TOOL_OPTIONS: -XX:+UseG1GC -XX:MaxRAM=512m
       LIKE_DB_URL: jdbc:mysql://mysql:3306/weave_like
       LIKE_DB_USERNAME: ${LIKE_DB_USERNAME:?.env에 LIKE_DB_USERNAME을 채운다}
       LIKE_DB_PASSWORD: ${LIKE_DB_PASSWORD:?.env에 LIKE_DB_PASSWORD를 채운다}
@@ -136,7 +138,14 @@ services:
       <<: *service-depends-on
       mysql:
         condition: service_healthy
-    deploy: *downstream-deploy
+    # 메모리 상한만 768MB다. 512MB에서는 400 RPS 부하 30초 만에 사용량이 상한(510MiB)에 붙고, 힙 128MB에 네이티브 메모리
+    # (RssAnon)가 약 460MB라(user·post는 약 370MB) 고도화 5 실험 세트의 S-02에서 OOMKilled(137)로 죽었다(2026-11-08).
+    # 네이티브 메모리가 큰 원인은 아직 가리지 못했다(아키텍처 13장)
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 768M
     healthcheck:
       <<: *service-healthcheck
       test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:8083/actuator/health"]
