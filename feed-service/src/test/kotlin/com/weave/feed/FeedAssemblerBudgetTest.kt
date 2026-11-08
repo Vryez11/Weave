@@ -35,7 +35,11 @@ import java.util.concurrent.CompletionException
 import kotlin.time.Duration.Companion.seconds
 
 /**
- * 요청 시간 예산 (add-call-isolation design 결정 4, tasks 2.6, F-001).
+ * 요청 시간 예산 (add-call-isolation design 결정 4, tasks 2.6, F-001, F-002).
+ *
+ * 고도화 4(add-graceful-degradation)부터 예산을 넘긴 의존성과 먼저 실패한 의존성은 피드를 실패시키지 않고 등급대로 빠진다
+ * (`call-isolation` 델타 "요청 시간 예산", `graceful-degradation`). 이 테스트는 post가 성공하는 경우만 다뤄 응답의
+ * `degradation.missing`을 본다. post가 실패하는 흐름은 `FeedAssemblerPostFlowTest`가 본다.
  *
  * 시계는 테스트가 움직인다([MutableClock]). post Gateway가 불리는 순간 시계를 앞으로 돌려 "post가 그만큼 걸렸다"를 흉내 낸다.
  * 끝나지 않는 호출은 완료되지 않는 future로 흉내 낸다. 마감이 이미 지난 경우만 다뤄 실제로 기다리지 않는다.
@@ -100,13 +104,21 @@ class FeedAssemblerBudgetTest :
             budget.remaining() shouldBe Duration.ZERO
         }
 
-        test("F-001 post가 끝났을 때 남은 예산이 없으면 user와 like를 부르지 않고, 둘 다 budget_exhausted로 실패한다") {
+        test("F-001 F-002 post가 끝났을 때 남은 예산이 없으면 user와 like를 부르지 않고, 둘 다 budget_exhausted로 빠진다") {
             postTakes(Duration.ofMillis(250))
 
             LogCapture().use { capture ->
-                val error = shouldThrow<CompletionException> { assembler.assemble(userId = 1, size = 20) }
+                val feed = assembler.assemble(userId = 1, size = 20)
 
-                error.cause.shouldBeInstanceOf<TimeBudgetExhaustedException>()
+                feed.posts.map { it.id } shouldBe listOf(10L)
+                feed.degradation.missing shouldContainAll listOf("user", "like")
+                feed.posts
+                    .single()
+                    .author
+                    ?.unknown shouldBe true
+                feed.posts
+                    .single()
+                    .like.myLike shouldBe MyLike.UNKNOWN
                 verify(exactly = 0) { userGateway.getUsers(any()) }
                 verify(exactly = 0) { likeGateway.getLikes(any(), any()) }
                 // post 다음에 부르는 recommendation·ad도 남은 시간이 없어 부르지 않는다. 이 테스트는 user·like만 본다
@@ -124,7 +136,7 @@ class FeedAssemblerBudgetTest :
             verify(exactly = 1) { likeGateway.getLikes(1, listOf(10L)) }
         }
 
-        test("F-001 마감이 지나면 끝나지 않은 의존성만 budget_exhausted 실패 로그를 남기고 그 future를 끝낸다") {
+        test("F-001 F-002 마감이 지나면 끝나지 않은 의존성만 budget_exhausted 실패 로그를 남기고 그 future를 끝내며, 그 의존성만 빠진다") {
             // post 100ms 뒤 user·like·recommendation을 부르고, 마지막에 부르는 ad가 나머지 150ms를 쓴다
             postTakes(Duration.ofMillis(100))
             val users = CompletableFuture<List<UserResponse>>()
@@ -137,24 +149,24 @@ class FeedAssemblerBudgetTest :
             }
 
             LogCapture().use { capture ->
-                val error = shouldThrow<CompletionException> { assembler.assemble(userId = 1, size = 20) }
+                val feed = assembler.assemble(userId = 1, size = 20)
 
-                error.cause.shouldBeInstanceOf<TimeBudgetExhaustedException>()
+                feed.degradation.missing shouldContainExactlyInAnyOrder listOf("user", "recommendation")
                 eventually(5.seconds) { capture.budgetExhausted() shouldContainExactlyInAnyOrder listOf("user", "recommendation") }
                 shouldThrow<CompletionException> { users.join() }.cause.shouldBeInstanceOf<TimeBudgetExhaustedException>()
                 shouldThrow<CompletionException> { recommendations.join() }.cause.shouldBeInstanceOf<TimeBudgetExhaustedException>()
             }
         }
 
-        test("F-001 예산 안에 먼저 실패한 의존성이 있으면 예산 초과가 아니라 그 실패로 끝난다") {
+        test("F-001 F-002 예산 안에 먼저 실패한 의존성이 있으면 budget_exhausted가 아니라 그 의존성만 빠진다") {
             postTakes(Duration.ofMillis(10))
             val failure = IllegalStateException("ad 실패")
             every { adGateway.getAds() } returns CompletableFuture.failedFuture(failure)
 
             LogCapture().use { capture ->
-                val error = shouldThrow<CompletionException> { assembler.assemble(userId = 1, size = 20) }
+                val feed = assembler.assemble(userId = 1, size = 20)
 
-                error.cause shouldBe failure
+                feed.degradation.missing shouldBe listOf("ad")
                 capture.budgetExhausted().shouldBeEmpty()
             }
         }

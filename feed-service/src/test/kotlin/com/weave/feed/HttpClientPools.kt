@@ -14,6 +14,7 @@ import java.util.IdentityHashMap
  */
 object HttpClientPools {
     private const val MAX_DEPTH = 20
+    private const val MAX_READ_ATTEMPTS = 5
 
     /** [client]가 닿는 커넥션 매니저. 정확히 하나여야 한다. */
     fun connectionManagerOf(client: Any): PoolingHttpClientConnectionManager {
@@ -48,7 +49,24 @@ object HttpClientPools {
         return found.toList()
     }
 
-    private fun children(node: Any): List<Any> =
+    /**
+     * [node]가 가리키는 객체들. 커넥션 매니저 안쪽에는 HttpClient가 다른 스레드에서 고치는 컬렉션(풀의 연결 목록 등)이 있어,
+     * 읽는 도중 바뀌면 `ConcurrentModificationException`이 난다. CI에서 드물게 이것으로 테스트가 실패했다(PR Vryez11/weave#11).
+     * 그때는 그 노드를 다시 읽는다. 바뀌는 동안 계속 실패하면 그 노드 안쪽은 건너뛴다. 그 바람에 찾는 객체(매니저, 설정)를
+     * 놓치면 부르는 쪽 단언(정확히 하나, 비어 있지 않음)이 실패해 드러나므로, 틀린 값으로 조용히 통과하지는 않는다.
+     */
+    private fun children(node: Any): List<Any> {
+        repeat(MAX_READ_ATTEMPTS) {
+            try {
+                return childrenOnce(node)
+            } catch (_: ConcurrentModificationException) {
+                // 다른 스레드가 고치는 중이다. 다시 읽는다
+            }
+        }
+        return emptyList()
+    }
+
+    private fun childrenOnce(node: Any): List<Any> =
         when {
             Proxy.isProxyClass(node.javaClass) -> listOf(Proxy.getInvocationHandler(node))
             node is Map<*, *> -> (node.keys + node.values).filterNotNull()

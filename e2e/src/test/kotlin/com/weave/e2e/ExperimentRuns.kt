@@ -87,6 +87,9 @@ object ExperimentRuns {
         timeout: Duration = 60.seconds,
     ): ScriptResult = execute(listOf("docker") + args, emptyMap(), timeout)
 
+    /** 같은 프로젝트의 `redis` 컨테이너 안에서 `redis-cli <args>`를 돌린다(post 캐시, add-graceful-degradation design 결정 12). */
+    fun redis(vararg args: String): ScriptResult = ComposeEnvironment.dockerCompose("exec", "-T", "redis", "redis-cli", *args)
+
     /** 같은 프로젝트의 [service] 컨테이너 안에서 `curl -sS`로 Actuator를 부른다. 본문을 돌려준다. */
     fun actuator(
         service: String,

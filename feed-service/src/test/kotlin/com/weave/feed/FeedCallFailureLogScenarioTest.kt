@@ -19,7 +19,9 @@ import org.springframework.test.context.DynamicPropertySource
 import kotlin.time.Duration.Companion.seconds
 
 /**
- * `feed-aggregation` 델타의 "하위 서비스 호출 실패 로그" 시나리오 중 하위 서비스가 오류 상태를 주는 셋과 시간 상한을 넘기는 하나 (F-004, F-001).
+ * `feed-aggregation` 델타의 "하위 서비스 호출 실패 로그" 시나리오 중 하위 서비스가 오류 상태를 주는 셋과 시간 상한을 넘기는 하나 (F-004, F-001, F-002).
+ *
+ * 고도화 4(add-graceful-degradation)부터 선택 의존성이 실패해도 피드는 200이다(`graceful-degradation`).
  *
  * 로그는 [LogCapture]로 잡고, 실패 로그 줄은 `event`, `dependency`, 그리고 응답의 `X-Trace-Id`와 같은 `traceId`로 찾는다.
  * "연결할 수 없다"는 주소가 달라 Spring 컨텍스트를 따로 띄워야 해서 [FeedCallFailureLogUnreachableScenarioTest]에 둔다.
@@ -60,14 +62,17 @@ class FeedCallFailureLogScenarioTest :
 
         beforeEach { wireMock.reset() }
 
-        test("F-004 하위 서비스가 5xx: recommendation이 503이면 피드는 500이고, X-Trace-Id와 같은 traceId로 recommendation http_503 실패 로그가 한 줄 남는다") {
+        test(
+            "F-004 F-002 하위 서비스가 5xx: recommendation이 503이면 피드는 200이고 추천이 비며, X-Trace-Id와 같은 traceId로 recommendation http_503 실패 로그가 한 줄 남는다",
+        ) {
             stubAllHealthy()
             wireMock.stubFailure("recommendation", 503)
 
             LogCapture().use { capture ->
                 val response = feed().getFeed()
 
-                response.statusCode() shouldBe 500
+                response.statusCode() shouldBe 200
+                response.json()["recommendations"] shouldBe emptyList<Any>()
                 val traceId = response.traceId()
                 eventually(5.seconds) {
                     val lines = capture.failureLines("recommendation", traceId)
@@ -116,7 +121,7 @@ class FeedCallFailureLogScenarioTest :
             LogCapture().use { capture ->
                 val response = feed().getFeed()
 
-                response.statusCode() shouldBe 500
+                response.statusCode() shouldBe 200
                 val traceId = response.traceId()
                 eventually(5.seconds) {
                     withClue("traceId가 X-Trace-Id와 같은 recommendation의 downstream_call_failed 줄") {

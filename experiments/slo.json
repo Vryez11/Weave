@@ -1,4 +1,5 @@
 {
   "availability": 0.999,
-  "p99Ms": 300
+  "p99Ms": 300,
+  "degradeRatio": 0.01
 }

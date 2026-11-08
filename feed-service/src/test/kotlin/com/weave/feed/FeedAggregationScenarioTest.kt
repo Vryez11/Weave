@@ -17,14 +17,14 @@ import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
 
 /**
- * `feed-aggregation` 스펙에서 "종단 간 동작"을 뺀 시나리오 (F-006, F-001).
+ * `feed-aggregation` 스펙에서 "종단 간 동작"을 뺀 시나리오 (F-006, F-001, F-002).
  *
  * 하위 서비스 다섯은 WireMock 하나로 흉내 내고([DownstreamWireMock]), 호출 여부와 파라미터는 WireMock의 요청 기록으로 본다.
  * 시간 기준은 스펙의 숫자(1,200ms 미만)를 그대로 쓴다(add-feed-aggregation design 결정 9).
  * "서로 기다리지 않는다"의 GIVEN(의존성마다 호출 시간 상한 1초, 요청 시간 예산 2초)은 이 클래스의 속성으로 준다.
  * 다른 시나리오는 지연 없이 응답하므로 이 값에 영향을 받지 않는다(add-call-isolation design 결정 13).
- * "연결할 수 없다" 시나리오는 주소 설정이 달라 [FeedUnreachableScenarioTest]에, "하위 서비스 하나가 느리다"는
- * recommendation의 상한이 달라 [FeedSlowDependencyScenarioTest]에 있다.
+ * 하위 서비스가 실패할 때의 응답은 고도화 4(add-graceful-degradation)부터 `graceful-degradation` 스펙이 정하고 그쪽 테스트
+ * (`FeedDegradationScenarioTest` 등)에 있다. 여기서는 응답 구성의 `degradation`과 `author.unknown`이 정상 응답에서 어떤 값인지만 본다.
  */
 @Tags("Integration")
 @SpringBootTest(
@@ -91,7 +91,7 @@ class FeedAggregationScenarioTest :
                 "title" to post.title,
                 "content" to post.content,
                 "createdAt" to post.createdAt,
-                "author" to author?.mapValues { (_, value) -> if (value is Long) value.toInt() else value },
+                "author" to author?.mapValues { (_, value) -> if (value is Long) value.toInt() else value }?.plus("unknown" to false),
                 "like" to mapOf("count" to count, "myLike" to myLike),
             )
 
@@ -113,20 +113,24 @@ class FeedAggregationScenarioTest :
                     )
                 body["recommendations"] shouldBe wireMock.recommendations
                 body["ads"] shouldBe wireMock.ads
+                body["degradation"] shouldBe mapOf("missing" to emptyList<String>(), "stale" to emptyList<Any>())
             }
 
-            test("F-006 작성자 프로필이 없다: 그 작성자의 게시글은 author가 null이고 나머지는 정상으로 온다") {
+            test("F-006 작성자 프로필이 없다: 그 작성자의 게시글은 author가 null이고 나머지는 정상으로 오며, user는 빠진 영역이 아니다") {
                 stubAllHealthy(userIds = listOf(3))
 
                 val response = feed().getFeed()
 
                 response.status shouldBe 200
-                response.json()["posts"] shouldBe
+                val body = response.json()
+                body["posts"] shouldBe
                     listOf(
                         expectedPost(posts[0], author = null, count = 5, myLike = "NOT_LIKED"),
                         expectedPost(posts[1], wireMock.profile(3), count = 2, myLike = "LIKED"),
                         expectedPost(posts[2], wireMock.profile(3), count = 0, myLike = "NOT_LIKED"),
                     )
+                @Suppress("UNCHECKED_CAST")
+                (body["degradation"] as Map<String, Any?>)["missing"] shouldBe emptyList<String>()
             }
 
             test("F-006 게시글이 없다: posts가 빈 목록으로 오고 user-service와 like-service는 부르지 않는다") {
@@ -211,30 +215,6 @@ class FeedAggregationScenarioTest :
 
                 response.status shouldBe 200
                 response.elapsedMs shouldBeLessThan 1_200
-            }
-        }
-
-        context("하위 서비스 실패는 시간 안에 피드 실패로 끝난다") {
-            DownstreamWireMock.dependencies.forEach { dependency ->
-                test("F-001 하위 서비스 하나가 5xx: $dependency 가 503을 주면 피드는 500이고 $dependency 에는 한 번만 요청한다") {
-                    stubAllHealthy()
-                    wireMock.stubFailure(dependency, 503)
-
-                    val response = feed().getFeed()
-
-                    response.status shouldBe 500
-                    wireMock.requestsTo(wireMock.paths.getValue(dependency)) shouldHaveSize 1
-                }
-            }
-
-            test("F-001 하위 서비스가 속도 조절 응답을 준다: ad가 429와 Retry-After 1을 주면 피드는 500이고 ad에는 한 번만 요청한다") {
-                stubAllHealthy()
-                wireMock.stubFailure("ad", 429, retryAfterSeconds = 1)
-
-                val response = feed().getFeed()
-
-                response.status shouldBe 500
-                wireMock.requestsTo("/ads") shouldHaveSize 1
             }
         }
 

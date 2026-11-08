@@ -5,6 +5,12 @@
 # 흔들리지 않게 시간 상한과 타임아웃을 넉넉히 둔다. 격리를 확인하는 테스트는 @SpringBootTest(properties)로 값을 직접 준다.
 # 실제 값은 IsolationSettingsTest(main 설정만 읽는다)와 장애 실험 세트가 확인한다.
 spring:
+  # post stale 캐시 저장소(Redis)는 기본으로 아무것도 듣지 않는 포트를 가리킨다(add-graceful-degradation design 결정 15). Redis를 쓰지 않는
+  # 테스트는 캐시 쓰기가 조용히 실패하는 상태로 돈다. post 캐시를 다루는 테스트만 Testcontainers Redis 주소를 준다
+  data:
+    redis:
+      host: localhost
+      port: 1
   http:
     serviceclient:
       post: { connect-timeout: 2s, read-timeout: 2s }

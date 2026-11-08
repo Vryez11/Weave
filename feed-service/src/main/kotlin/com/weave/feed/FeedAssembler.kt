@@ -3,6 +3,14 @@ package com.weave.feed
 import com.weave.feed.client.like.LikeResponse
 import com.weave.feed.client.post.PostResponse
 import com.weave.feed.client.user.UserResponse
+import com.weave.feed.degradation.DegradationMetrics
+import com.weave.feed.degradation.FallbackLog
+import com.weave.feed.degradation.FeedDegradation
+import com.weave.feed.degradation.PostCacheRead
+import com.weave.feed.degradation.PostSource
+import com.weave.feed.degradation.PostStaleCache
+import com.weave.feed.degradation.PostsUnavailableException
+import com.weave.feed.degradation.UserProfileCache
 import com.weave.feed.gateway.AdGateway
 import com.weave.feed.gateway.DownstreamFailure
 import com.weave.feed.gateway.LikeGateway
@@ -16,6 +24,7 @@ import java.time.Clock
 import java.time.Duration
 import java.time.Instant
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CompletableFuture.completedFuture
 import java.util.concurrent.CompletionException
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeUnit
@@ -24,13 +33,18 @@ import java.util.concurrent.TimeoutException
 /**
  * 하위 서비스를 불러 피드를 만든다 (design 결정 4, 아키텍처 4-1).
  *
- * post, recommendation, ad를 한꺼번에 시작하고, post가 끝나면 user와 like를 함께 시작한다.
- * 하나라도 실패하면 그 실패가 `CompletionException`으로 올라가 피드 전체가 실패한다.
+ * post, recommendation, ad를 한꺼번에 시작하고, post가 끝나면 user와 like를 함께 시작한다. 받은 결과로 응답을 만드는 것은
+ * [FeedDegradation.compose]다(add-graceful-degradation design 결정 3). post 결과를 먼저 받고, user·like·recommendation·ad의 결과는
+ * 실패도 값([Result])으로 받아 넘겨 등급대로 대체한다. user가 성공하면 받은 프로필을 [UserProfileCache]에 넣고, 실패하면 그 캐시에서
+ * 작성자를 찾아 넘긴다. post가 성공하면 그 게시글을 [PostStaleCache]에 넘기고(쓰기는 비동기), 실패하면 같은 `size`의 stale 캐시로
+ * 게시글을 채운다. 그것도 안 되면 [PostsUnavailableException]이다(design 결정 4, 8). 캐시는 요청 스레드에서 다룬다. 대체한 의존성마다
+ * [FallbackLog]로 한 줄을 응답 전에 요청 스레드에서 남기고, 200 응답의 영역 결과와 post 캐시 읽기 결과를 [DegradationMetrics]로 센다
+ * (design 결정 9, 10).
  *
  * 요청 시간 예산(add-call-isolation design 결정 4): 요청을 받은 시각에 [timeBudget]만큼 뒤를 마감으로 정하고(시계는 [clock]),
  * 의존성마다 마감까지 남은 시간만 기다린다. post가 끝났을 때 남은 시간이 없으면 user와 like를 부르지 않는다. 마감이 지나면
  * 끝나지 않은 의존성마다(부르지 않은 user·like 포함) `budget_exhausted` 실패 로그를 남기고 [TimeBudgetExhaustedException]으로
- * 끝낸 뒤 그 예외로 실패한다. 예산 값은 `weave.feed.time-budget`이다(아키텍처 4-3).
+ * 끝내며, 그 의존성은 다른 실패와 같이 등급대로 대체한다. 예산 값은 `weave.feed.time-budget`이다(아키텍처 4-3).
  */
 @Component
 class FeedAssembler(
@@ -41,58 +55,100 @@ class FeedAssembler(
     private val adGateway: AdGateway,
     @Value("\${weave.feed.time-budget}") private val timeBudget: Duration,
     private val clock: Clock = Clock.systemUTC(),
+    private val userProfileCache: UserProfileCache = UserProfileCache.DISABLED,
+    private val postStaleCache: PostStaleCache = PostStaleCache.DISABLED,
+    private val metrics: DegradationMetrics = DegradationMetrics.DISABLED,
 ) {
+    /** post를 대체할 수 없으면 [PostsUnavailableException]을 던진다(design 결정 8). */
     fun assemble(
         userId: Long,
         size: Int,
     ): FeedResponse {
         val budget = RequestBudget(clock.instant() + timeBudget, clock)
-        val posts = budget.call("post") { postGateway.getLatestPosts(size) }.thenCompose { fillDetails(budget, userId, it) }
+        val posts = budget.call("post") { postGateway.getLatestPosts(size) }
+        val freshDetails = posts.thenApply { fetchDetails(budget, userId, it) }
         val recommendations = budget.call("recommendation") { recommendationGateway.getRecommendations() }
         val ads = budget.call("ad") { adGateway.getAds() }
 
-        return FeedResponse(
-            posts = budget.await(posts),
-            recommendations = budget.await(recommendations).map { FeedRecommendation(it.postId, it.title, it.reason) },
-            ads = budget.await(ads).map { FeedAd(it.id, it.title, it.imageUrl, it.landingUrl) },
-        )
+        val (source, details) =
+            budget.awaitResult(posts).fold(
+                onSuccess = {
+                    postStaleCache.write(size, it)
+                    PostSource.Fresh(it) to freshDetails
+                },
+                onFailure = { stalePosts(budget, userId, size) },
+            )
+        val users = budget.awaitResult(details.thenCompose { it.users })
+        val cachedUsers = cachedUsers(users, source.posts)
+        val composed =
+            FeedDegradation.compose(
+                posts = source,
+                users = users,
+                likes = budget.awaitResult(details.thenCompose { it.likes }),
+                recommendations = budget.awaitResult(recommendations),
+                ads = budget.awaitResult(ads),
+                cachedUsers = cachedUsers,
+            )
+        // user 캐시 적중·누락은 중복 없는 작성자 수로 센다. user가 성공했으면 cachedUsers가 비어 있고 user 이벤트도 없다
+        val authors = source.posts.distinctBy { it.authorId }.size
+        val events = FallbackLog.events(composed.sections, cacheHits = cachedUsers.size, cacheMisses = authors - cachedUsers.size)
+        events.forEach(FallbackLog::log)
+        metrics.sections(composed.sections)
+        return composed.response
     }
 
-    private fun fillDetails(
+    /**
+     * post가 실패하면 요청 스레드에서 stale 캐시를 읽고, 쓸 수 있으면 그 게시글로 user·like를 시작한다(design 결정 3). 쓸 수 없으면
+     * recommendation·ad를 기다리지 않고 [PostsUnavailableException]을 던진다. 남은 호출은 각자의 시간 상한에서 끝난다.
+     */
+    private fun stalePosts(
+        budget: RequestBudget,
+        userId: Long,
+        size: Int,
+    ): Pair<PostSource, CompletableFuture<Details>> =
+        when (val cached = postStaleCache.read(size).also(metrics::postCacheRead)) {
+            is PostCacheRead.Hit -> {
+                val details = fetchDetails(budget, userId, cached.posts)
+                PostSource.Stale(cached.posts, cached.cachedAt) to completedFuture(details)
+            }
+            is PostCacheRead.Unusable -> {
+                FallbackLog.log(FallbackLog.unavailable(cached.reason))
+                throw PostsUnavailableException(cached.reason)
+            }
+        }
+
+    /** user가 성공하면 받은 프로필을 캐시에 넣고, 실패하면 게시글의 작성자를 캐시에서 찾는다(design 결정 7). */
+    private fun cachedUsers(
+        users: Result<List<UserResponse>>,
+        posts: List<PostResponse>,
+    ): Map<Long, UserResponse> =
+        users.fold(
+            onSuccess = {
+                userProfileCache.putAll(it)
+                emptyMap()
+            },
+            onFailure = { userProfileCache.getAll(posts.map { post -> post.authorId }.distinct()) },
+        )
+
+    /** 게시글의 작성자와 좋아요를 함께 부른다. 게시글이 없으면 부르지 않고 둘 다 빈 목록이다. */
+    private fun fetchDetails(
         budget: RequestBudget,
         userId: Long,
         posts: List<PostResponse>,
-    ): CompletableFuture<List<FeedPost>> {
-        if (posts.isEmpty()) return CompletableFuture.completedFuture(emptyList())
+    ): Details {
+        if (posts.isEmpty()) return Details(completedFuture(emptyList()), completedFuture(emptyList()))
 
-        val users = budget.call("user") { userGateway.getUsers(posts.map { it.authorId }.distinct()) }
-        val likes = budget.call("like") { likeGateway.getLikes(userId, posts.map { it.id }) }
-        return users.thenCombine(likes) { userList, likeList -> toFeedPosts(posts, userList, likeList) }
+        return Details(
+            users = budget.call("user") { userGateway.getUsers(posts.map { it.authorId }.distinct()) },
+            likes = budget.call("like") { likeGateway.getLikes(userId, posts.map { it.id }) },
+        )
     }
 
-    private fun toFeedPosts(
-        posts: List<PostResponse>,
-        users: List<UserResponse>,
-        likes: List<LikeResponse>,
-    ): List<FeedPost> {
-        val usersById = users.associateBy { it.id }
-        val likesByPostId = likes.associateBy { it.postId }
-        return posts.map { post ->
-            val like = likesByPostId[post.id]
-            FeedPost(
-                id = post.id,
-                title = post.title,
-                content = post.content,
-                createdAt = post.createdAt,
-                author = usersById[post.authorId]?.let { FeedAuthor(it.id, it.nickname, it.profileImageUrl) },
-                like =
-                    FeedLike(
-                        count = like?.likeCount ?: 0,
-                        myLike = if (like?.liked == true) MyLike.LIKED else MyLike.NOT_LIKED,
-                    ),
-            )
-        }
-    }
+    /** 게시글 하나 목록으로 시작한 user·like 호출. 결과는 따로 받아 하나가 실패해도 다른 하나는 쓴다(design 결정 3). */
+    private class Details(
+        val users: CompletableFuture<List<UserResponse>>,
+        val likes: CompletableFuture<List<LikeResponse>>,
+    )
 }
 
 /**
@@ -148,6 +204,17 @@ internal class RequestBudget(
             return future.join()
         }
     }
+
+    /**
+     * [await]처럼 기다리되 실패를 던지지 않고 값으로 돌려준다(add-graceful-degradation design 결정 3). 실패의 종류(HTTP 오류, 시간 상한,
+     * 서킷 열림, 벌크헤드 거절, [TimeBudgetExhaustedException])는 가리지 않는다. 실패 로그는 이미 [IsolatedCalls]나 [expire]가 남겼다.
+     */
+    fun <T> awaitResult(future: CompletableFuture<T>): Result<T> =
+        try {
+            Result.success(await(future))
+        } catch (e: CompletionException) {
+            Result.failure(e.cause ?: e)
+        }
 
     /** 끝나지 않은 호출을 모두 [TimeBudgetExhaustedException]으로 끝내고 의존성마다 실패 로그를 남긴다. */
     fun expire() {

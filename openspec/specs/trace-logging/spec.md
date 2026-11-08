@@ -29,8 +29,8 @@
 
 #### Scenario: 처리되지 않은 예외로 끝난 요청
 
-- **GIVEN** recommendation-service가 503을 준다
-- **WHEN** `GET /feed`가 500으로 응답한다
+- **GIVEN** like-service가 토글에 503을 준다. 피드 조회의 하위 서비스 실패는 고도화 4부터 등급대로 대체돼(`graceful-degradation`) 처리되지 않은 예외가 되지 않는다
+- **WHEN** `POST /feed/likes/{postId}/toggle`이 500으로 응답한다
 - **THEN** feed-service가 그 요청을 처리하며 쓴 ERROR 줄은 모두 `traceId`가 응답의 `X-Trace-Id`와 같다
 - **AND** 그중 한 줄의 `stack_trace`에 하위 서비스 호출 실패 예외의 클래스 이름이 있다
 
@@ -46,7 +46,7 @@
 
 #### Scenario: 오류 응답
 
-- **WHEN** `GET /feed`가 요청 검증 실패로 400으로, 하위 서비스 실패로 500으로 응답한다
+- **WHEN** `GET /feed`가 요청 검증 실패로 400으로, 게시글을 대체할 수 없어 503으로 응답한다
 - **THEN** 두 응답 모두 `X-Trace-Id` 헤더가 있다
 
 ### Requirement: 들어온 trace를 잇는다 (F-004)
@@ -97,8 +97,8 @@ feed-service는 하위 서비스를 부를 때마다 W3C `traceparent` 헤더에
 
 #### Scenario: 실패한 요청
 
-- **WHEN** `GET /feed`가 500으로 응답한다
-- **THEN** feed-service의 `http_request` 줄에 `status` 500과 응답의 `X-Trace-Id`와 같은 `traceId`가 있다
+- **WHEN** `GET /feed`가 503으로 응답한다
+- **THEN** feed-service의 `http_request` 줄에 `status` 503과 응답의 `X-Trace-Id`와 같은 `traceId`가 있다
 
 #### Scenario: 헬스 체크
 

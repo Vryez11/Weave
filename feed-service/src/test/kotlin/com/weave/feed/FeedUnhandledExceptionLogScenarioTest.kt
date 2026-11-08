@@ -18,7 +18,10 @@ import org.springframework.web.client.HttpServerErrorException
 import kotlin.time.Duration.Companion.seconds
 
 /**
- * `trace-logging` "JSON 로그 형식"의 "처리되지 않은 예외로 끝난 요청" 시나리오 (F-004).
+ * `trace-logging` "JSON 로그 형식"의 "처리되지 않은 예외로 끝난 요청" 시나리오 (F-004, F-002).
+ *
+ * 고도화 4(add-graceful-degradation)부터 피드 조회의 하위 서비스 실패는 등급대로 대체돼 처리되지 않은 예외가 되지 않는다.
+ * 실패하는 요청은 like-service가 503을 주는 좋아요 토글이다(토글 실패는 그대로 500).
  *
  * 실패하는 요청 하나를 부르는 동안 쓰인 줄만 보려고, 앞뒤에 정상 요청을 하나씩 보내 그 줄이 나올 때까지 기다린다.
  * 비동기 appender는 들어온 순서대로 쓰므로, 앞 요청의 줄이 나온 뒤부터 뒤 요청의 줄이 나오기 전까지가 그 요청의 구간이다.
@@ -63,14 +66,14 @@ class FeedUnhandledExceptionLogScenarioTest :
 
         beforeEach { wireMock.reset() }
 
-        test("F-004 처리되지 않은 예외로 끝난 요청: GET /feed가 500이면 그 요청의 ERROR 줄은 모두 X-Trace-Id를 갖고, 한 줄에 실패 예외가 있다") {
+        test("F-004 F-002 처리되지 않은 예외로 끝난 요청: 좋아요 토글이 500이면 그 요청의 ERROR 줄은 모두 X-Trace-Id를 갖고, 한 줄에 실패 예외가 있다") {
             stubAllHealthy()
 
             LogCapture().use { capture ->
                 val start = capture.awaitProbe() + 1
 
-                wireMock.stubFailure("recommendation", 503)
-                val response = feed().getFeed()
+                wireMock.stubToggleFailure(postId = 5, status = 503)
+                val response = feed().toggleLike(5)
                 response.statusCode() shouldBe 500
                 val traceId = response.traceId()
 

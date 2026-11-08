@@ -1,6 +1,15 @@
 spring:
   application:
     name: feed-service
+  data:
+    redis:
+      # post stale 캐시 저장소. Compose는 REDIS_HOST=redis를 준다 (add-graceful-degradation design 결정 14)
+      host: ${REDIS_HOST:localhost}
+      # 캐시 읽기 상한(명령 타임아웃)과 연결 타임아웃. 예산 250ms = post 상한 100 + 읽기 + user·like 상한 100 + 집계 20에서 읽기 ≤ 30ms.
+      # S-06(400 RPS, 모든 요청이 캐시를 읽는다, 20261107-130950-S-06)에서 GET 120,003건의 99.90%가 1.05ms 이하, 모두 9.79ms 이하라
+      # 상한의 1/3(10ms) 기준 안이다. 연결이 끊기면 REJECT_COMMANDS로 바로 실패한다 (add-graceful-degradation design 결정 4, 6)
+      timeout: 30ms
+      connect-timeout: 30ms
   http:
     # 연결·응답 타임아웃은 그 의존성의 호출 시간 상한(resilience4j.timelimiter)과 같다. 상한이 future를 끝내도 블로킹 I/O를 하던
     # 스레드는 풀리지 않아, 스레드와 커넥션을 놓는 시점을 HttpClient가 정한다 (add-call-isolation design 결정 3)
@@ -113,6 +122,23 @@ resilience4j:
       ad: { base-config: default }
 
 weave:
+  # post stale 캐시(Redis). post가 성공할 때마다 마지막 정상 응답을 size별로 남기고, 실패하면 허용 시간 안의 것으로 stale 응답한다
+  # (add-graceful-degradation design 결정 4, 5)
+  post-cache:
+    # PRD 3장·10장: 짧은 장애(배포 실패, 재시작)는 가리고, 복구 뒤 오래된 피드가 길게 남지 않게 한다. Redis TTL도 같다
+    max-staleness: 10m
+    # 같은 키는 1초에 한 번만 쓴다. 400 RPS에서 매번 쓰면 같은 값(약 6KB)을 초당 400번 덮어쓴다. 1초면 cachedAt이 마지막 정상 응답보다
+    # 최대 1초 이르고, 허용 시간 10분의 0.17%라 판단에 영향이 없다
+    write-interval: 1s
+  # user 로컬 캐시. user가 실패했을 때만 읽고, 성공할 때마다 받은 프로필을 넣는다 (add-graceful-degradation design 결정 7)
+  user-cache:
+    # 정상 동안은 피드의 작성자가 요청마다 다시 쓰여 늘 새것이라, 이 값은 user-service가 죽은 뒤 작성자를 채울 수 있는 시간과
+    # 장애 중에 보이는 프로필의 최대 나이를 정한다. post stale 허용 10분보다 충분히 길게(6배) 둬 post와 user가 함께 아플 때 user가
+    # 먼저 바닥나지 않게 한다. 측정이 아니라 판단이고 change 승인 때 확인했다
+    expire-after-write: 1h
+    # 항목 하나 약 320~336B(실험 데이터 모양의 프로필 1만 개를 넣은 힙 차이, tasks 4.2)라 1만 개에 약 3.2MB, 최대 힙(1GB 컨테이너의
+    # 25%, 256MB)의 1.3%다. 피드 하나의 작성자는 최대 50명이라 최근 피드 작성자를 넉넉히 덮는다
+    maximum-size: 10000
   feed:
     # 피드 요청 하나의 시간 예산. p99 300ms(PRD 2장)에 여유 50ms. post 100ms + user·like 100ms = 200ms라 예산이 먼저 끝나는 것은
     # 벌크헤드 대기나 스레드 전환 지연이 쌓일 때뿐이다 (아키텍처 4-3, design 결정 4)
@@ -142,9 +168,17 @@ server:
       enabled: true
 
 management:
+  health:
+    # post stale 캐시 저장소(Redis)는 선택적 대체 수단이라 feed-service 헬스(Compose healthcheck, run.sh의 대기)를 내리지 않는다.
+    # Redis가 죽어도 post-service가 정상이면 피드는 정상이다 (add-graceful-degradation design 결정 4)
+    redis:
+      enabled: false
   metrics:
     distribution:
       # 피드 요청과 의존성별 호출 지연의 p99를 Prometheus에서 계산한다 (add-fault-experiments design 결정 4)
       percentiles-histogram:
         http.server.requests: true
         http.client.requests: true
+        # post stale 캐시(Redis) 명령 지연. S-06에서 캐시 읽기 p99로 읽기 상한(spring.data.redis.timeout)의 근거를 잰다
+        # (add-graceful-degradation design 결정 6)
+        lettuce: true

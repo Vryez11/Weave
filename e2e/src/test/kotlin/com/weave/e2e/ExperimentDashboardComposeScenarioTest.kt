@@ -15,7 +15,7 @@ import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
 /**
- * `fault-experiments` 스펙의 "대시보드를 불러온다" 시나리오 (F-007, F-001).
+ * `fault-experiments` 스펙의 "대시보드를 불러온다" 시나리오 (F-007, F-001, F-002).
  *
  * 주소와 Compose 프로젝트는 [ComposeEnvironment]의 시스템 속성으로 받는다.
  * GIVEN의 `experiments/run.sh S-01 --rps 5 --warmup 5s --duration 20s`는 테스트가 직접 돌린다.
@@ -51,6 +51,10 @@ class ExperimentDashboardComposeScenarioTest :
                 "resilience4j_bulkhead_max_thread_pool_size",
                 "weave_bulkhead_rejected_calls_total",
                 "resilience4j_timelimiter_calls",
+                // 의존성별 degrade 비율과 대체(user 캐시로 채움 포함), post 캐시 읽기 결과 (add-graceful-degradation design 결정 10, 12).
+                // feed-service가 시작할 때 0부터 등록해 장애가 없어도 시계열이 있다. 503 수는 http_server_requests_seconds의 status로 본다
+                "weave_feed_sections_total",
+                "weave_post_cache_reads_total",
             )
         // MVP의 공유 풀 패널은 고도화 3에서 지웠다
         val removedMetrics = listOf("executor_active_threads", "executor_queued_tasks")
@@ -73,7 +77,7 @@ class ExperimentDashboardComposeScenarioTest :
                 own + queries(panel["panels"].asList())
             }
 
-        test("F-001 대시보드를 불러온다: S-01을 짧게 돌린 뒤 Grafana에 피드 실험 대시보드가 있고, 서킷 상태·벌크헤드 패널이 있으며, 패널 질의가 모두 오류 없이 시계열을 돌려준다") {
+        test("F-002 대시보드를 불러온다: S-01을 짧게 돌린 뒤 Grafana에 피드 실험 대시보드가 있고, 서킷 상태·벌크헤드·degrade 비율 패널이 있으며, 패널 질의가 모두 오류 없이 시계열을 돌려준다") {
             val run =
                 ComposeEnvironment.experiment(
                     "run.sh",
