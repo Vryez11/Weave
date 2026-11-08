@@ -9,5 +9,10 @@ dependencies {
     implementation("io.github.resilience4j:resilience4j-spring-boot4:2.4.0")
     // 벌크헤드 스레드의 traceId 전파(TraceContextPropagator, design 결정 8). libs/observability가 런타임에 이미 넣고 BOM이 버전을 정한다
     implementation("io.micrometer:context-propagation")
+    // 등급별 대체 (add-graceful-degradation design 결정 4, 7). post stale 캐시는 Redis, user 프로필은 로컬 캐시. 버전은 Boot BOM이 정한다
+    implementation("org.springframework.boot:spring-boot-starter-data-redis")
+    implementation("com.github.ben-manes.caffeine:caffeine")
     testImplementation("org.wiremock:wiremock-standalone:3.13.2")
+    // post stale 캐시 시나리오의 Redis (design 결정 15). Redis 모듈 없이 GenericContainer로 띄운다
+    testImplementation("org.testcontainers:testcontainers")
 }

@@ -68,7 +68,8 @@ class FeedBulkheadTraceScenarioTest :
             LogCapture().use { capture ->
                 val response = feed().getFeed()
 
-                response.statusCode() shouldBe 500
+                // like는 선택 등급이라 실패해도 피드는 200이다 (F-002)
+                response.statusCode() shouldBe 200
                 val traceId = response.traceId()
                 eventually(5.seconds) {
                     withClue("traceId가 X-Trace-Id와 같은 like의 downstream_call_failed 줄") {

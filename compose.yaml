@@ -1,5 +1,5 @@
-# 서비스 6개, MySQL, 관찰 인프라(Alloy, Loki, Tempo, Prometheus, Grafana), Toxiproxy를 띄운다
-# (add-trace-logging design 결정 7, add-fault-experiments design 결정 1·10).
+# 서비스 6개, MySQL, Redis, 관찰 인프라(Alloy, Loki, Tempo, Prometheus, Grafana), Toxiproxy를 띄운다
+# (add-trace-logging design 결정 7, add-fault-experiments design 결정 1·10, add-graceful-degradation design 결정 12).
 # 띄우는 법: `./gradlew bootJar` 뒤 `docker compose up -d --build --wait`. MySQL 계정은 `.env`에서 읽는다(.env.example).
 # 호스트에는 feed-service(8080), 관찰 인프라, Toxiproxy 관리 API(8474)만 연다. 모두 로컬에서만 보도록 127.0.0.1에 묶는다.
 # feed-service는 하위 서비스를 늘 Toxiproxy의 별칭(<의존성>-proxy:1808x)으로 부른다. 그 밖에는 Compose 서비스 이름으로 부른다.
@@ -80,9 +80,14 @@ services:
       # 들어간다: FEED_SPRING_APPLICATION_JSON='{...}' docker compose up -d --force-recreate --no-deps --wait feed-service
       # (add-call-isolation design 결정 10, 11)
       SPRING_APPLICATION_JSON: ${FEED_SPRING_APPLICATION_JSON:-{}}
+      # post stale 캐시 저장소. Toxiproxy를 거치지 않고 바로 부른다 (add-graceful-degradation design 결정 12)
+      REDIS_HOST: redis
     depends_on:
       <<: *service-depends-on
       toxiproxy:
+        condition: service_healthy
+      # Redis 없이도 뜨지만(헬스에 넣지 않는다, design 결정 4), 실험이 처음부터 캐시를 쓸 수 있는 조건에서 시작하게 한다
+      redis:
         condition: service_healthy
     ports:
       - "127.0.0.1:8080:8080"
@@ -226,6 +231,21 @@ services:
       # ping은 인증 실패여도 서버가 살아 있으면 0으로 끝나 계정이 필요 없다
       <<: *service-healthcheck
       test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "--silent"]
+
+  redis:
+    # feed-service의 post stale 캐시(add-graceful-degradation design 결정 4, 12). feed-service 테스트(Testcontainers)와 같은 버전.
+    # 캐시라 디스크에 저장하지 않는다. 호스트 포트는 열지 않는다(run.sh와 테스트는 docker compose exec redis redis-cli로 부른다)
+    image: redis:8.2.2
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    deploy:
+      resources:
+        # 값은 키 최대 50개 × 약 6KB로 작고, S-06의 읽기 400회/초는 Redis 한 코어 처리량(초당 수만 회)에 비해 작다 (design 결정 12)
+        limits:
+          cpus: "0.5"
+          memory: 256M
+    healthcheck:
+      <<: *service-healthcheck
+      test: ["CMD", "redis-cli", "ping"]
 
   # ---------- 관찰 인프라 (아키텍처 7-2) ----------
   # 이미지에 셸이나 HTTP 클라이언트가 없는 Alloy, Loki는 헬스 체크를 두지 않는다(running이면 된다)

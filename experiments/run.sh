@@ -6,9 +6,10 @@
 # 1. 시나리오 ID와 옵션을 확인한다. 없는 ID면 있는 ID 목록을 출력하고 2로 끝난다(아무것도 바꾸지 않는다).
 # 2. Compose 환경(feed-service, Toxiproxy, 하위 서비스 5개)이 healthy인지 본다. 아니면 띄우는 명령을 알려 주고 2로 끝난다.
 # 3. trap(EXIT, INT, TERM)을 건다. 어떻게 끝나도 장애를 모두 되돌린다(k6/reset.js). 되돌리지 못하면 2로 끝난다.
-# 4. 장애를 되돌리고 feed-service를 다시 띄워 healthy가 될 때까지 기다린다(앞 실행이 남긴 스레드를 지운다).
+# 4. 장애를 되돌리고 feed-service를 다시 띄워 healthy가 될 때까지 기다린다(앞 실행이 남긴 스레드와 user 캐시를 지운다).
+#    그 뒤 post 캐시(redis)를 비운다. redis가 떠 있지 않으면 표준 오류에 한 줄 적고 계속한다.
 # 5. results/<UTC yyyyMMdd-HHmmss>-<S-xx>/에 k6 요약(summary.json)과 원본(raw.json, 끝나면 raw.json.gz)을 쓴다.
-# 6. k6가 0이나 99(threshold 넘음)로 끝나면 판정(lib/verdict.sh), 10초 구간(lib/windows.sh), Prometheus 질의로
+# 6. k6가 0이나 99(threshold 넘음)로 끝나면 판정(lib/verdict.sh), degrade 비율(lib/degrade.sh), 10초 구간(lib/windows.sh), Prometheus 질의로
 #    report.json과 report.md를 쓴다. report.json 형식은 e2e ExperimentRunComposeScenarioTest KDoc이 정한다.
 # 7. 종료 코드: 0 기대와 같음, 1 기대와 다름, 2 실행하지 못함(잘못된 인자, 환경 없음, 되돌리기 실패, k6 실패, 중단).
 #
@@ -240,6 +241,14 @@ while :; do
 done
 log "feed-service가 healthy다(${waited}초 기다림)"
 
+# post 캐시는 준비 구간이 다시 채운다. 다시 띄운 뒤에 비워 앞 프로세스가 남긴 비동기 쓰기가 섞이지 않게 한다.
+# Redis가 떠 있지 않으면 그 실험의 조건일 수 있어 비우지 않고 계속한다. 캐시는 장애가 아니라 끝날 때는 비우지 않는다
+if flushed="$(compose exec -T redis redis-cli FLUSHDB 2>&1)" && [ "$flushed" = OK ]; then
+  log "post 캐시를 비웠다(redis FLUSHDB)"
+else
+  log "post 캐시를 비우지 못해 그대로 둔다(redis가 떠 있지 않다?): ${flushed//$'\n'/ }"
+fi
+
 # ---------- 5. 부하 ----------
 
 stamp="$(date -u '+%Y%m%d-%H%M%S|%Y-%m-%dT%H:%M:%SZ')"
@@ -277,6 +286,9 @@ gzip -f "$folder/raw.json" || fail "k6 원본을 gzip하지 못했다: $folder/r
 verdict="$("$here/lib/verdict.sh" "$folder/summary.json" "$scenario")"
 verdict_status=$?
 [ "$verdict_status" -le 1 ] || fail "판정하지 못했다(lib/verdict.sh 종료 코드 $verdict_status)"
+
+degrade_ratio="$("$here/lib/degrade.sh" "$folder/summary.json")" ||
+  fail "degrade 비율을 계산하지 못했다(lib/degrade.sh)"
 
 windows="$("$here/lib/windows.sh" "$folder/raw.json.gz" "$duration_seconds")" ||
   fail "10초 구간을 계산하지 못했다(lib/windows.sh)"
@@ -359,6 +371,7 @@ report="$(
     --slurpfile summary "$folder/summary.json" \
     --slurpfile definition "$here/scenarios/$scenario.json" \
     --argjson verdict "$verdict" \
+    --argjson degradeRatio "$degrade_ratio" \
     --argjson windows "$windows" \
     --argjson p99 "$q_p99" \
     --argjson calls "$q_calls" \
@@ -446,8 +459,8 @@ report="$(
             | ($pending | range_by("httpclient"; $names)) as $p
             | $names | map({key: ., value: {leased: $l[.], pending: $p[.]}}) | from_entries)
         },
-        # 부분 응답(F-002)이 없어 contract.js가 빠진 영역을 세지 않는다. F-002가 값을 채운다
-        degradeRatio: "없음",
+        # 측정 구간 200 응답 중 영역이 빠지거나 stale인 비율(lib/degrade.sh). 200 응답이 없으면 "없음"
+        degradeRatio: $degradeRatio,
         # 의존성마다 측정 구간에 거친 서킷 상태(lib/circuits.sh). 서킷 지표가 없는 의존성은 "없음", 질의가 실패하면 null
         circuitState: $circuitState,
         grafanaUrl: $grafana,
@@ -488,9 +501,10 @@ jq -r '
   def utc: . / 1000 | floor | todate;
   def row(cells): "| " + (cells | map(show) | join(" | ")) + " |";
   # label은 jq 예약어(label $name | ... break)라 함수 이름으로 쓰지 않는다
-  def criterion_name: {availability: "가용성", p99: "p99", other: "그 밖의 기준"}[.];
+  def criterion_name: {availability: "가용성", p99: "p99", degradeRatio: "degrade 비율", other: "그 밖의 기준"}[.];
   def expected: if type == "string" then (if . == "meet" then "SLO 충족(meet)" else "SLO 미충족(miss)" end)
-                else "가용성 \(.availability) · p99 \(.p99)" end;
+                else "가용성 \(.availability) · p99 \(.p99)"
+                     + (if has("degradeRatio") then " · degrade 비율 \(.degradeRatio)" else "" end) end;
   [
     "# 장애 실험 리포트: \(.scenario) \(.title // "")",
     "",
@@ -527,7 +541,10 @@ jq -r '
     row(["p99", (.latencyMs.p99 | ms)]),
     row(["가용성", .availability]),
     row(["SLO 충족", .sloMet]),
-    row(["degrade 비율", .degradeRatio]),
+    (if (.degradeRatio | type) == "object"
+     then (.degradeRatio | to_entries[]
+           | row([(if .key == "any" then "degrade 비율(하나라도)" else "degrade 비율 \(.key)" end), .value]))
+     else row(["degrade 비율", .degradeRatio]) end),
     "",
     "## 의존성",
     "",

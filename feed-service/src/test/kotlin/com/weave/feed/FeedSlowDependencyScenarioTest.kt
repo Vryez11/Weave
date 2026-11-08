@@ -6,6 +6,7 @@ import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.extensions.spring.SpringExtension
 import io.kotest.extensions.spring.testContextManager
+import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.longs.shouldBeLessThan
 import io.kotest.matchers.shouldBe
 import org.springframework.boot.test.context.SpringBootTest
@@ -13,10 +14,11 @@ import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
 
 /**
- * `feed-aggregation` 델타의 "하위 서비스 실패는 시간 안에 피드 실패로 끝난다" 중 "하위 서비스 하나가 느리다" (F-001).
+ * `graceful-degradation` 스펙 "중요·선택 등급의 실패는 피드를 실패시키지 않는다"의 "느린 선택 의존성" (F-002).
  *
  * recommendation의 호출 시간 상한과 응답 타임아웃을 200ms로 준다. 나머지는 테스트 기본값(2초)이고 지연 없이 응답한다.
- * MVP에서는 2초를 다 기다린 뒤 추천까지 채운 200이었다(F-006, `docs/experiments/baseline-mvp.md`).
+ * 상한이 달라 같은 요구사항의 다른 시나리오(`FeedDegradationScenarioTest`)와 컨텍스트를 나눈다.
+ * MVP에서는 2초를 다 기다린 뒤 추천까지 채운 200이었고(F-006), 고도화 3에서는 400ms 안에 500이었다(F-001).
  */
 @Tags("Integration")
 @SpringBootTest(
@@ -34,7 +36,7 @@ class FeedSlowDependencyScenarioTest :
 
         beforeEach { wireMock.reset() }
 
-        test("F-001 하위 서비스 하나가 느리다: recommendation 상한이 200ms이고 recommendation이 2초 늦으면 400ms 안에 500이 온다") {
+        test("F-002 느린 선택 의존성: recommendation 상한이 200ms이고 recommendation이 2초 늦으면 400ms 안에 200이 오고 recommendation이 빠진다") {
             wireMock.stubPosts(listOf(Post(id = 10, authorId = 3)))
             wireMock.stubUsers(listOf(3))
             wireMock.stubLikes(listOf(LikeState(postId = 10, likeCount = 0, liked = false)))
@@ -51,8 +53,10 @@ class FeedSlowDependencyScenarioTest :
 
             val response = FeedHttpClient(port).getFeed()
 
-            response.status shouldBe 500
+            response.status shouldBe 200
             response.elapsedMs shouldBeLessThan 400
+            @Suppress("UNCHECKED_CAST")
+            ((response.json()["degradation"] as Map<String, Any?>)["missing"] as List<String>) shouldContain "recommendation"
         }
     }) {
     companion object {

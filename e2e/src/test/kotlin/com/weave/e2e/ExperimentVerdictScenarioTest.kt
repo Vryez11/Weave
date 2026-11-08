@@ -12,12 +12,12 @@ import tools.jackson.module.kotlin.jacksonObjectMapper
 import tools.jackson.module.kotlin.readValue
 
 /**
- * `fault-experiments` 스펙의 "기대대로 SLO를 못 지킨다", "기대와 다르다", "기준별 기대와 같다", "기준별 기대와 다르다",
- * "고도화 3의 기대" 시나리오 (F-007, F-001).
+ * `fault-experiments` 스펙 "단계별 기대 결과로 판정한다"의 "기대대로 SLO를 못 지킨다", "기대와 다르다", "기준별 기대와 같다",
+ * "기준별 기대와 다르다", "지금 단계의 기대"와 "degrade 비율 기준"의 두 시나리오 (F-007, F-001, F-002).
  *
  * 미리 만든 k6 요약 파일과 기대 결과 파일로 판정 스크립트만 돌린다. 단계가 바뀌어도 판정 로직 테스트가 흔들리지 않게
- * 실제 `experiments/expectations.json`은 "고도화 3의 기대"만 읽는다. Docker와 Compose 환경은 쓰지 않는다
- * (add-fault-experiments design 결정 7, 8, 13, add-call-isolation design 결정 10).
+ * 실제 `experiments/expectations.json`은 "지금 단계의 기대"만 읽는다. Docker와 Compose 환경은 쓰지 않는다
+ * (add-fault-experiments design 결정 7, 8, 13, add-call-isolation design 결정 10, add-graceful-degradation design 결정 12).
  *
  * **명령:** `experiments/lib/verdict.sh <k6 요약 파일> <시나리오 ID> [기대 결과 파일]`
  * - k6 요약 파일: `k6 run --summary-export`의 결과. `metrics`의 키 중 `{scenario:measure}`가 붙은 지표의 threshold만 본다.
@@ -28,8 +28,12 @@ import tools.jackson.module.kotlin.readValue
  *   k6의 `availability` Rate는 보낸 요청만 세므로 보내지 못한 요청은 이 계산으로만 들어간다.
  *   이 계산으로 넘었고 k6 `availability` threshold는 통과했으면 `failedThresholds`에
  *   `"availability{scenario:measure}: 보내지 못한 요청 포함 rate>=<SLO>"`를 넣는다.
- * - 기대 결과 파일: 기본은 `experiments/expectations.json`. 형식은 `{"stage": "고도화 3", "scenarios": {"S-01": "meet", "S-02": {"availability": "miss", "p99": "meet"}, ...}}`.
- *   시나리오 값이 문자열(`meet`, `miss`)이면 두 기준(가용성, p99)의 기대가 모두 그 값이고, 객체면 기준마다 따로다. 객체에는 두 기준이 모두 있어야 한다.
+ * - 기대 결과 파일: 기본은 `experiments/expectations.json`. 형식은 `{"stage": "고도화 4", "scenarios": {"S-01": {"availability": "meet", "p99": "meet", "degradeRatio": "meet"}, "S-02": "meet", ...}}`.
+ *   시나리오 값이 문자열(`meet`, `miss`)이면 두 기준(가용성, p99)의 기대가 모두 그 값이고, 객체면 기준마다 따로다. 객체에는 두 기준이 모두 있어야 하고,
+ *   `degradeRatio`는 있을 때만 판정한다(F-002).
+ * - degrade 비율 기준: 의존성 5개의 degrade 비율(`lib/degrade.sh`, [ExperimentDegradeRatioScenarioTest])이 모두 `experiments/slo.json`의
+ *   `degradeRatio`(0.01)보다 작으면 지킨 것이다. 200 응답이 없어 비율이 "없음"이면 지키지 못한 것이다. 지키지 못하면 `failedThresholds`에
+ *   `"degradeRatio: <의존성> <비율> >= <상한>"`을 의존성마다 넣는다. 기대에 `degradeRatio`가 없으면 `criteria`에도 없다.
  * - 기준: `availability{scenario:measure}`의 threshold와 보내지 못한 요청을 넣은 가용성은 가용성, `feed_latency{scenario:measure}`의 threshold는
  *   p99다. 그 밖의 측정 구간 threshold(`http_reqs` 등의 `count>=0`)는 기준에 들지 않는다. 그런 threshold가 넘으면 `sloMet`은 false이고
  *   기대와 다른 것으로 본다(`mismatchedCriteria`에 `other`).
@@ -52,7 +56,8 @@ import tools.jackson.module.kotlin.readValue
  * ```
  * - `expectation`: 기대 결과 파일의 값 그대로(문자열이나 객체)
  * - `sloMet`: 측정 구간 threshold가 모두 통과했다. `criteria`의 `met`은 기준마다의 같은 판단이다
- * - `mismatchedCriteria`: `met`이 기대와 다른 기준(`availability`, `p99`, `other`). 비어 있으면 `matchesExpectation`이 true다
+ * - `sloMet`: 측정 구간 threshold와 판정한 기준(degrade 비율 포함)이 모두 통과했다
+ * - `mismatchedCriteria`: `met`이 기대와 다른 기준(`availability`, `p99`, `degradeRatio`, `other`). 비어 있으면 `matchesExpectation`이 true다
  * - `verdict`: `SLO 충족` 또는 `SLO 미충족`, 그리고 `기대와 같음` 또는 `기대와 다름`을 `, `로 잇는다. 리포트에 그대로 싣는다.
  * - `failedThresholds`: 넘은 측정 구간 threshold마다 `"<지표>: <기준>"`. 없으면 빈 배열
  *
@@ -65,6 +70,7 @@ class ExperimentVerdictScenarioTest :
         val mapper = jacksonObjectMapper()
         val expectations = ExperimentScripts.fixture("expectations-stage2.json").toString()
         val stage3 = ExperimentScripts.fixture("expectations-stage3.json").toString()
+        val stage4 = ExperimentScripts.fixture("expectations-stage4.json").toString()
 
         fun verdict(
             summary: String,
@@ -126,14 +132,43 @@ class ExperimentVerdictScenarioTest :
             }
         }
 
-        test("F-001 고도화 3의 기대: experiments/expectations.json은 고도화 3이고 S-01은 meet, S-02~S-09는 가용성 miss·p99 meet이다") {
+        test("F-002 지금 단계의 기대: experiments/expectations.json은 고도화 4이고 S-01은 가용성·p99·degrade 비율 모두 meet, S-02~S-09는 meet이다") {
             val actual = mapper.readValue<Map<String, Any?>>(ExperimentScripts.dir.resolve("expectations.json").toFile())
-            actual["stage"] shouldBe "고도화 3"
+            actual["stage"] shouldBe "고도화 4"
             val scenarios = actual["scenarios"] as Map<*, *>
             scenarios.keys shouldBe (1..9).map { "S-0$it" }.toSet()
-            scenarios["S-01"] shouldBe "meet"
+            scenarios["S-01"] shouldBe mapOf("availability" to "meet", "p99" to "meet", "degradeRatio" to "meet")
             (2..9).forEach { n ->
-                withClue("S-0$n") { scenarios["S-0$n"] shouldBe mapOf("availability" to "miss", "p99" to "meet") }
+                withClue("S-0$n") { scenarios["S-0$n"] shouldBe "meet" }
+            }
+        }
+
+        test(
+            "F-002 평시에 영역이 빠진다: 기대가 degrade 비율까지 meet인 S-01이 가용성과 p99는 지키고 like degrade 비율이 0.02면 'SLO 미충족, 기대와 다름'이고 기대와 다른 기준은 degrade 비율이다",
+        ) {
+            val (result, output) = verdict("summary-S-01-like-degraded.json", "S-01", stage4)
+            withClue(result) {
+                output["sloMet"] shouldBe false
+                output["criteria"] shouldBe
+                    mapOf(
+                        "availability" to mapOf("met" to true, "expectation" to "meet"),
+                        "p99" to mapOf("met" to true, "expectation" to "meet"),
+                        "degradeRatio" to mapOf("met" to false, "expectation" to "meet"),
+                    )
+                (output["mismatchedCriteria"] as List<*>) shouldContainExactly listOf("degradeRatio")
+                output["verdict"] shouldBe "SLO 미충족, 기대와 다름"
+                (output["failedThresholds"] as List<*>) shouldContainExactly listOf("degradeRatio: like 0.02 >= 0.01")
+                result.exitCode shouldBe 1
+            }
+        }
+
+        test("F-002 장애 시나리오의 degrade 비율은 판정하지 않는다: 기대가 meet인 S-02가 가용성과 p99는 지키고 recommendation degrade 비율이 1이면 'SLO 충족, 기대와 같음'이다") {
+            val (result, output) = verdict("summary-S-02-recommendation-degraded.json", "S-02", stage4)
+            withClue(result) {
+                output["sloMet"] shouldBe true
+                (output["criteria"] as Map<*, *>).keys shouldBe setOf("availability", "p99")
+                output["verdict"] shouldBe "SLO 충족, 기대와 같음"
+                result.exitCode shouldBe 0
             }
         }
 

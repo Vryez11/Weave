@@ -94,7 +94,10 @@ class ServiceProcesses {
                         listOf("--spring.http.serviceclient.$group.base-url=http://localhost:${port(downstream)}") +
                             relaxedIsolation(group)
                     } +
-                    "--weave.feed.time-budget=5s"
+                    "--weave.feed.time-budget=5s" +
+                    // post stale 캐시 저장소(Redis)는 띄우지 않는다. 아무것도 듣지 않는 포트를 줘 캐시 쓰기가 조용히 실패하는 상태로 돈다
+                    // (add-graceful-degradation design 결정 15). 종단 간 테스트는 하위 서비스가 모두 정상인 흐름만 본다
+                    listOf("--spring.data.redis.host=localhost", "--spring.data.redis.port=1")
             "like-service" ->
                 common +
                     listOf(

@@ -11,24 +11,27 @@ feed-service가 하위 서비스 5개를 불러 피드 하나를 만들고, 클�
 feed-service는 `GET /feed`에 게시글 목록, 추천, 광고로 이루어진 피드를 돌려줘야 한다(SHALL).
 
 - `posts`: 항목마다 `id`, `title`, `content`, `createdAt`, `author`, `like`가 있고, post-service가 준 순서를 지킨다.
-  - `author`: `id`, `nickname`, `profileImageUrl`
-  - `like`: `count`, `myLike`(`LIKED` 또는 `NOT_LIKED`)
+  - `author`: `id`, `nickname`, `profileImageUrl`, `unknown`
+  - `like`: `count`, `myLike`(`LIKED`, `NOT_LIKED`, `UNKNOWN`)
 - `recommendations`: 항목마다 `postId`, `title`, `reason`
 - `ads`: 항목마다 `id`, `title`, `imageUrl`, `landingUrl`
+- `degradation`: `missing`, `stale`. 모르는 값과 이 형식은 `graceful-degradation`
 
 #### Scenario: 모든 하위 서비스가 정상
 
 - **GIVEN** 하위 서비스 5개가 모두 정상으로 응답한다
 - **WHEN** `X-User-Id: 1`로 `GET /feed`를 부른다
 - **THEN** 200과 함께 post-service가 준 게시글이 같은 순서로 온다
-- **AND** 게시글마다 작성자 프로필과 좋아요 수가 채워져 있고, 사용자 1이 누른 게시글은 `myLike`가 `LIKED`, 나머지는 `NOT_LIKED`다
+- **AND** 게시글마다 작성자 프로필(`unknown` false)과 좋아요 수가 채워져 있고, 사용자 1이 누른 게시글은 `myLike`가 `LIKED`, 나머지는 `NOT_LIKED`다
 - **AND** `recommendations`와 `ads`에 각 서비스가 준 항목이 온다
+- **AND** `degradation.missing`과 `degradation.stale`은 빈 목록이다
 
 #### Scenario: 작성자 프로필이 없다
 
 - **GIVEN** user-service가 어떤 작성자의 프로필을 돌려주지 않는다
 - **WHEN** `GET /feed`를 부른다
 - **THEN** 그 작성자의 게시글은 `author`가 null이고, 나머지는 정상으로 온다
+- **AND** `degradation.missing`에 `user`가 없다. user-service는 정상으로 응답했다
 
 #### Scenario: 게시글이 없다
 
@@ -123,7 +126,7 @@ feed-service는 하위 서비스 호출이 실패할 때마다 로그를 한 줄
 
 - **GIVEN** recommendation-service가 503을 준다
 - **WHEN** `GET /feed`를 부른다
-- **THEN** 응답은 500이다
+- **THEN** 응답은 200이고 `recommendations`는 빈 목록이다
 - **AND** feed-service가 `event` `downstream_call_failed`, `dependency` `recommendation`, `cause` `http_503`인 줄을 하나 남긴다
 - **AND** 그 줄의 `traceId`가 응답의 `X-Trace-Id`와 같다
 
@@ -157,35 +160,6 @@ feed-service는 하위 서비스 호출이 실패할 때마다 로그를 한 줄
 - **WHEN** `GET /feed`를 부른다
 - **THEN** `dependency` `recommendation`, `cause` `timeout`인 `downstream_call_failed` 줄이 하나 있다. 시간 상한이 지난 뒤 응답 타임아웃으로 끝난 같은 호출의 줄을 하나 더 남기지 않는다
 
-### Requirement: 하위 서비스 실패는 시간 안에 피드 실패로 끝난다 (F-001)
-
-하위 서비스 하나라도 실패하면(5xx, 4xx, 연결 실패, 시간 상한 초과, 서킷 열림, 벌크헤드 거절, 시간 예산 초과) 피드 요청 전체가 500으로 실패해야 한다(SHALL). 느린 하위 서비스를 시간 상한이나 예산을 넘겨 기다리지 않는다. 재시도와 fallback은 두지 않고, HTTP 클라이언트 라이브러리가 스스로 하는 재시도도 끈 채로 둔다. 고도화 4·5에서 이 요구사항을 바꾼다.
-
-#### Scenario: 하위 서비스 하나가 5xx
-
-- **GIVEN** post, user, like, recommendation, ad 중 하나가 503을 준다
-- **WHEN** `GET /feed`를 부른다
-- **THEN** 500이 온다. 다섯 의존성 각각에 대해 같다
-- **AND** 실패한 의존성에는 한 번만 요청한다
-
-#### Scenario: 하위 서비스가 속도 조절 응답을 준다
-
-- **GIVEN** ad-service가 429와 `Retry-After: 1`을 준다
-- **WHEN** `GET /feed`를 부른다
-- **THEN** 500이 오고, ad-service에는 한 번만 요청한다
-
-#### Scenario: 하위 서비스 하나에 연결할 수 없다
-
-- **GIVEN** recommendation-service의 주소에 아무것도 떠 있지 않다
-- **WHEN** `GET /feed`를 부른다
-- **THEN** 500이 온다
-
-#### Scenario: 하위 서비스 하나가 느리다
-
-- **GIVEN** recommendation의 호출 시간 상한이 200ms이고, recommendation-service가 2초 늦게 응답하며 나머지는 정상이다
-- **WHEN** `GET /feed`를 부른다
-- **THEN** 400ms 안에 500이 온다
-
 ### Requirement: 하위 서비스 호출 실패 원인 (F-004, F-001)
 
 실패 로그의 `cause`는 HTTP 상태가 있으면 `http_<상태 코드>`, 연결하지 못했으면(연결 거부, 호스트 이름을 찾지 못함, 경로 없음, 연결 시간 초과) `connect_failure`, 호출 시간 상한이나 응답 타임아웃을 넘겼으면 `timeout`, 서킷이 열려 부르지 않았으면 `circuit_open`, 벌크헤드가 가득 차 부르지 않았으면 `bulkhead_full`, 요청 시간 예산이 다 돼 기다리지 않았으면 `budget_exhausted`, 그 밖의 입출력 실패는 `io_failure`, 나머지는 `other`여야 한다(SHALL).
@@ -195,4 +169,3 @@ feed-service는 하위 서비스 호출이 실패할 때마다 로그를 한 줄
 - **WHEN** 하위 서비스 호출이 연결 시간 초과로 실패한다
 - **THEN** `cause`는 `timeout`이 아니라 `connect_failure`다
 - **AND** 커넥션 풀에서 연결을 얻지 못해 실패한 호출의 `cause`는 `connect_failure`가 아니라 `io_failure`다
-

@@ -1,7 +1,7 @@
 # 아키텍처
 
 - 작성일: 2026-11-04
-- 상태: 초안. 고도화 3(`add-call-isolation`, F-001)까지 반영했다. 격리 설정값과 근거는 4-3과 5-6, 결과는 [고도화 3 결과](experiments/call-isolation.md)에 있다.
+- 상태: 초안. 고도화 4(`add-graceful-degradation`, F-002)까지 반영했다. 격리 설정값과 근거는 4-3과 5-6, 대체 설정값은 6-4, 결과는 [고도화 3 결과](experiments/call-isolation.md)와 [고도화 4 결과](experiments/graceful-degradation.md)에 있다.
 - 근거: [PRD](prd.md)의 단계, SLO, 의존성 등급. 기능 ID별 세부 설계는 OpenSpec change에서 정한다.
 
 ## 1. 결정 요약
@@ -115,7 +115,7 @@ sequenceDiagram
 |---|---|
 | MVP | 없음. 타임아웃은 라이브러리 기본값, 병렬 호출은 공유 스레드 풀 하나(Boot의 기본 `applicationTaskExecutor`) |
 | 고도화 3 | 조회는 `IsolatedCalls`가 의존성마다 서킷 브레이커 → 호출 시간 상한(TimeLimiter) → ThreadPool 벌크헤드로 감싸고, HttpClient 그룹마다 연결·응답·커넥션 대기 타임아웃과 커넥션 풀 크기를 둔다. `FeedAssembler`가 요청 시간 예산(`RequestBudget`)으로 기다린다. 좋아요 토글은 요청 스레드에서 like 서킷과 Semaphore 벌크헤드 `like-toggle`을 거친다. 공유 풀(`applicationTaskExecutor`)은 비교 실험용 Semaphore 모드(`weave.isolation.bulkhead-type: semaphore`)에서만 조회를 돌린다 |
-| 고도화 4 | 등급별 fallback, 부분 응답 계약 |
+| 고도화 4 | 고도화 3 그대로 감싸고, `FeedAssembler`가 의존성마다 결과를 값으로 받아(`RequestBudget.awaitResult`) 등급대로 대체한다(6장). post가 실패하면 요청 스레드에서 Redis stale 캐시(`PostStaleCache`)를 읽고, 그것도 안 되면 503이다. user 실패는 Caffeine 로컬 캐시(`UserProfileCache`)로 채운다. 응답에 `degradation`이 붙는다 |
 | 고도화 5 | 재시도(멱등한 호출만), ad의 RateLimiter와 Retry-After |
 
 MVP의 "공유 스레드 풀 하나 + 기본 타임아웃"은 실무에서 흔한 실수를 일부러 재현한 것이다. 하위 서비스 하나가 느려지면 공유 풀과 Tomcat 스레드가 함께 묶여 피드 전체가 느려지는 모습을 고도화 2에서 기준선으로 남긴다. 기본값(풀 크기, 큐 크기, HttpClient의 응답 타임아웃)은 `add-feed-aggregation` change에서 실제 값을 확인해 기록한다.
@@ -179,7 +179,7 @@ p99 300ms(PRD 2장) 안에 응답하기 위한 나눔이다. 하위 서비스의
 
 ```mermaid
 flowchart LR
-    asm["FeedAssembler<br/>호출 순서 · 시간 예산 · 응답 구성"] --> gw["PostGateway 등<br/>의존성마다 하나의 Bean"]
+    asm["FeedAssembler<br/>호출 순서 · 시간 예산 · 등급별 대체"] --> gw["PostGateway 등<br/>의존성마다 하나의 Bean"]
     gw --> iso["IsolatedCalls<br/>서킷 → TimeLimiter → 벌크헤드<br/>실패 로그"]
     iso --> http["PostClient 등<br/>@HttpExchange"]
     http --> rc["RestClient<br/>+ HttpClient 5 풀"]
@@ -193,7 +193,7 @@ flowchart LR
 - 요청 스레드에서 동기로 부르는 좋아요 토글은 `isolated.callBlocking("like", IsolatedCalls.LIKE_TOGGLE) { ... }`로 부른다. 조회와 같은 `like` 서킷과 Semaphore 벌크헤드 `like-toggle`을 거치고 TimeLimiter는 쓰지 않는다(그룹의 응답 타임아웃이 같은 역할을 한다, design 결정 6).
 - 실패 로그(`downstream_call_failed`)도 `IsolatedCalls`가 감싼 future의 결과에서 한 번만 남긴다. 시간 상한이나 요청 시간 예산이 먼저 끝낸 호출의 뒤늦은 실패는 남기지 않는다.
 - 서킷 상태 전이 로그(`circuit_state_changed`)는 `CircuitStateLog`가 레지스트리의 서킷마다 건다(design 결정 9).
-- fallback(6장)을 어디에 둘지는 `add-graceful-degradation`에서 정한다.
+- **fallback은 `FeedAssembler` 한 곳에서 한다**(`add-graceful-degradation` design 결정 1). Gateway와 `IsolatedCalls`는 실패를 그대로 넘기고(실패 로그만 남긴다), `FeedAssembler`가 의존성별 결과를 받아 PRD 3장의 등급표대로 응답을 만든다(6장). Resilience4j fallback이나 Gateway에서 대체하지 않는 이유는 둘이다. 응답의 `degradation`은 무엇을 대체했는지 알아야 만들 수 있고, 대체에는 요청 문맥(post 캐시의 `size`, user 대체의 작성자 ID)이 필요하다. 이렇게 두면 F-005의 재시도는 `IsolatedCalls` 안에 들어가 "재시도가 다 실패한 뒤에 대체한다"는 순서가 구조로 정해진다.
 
 ### 5-3. 설정 구조
 
@@ -298,11 +298,136 @@ Retry-After 동안 호출을 막는 방법(서킷을 그 시간만큼 열어 두
 
 ## 6. Graceful Degradation 구현
 
-- **응답 구성:** `FeedAssembler`가 의존성별 결과(성공, 캐시 대체, 실패)를 받아 PRD 3장의 등급 표대로 피드를 만들고, 빠진 영역과 stale 여부를 응답에 담는다. 응답 형식은 `add-graceful-degradation`에서 정한다.
-- **post stale 캐시:** post 호출이 성공할 때마다 결과와 저장 시각을 Redis에 쓴다. 쓰기는 응답 경로를 막지 않고, 실패해도 무시하고 메트릭만 남긴다. post가 실패하면 캐시를 읽어 10분 안의 것이면 stale로 응답하고, 아니면 503을 준다. Redis 읽기에도 짧은 타임아웃을 둔다. 대체 수단이 느려져 장애를 키우면 안 된다.
-- **user 로컬 캐시:** user 호출이 성공하면 프로필을 Caffeine에 넣는다. TTL과 최대 크기는 change에서 정한다. 캐시는 인스턴스 메모리에 있으므로 재시작하면 비어 있다(S-04는 캐시가 채워진 뒤에 장애를 넣는다).
-- **like `UNKNOWN`:** 좋아요 영역을 비우고 내 상태를 `UNKNOWN`으로 둔다.
-- **메트릭:** 의존성별 degrade 횟수, 캐시 대체 횟수, stale 응답 수, 503 수를 남긴다.
+`add-graceful-degradation`(F-002)에서 만들었다. 대체 코드는 `FeedAssembler`와 `com.weave.feed.degradation` 패키지에 있다(5-2). 자세한 결정과 근거는 그 change의 design 결정 1~11이다. 설정값은 6-4다.
+
+### 6-1. 응답 계약
+
+```json
+{
+  "posts": [
+    {
+      "id": 10, "title": "...", "content": "...", "createdAt": "...",
+      "author": { "id": 3, "nickname": null, "profileImageUrl": null, "unknown": true },
+      "like": { "count": null, "myLike": "UNKNOWN" }
+    }
+  ],
+  "recommendations": [],
+  "ads": [],
+  "degradation": {
+    "missing": ["user", "like", "recommendation", "ad"],
+    "stale": [{ "section": "post", "cachedAt": "2026-11-08T01:23:45Z" }]
+  }
+}
+```
+
+| 의존성 (등급) | 실패하면 | 응답 | 영역 결과 (`SectionOutcome`) |
+|---|---|---|---|
+| post (필수) | 같은 `size`의 stale 캐시가 허용 시간 안이면 그 게시글 | `degradation.stale`에 `{"section": "post", "cachedAt"}` | `stale` |
+| | 캐시가 없거나 지났거나 읽지 못하면 | 503 `{"error": "posts_unavailable"}` (`PostsUnavailableException` → `FeedController`) | 세지 않는다 |
+| user (중요) | 로컬 캐시에 있는 작성자는 그 프로필, 없으면 `author.unknown: true`(`nickname`·`profileImageUrl` null) | 모두 채웠으면 `missing`에 넣지 않는다. 한 명이라도 `unknown`이면 `missing`에 `user` | `cached` / `missing` |
+| like (중요) | 모든 게시글이 `like.count: null`, `myLike: "UNKNOWN"` | `missing`에 `like` | `missing` |
+| recommendation, ad (선택) | 빈 목록 | `missing`에 의존성 이름 | `missing` |
+
+- `degradation`은 늘 넣는다. 정상이면 `missing`·`stale`이 빈 목록이고 `author.unknown`은 false다(`FeedResponse`, `Degradation`, `StaleSection`, `FeedAuthor`, `FeedLike`, `MyLike.UNKNOWN`).
+- `missing`의 값은 응답 필드 이름이 아니라 의존성 이름이다. 로그의 `dependency`, 지표의 `section`, k6 태그와 같은 이름이라 한 이름으로 찾는다.
+- user-service가 프로필을 돌려주지 않은 작성자(정상 응답)는 지금처럼 `author: null`이다. "없는 사용자"(null)와 "모르는 사용자"(`unknown`)를 가른다.
+- 실패의 종류(시간 상한, 서킷 열림, 벌크헤드 거절, 예산 초과, HTTP 오류)는 가리지 않고 같은 방식으로 대체한다.
+- 응답 구성은 순수 함수 `FeedDegradation.compose`다. 게시글과 그 출처(`PostSource.Fresh`·`Stale`), 의존성별 `Result`, user 캐시에서 찾은 프로필을 받아 `ComposedFeed`(응답과 의존성 5개의 영역 결과)를 돌려준다. 응답의 `degradation`, 대체 로그, 지표가 모두 이 영역 결과에서 나와 서로 어긋나지 않는다.
+
+### 6-2. 요청 흐름
+
+```mermaid
+sequenceDiagram
+    participant Q as 요청 스레드 (FeedAssembler)
+    participant P as post
+    participant C as PostStaleCache (Redis)
+    participant UL as user · like
+    participant RA as recommendation · ad
+    Q->>P: budget.call("post")
+    Q->>RA: budget.call(...)
+    alt post 성공
+        P-->>UL: user·like 시작
+        Q--)C: 비동기 쓰기 (같은 키는 쓰기 간격에 한 번)
+    else post 실패
+        Q->>C: 캐시 읽기 (요청 스레드, 상한은 Redis 명령 타임아웃)
+        alt 허용 시간 안의 캐시
+            Q->>UL: 캐시의 게시글로 user·like 시작
+        else 없음 · 지남 · 오류
+            Q-->>Q: 503 (recommendation·ad를 기다리지 않는다)
+        end
+    end
+    Q->>Q: 남은 예산으로 user·like·recommendation·ad의 결과를 값으로 받아 compose
+```
+
+- post 결과를 요청 스레드에서 먼저 받는다(`budget.awaitResult`). post future와 "post 뒤 user·like" future를 따로 들고 있어, post가 성공하면 정상 경로의 지연은 고도화 3과 같다.
+- post가 실패하면 캐시 읽기와 그 뒤의 user·like 시작을 요청 스레드에서 한다. post 실패는 `isolation-timeout` 스레드(하나뿐이다)나 벌크헤드 스레드에서 끝나는데, 거기서 Redis를 기다리면 다른 호출의 시간 상한 처리가 밀린다. 요청 스레드는 MDC·trace 문맥도 그대로다.
+- 503이면 피드 실패가 정해졌으니 recommendation·ad를 기다리지 않는다. 남은 호출은 각자의 시간 상한에서 끝나고 실패 로그만 남는다.
+- user·like·recommendation·ad는 `RequestBudget.awaitResult`로 마감까지 기다려 성공 값이나 실패를 `Result`로 받는다. 마감이 지나면 끝나지 않은 호출은 `budget_exhausted`로 끝나 다른 실패처럼 대체된다.
+- 성공한 결과를 캐시에 넣는 것도 `FeedAssembler`가 한다(post → `PostStaleCache.write`, user → `UserProfileCache.putAll`). Gateway는 HTTP 호출만 안다.
+
+### 6-3. 캐시 구조
+
+**post stale 캐시 (`PostStaleCache`, Redis)**
+
+| 항목 | 정한 것 |
+|---|---|
+| 키 | `weave:feed:posts:latest:v1:size:{size}`. post 응답이 `size`마다 달라 다른 개수의 캐시는 쓰지 않는다. `v1`은 값 형식을 바꿀 때 올린다 |
+| 값 | `{"cachedAt": "<ISO-8601 UTC>", "posts": [<post-service 응답 항목>]}`(`PostStaleCache.CachedPosts`). 서비스의 Jackson `ObjectMapper`로 문자열을 만들어 `StringRedisTemplate`에 넣는다 |
+| stale 판단 | `now - cachedAt ≤ weave.post-cache.max-staleness`. 시각은 `Clock` Bean으로 잰다. Redis TTL도 같은 값이다 |
+| 읽기 | post가 실패했을 때만 요청 스레드에서 동기로. 상한은 Redis 명령 타임아웃 `spring.data.redis.timeout`. 결과는 `PostCacheRead`(`Hit`, `Expired`, `Miss`, `Error`) |
+| 쓰기 | post가 성공할 때마다 부르지만 같은 키는 `weave.post-cache.write-interval`에 한 번만, 전용 스레드 하나(`post-cache-writer`, 대기열 `WRITE_QUEUE_CAPACITY` 50)로 넘기고 기다리지 않는다. 대기열이 차면 버린다 |
+
+Redis가 느려지거나 죽어도 피드를 막지 않게 하는 것:
+
+- Lettuce `ClientOptions.disconnectedBehavior(REJECT_COMMANDS)`(`PostStaleCacheConfig`의 `LettuceClientOptionsBuilderCustomizer`). 끊긴 것을 아는 동안의 명령은 재연결까지 쌓지 않고 바로 실패한다.
+- `spring.data.redis.connect-timeout`을 명령 타임아웃과 같게 둔다. 연결이 없을 때 다시 맺는 시간이 그대로 지연이 되지 않게 한다.
+- `management.health.redis.enabled: false`. Redis는 선택적 대체 수단이라 feed-service 헬스를 내리지 않는다.
+- 쓰기는 응답 경로 밖이라 Redis가 멈춰도 쓰기 스레드만 묶인다. 읽기·쓰기 실패는 로그 줄 없이 지표만 센다. post를 대체하지 못한 요청은 대체 로그(`reason` `cache_error`)가 한 줄 남는다.
+- Redis 앞에는 서킷 브레이커를 두지 않는다. 읽기는 post가 실패했을 때만 하고 상한이 짧으며, 끊긴 동안은 위 설정으로 바로 실패한다.
+
+**user 로컬 캐시 (`UserProfileCache`, Caffeine)**
+
+- user가 성공할 때마다 받은 프로필을 넣고(`putAll`), 실패했을 때만 그 요청의 작성자를 찾는다(`getAll`, fallback-only). 정상일 때는 늘 user-service의 최신 프로필을 보인다.
+- `expireAfterWrite`(`weave.user-cache.expire-after-write`), `maximumSize`(`weave.user-cache.maximum-size`), 유효 기간은 `Clock` Bean을 감싼 `Ticker`로 잰다. `recordStats`와 `CaffeineCacheMetrics`(`cache="user-profiles"`)로 적중·누락을 낸다.
+- 인스턴스 메모리라 재시작하면 비어 있다. 실험은 `run.sh`가 feed-service를 다시 띄우므로 준비 구간이 채운다(S-04는 준비 구간 뒤에 장애를 넣는다).
+
+### 6-4. 설정값
+
+feed-service `application.yml`에 근거 주석과 함께 둔다(`add-graceful-degradation` tasks 4장에서 측정·계산 뒤 넣었다). `weave.post-cache.*`나 `weave.user-cache.*` 중 하나라도 없으면(설정으로 지우면) 그 캐시를 쓰지 않는다(`PostStaleCache.DISABLED`, `UserProfileCache.DISABLED`. post가 실패하면 503, user가 실패하면 모두 `unknown`).
+
+| 속성 | 값 | 근거 |
+|---|---|---|
+| `weave.post-cache.max-staleness` | 10m | PRD 3장, 10장 |
+| `weave.post-cache.write-interval` | 1s | 400 RPS에서 매번 쓰면 같은 값을 초당 400번 덮어쓴다. 1초면 `cachedAt`이 최대 1초 이르고, 허용 시간 10분의 0.17%다 |
+| `spring.data.redis.timeout`, `connect-timeout` | 30ms (tasks 4.1) | 예산 250ms = post 상한 100 + 읽기 + user·like 상한 100 + 집계 20 → 읽기 ≤ 30ms. S-06(400 RPS, `20261107-130950-S-06`)에서 GET 120,003건의 99.90%가 1.05ms 이하, 모두 9.79ms 이하(기준: p99 ≤ 상한의 1/3). Redis CPU 약 3%(상한 0.5코어) |
+| `weave.user-cache.expire-after-write` | 1h (tasks 4.2) | post stale 허용 10분보다 충분히 길게(6배). 측정이 아니라 판단이고 change 승인 때 확인했다 |
+| `weave.user-cache.maximum-size` | 10000 (tasks 4.2) | 잰 항목 크기 약 320~336B × 1만 ≈ 3.2MB, 힙 최대 256MB의 1.3% |
+| `management.health.redis.enabled` | false | 6-3 |
+
+### 6-5. 대체 로그와 지표
+
+**대체 로그 `fallback_applied` (`FallbackLog`)**: 대체한 의존성마다 한 요청에 한 줄, `FeedAssembler`가 응답 전에 요청 스레드에서 남겨 MDC `traceId`가 붙는다. 실패 원인은 같은 호출의 `downstream_call_failed` 줄에 있어 다시 적지 않는다. 운영자는 traceId 하나로 "왜 실패했나 → 어떻게 대체했나"를 잇는다(PRD F-004의 fallback 부분).
+
+| `dependency` | `fallback` | 더 붙는 필드 |
+|---|---|---|
+| post | `stale_cache` | |
+| post | `unavailable` (503) | `reason`: `cache_miss`, `cache_expired`, `cache_error` |
+| user | `local_cache`(모두 채움), `partial_cache`(한 명이라도 `unknown`) | `cacheHits`, `cacheMisses`(중복 없는 작성자 수) |
+| like | `unknown` | |
+| recommendation, ad | `omitted` | |
+
+**지표 (`DegradationMetrics`)**: 시작할 때 모든 태그 조합을 0으로 등록해, 대체가 한 번도 없었던 동안에도 대시보드와 degrade 비율의 분모가 보인다.
+
+| 지표 | 태그 | 언제 센다 |
+|---|---|---|
+| `weave.feed.sections` | `section`(의존성 5개), `outcome`(`fresh`, `cached`, `stale`, `missing`) | 200 피드 응답마다 의존성 5개 각각 하나. 503은 세지 않는다 |
+| `weave.post.cache.reads` | `outcome`(`hit`, `expired`, `miss`, `error`) | post 실패로 캐시를 읽을 때마다(`FeedAssembler`) |
+| `weave.post.cache.writes` | `outcome`(`success`, `error`, `dropped`) | 쓰기를 끝내거나 버릴 때마다(`PostStaleCache`). 쓰기 간격으로 넘기지 않은 것은 세지 않는다 |
+| `cache_gets_total`, `cache_puts_total`, `cache_size` | `cache="user-profiles"` | Caffeine 통계. 실패했을 때만 찾으므로 `cache_gets_total`이 곧 대체 조회 수다 |
+| 503 수 | `http_server_requests_seconds_count{uri="/feed",status="503"}` | |
+
+- **degrade는 "빠짐 또는 stale"이다.** 의존성별 degrade 비율 = (`stale` + `missing`) ÷ 그 의존성의 전체. user를 캐시로 모두 채운 응답(`cached`)은 degrade가 아니고 대체 횟수로만 센다(PRD F-002).
+- 게시글이 없는 응답은 user·like를 부르지 않으니 둘 다 `fresh`로 센다.
 
 ## 7. 관찰
 
@@ -398,7 +523,7 @@ traceId는 스레드에 붙은 컨텍스트(MDC, 관찰 컨텍스트)에 있어�
 | 의존성 호출 | 의존성별 호출 p99, 실패율(`outcome!="SUCCESS"`), RPS | `http_client_requests_seconds`(`client_name`) | 고도화 2 |
 | 자원 사용량 | Tomcat 사용 중·최대 스레드, 의존성별 커넥션 풀 사용 중·대기, CPU(0.7 선) | `tomcat_threads_*`, `httpcomponents_httpclient_pool_total_connections`(`state="leased"`)·`..._total_pending`(`httpclient`), `process_cpu_usage` | 고도화 2. 공유 풀(`applicationTaskExecutor`) 활성 스레드·대기열 패널은 고도화 3에서 지웠다(조회가 의존성별 벌크헤드로 옮겨 갔다) |
 | 서킷·벌크헤드 | 의존성별 서킷 상태(상태 타임라인, 0 CLOSED·1 HALF_OPEN·2 OPEN), 벌크헤드 사용 중·최대 스레드, 벌크헤드 거절(초당), 시간 상한 초과(초당) | `resilience4j_circuitbreaker_state`(`state="open"`·`"half_open"`), `resilience4j_bulkhead_active_thread_count`·`..._max_thread_pool_size`, `weave_bulkhead_rejected_calls_total`, `resilience4j_timelimiter_calls_total`(`kind="timeout"`). 모두 `name` 라벨이 의존성이다 | 고도화 3 (`add-call-isolation`, F-001) |
-| degrade | 의존성별 degrade 비율 | F-002가 정한다 | 고도화 4 (`add-graceful-degradation`, F-002) |
+| degrade | 의존성별 degrade 비율(`stale`+`missing` ÷ 전체, 분모가 0이면 0, 1% 선), post 캐시 읽기 결과(초당), user 캐시로 채운 응답(초당), 피드 503(초당) | `weave_feed_sections_total`(`section`, `outcome`), `weave_post_cache_reads_total`(`outcome`), `http_server_requests_seconds_count`(`uri="/feed"`, `status="503"`). 정의는 6-5 | 고도화 4 (`add-graceful-degradation`, F-002) |
 
 패널 질의에는 Grafana 시간 변수(`$__rate_interval` 등) 말고 변수를 두지 않는다. 장애가 없을 때도 모든 질의가 시계열을 돌려줘야 해서, 실패율처럼 분자가 빌 수 있는 질의는 0으로 채운다. `./gradlew :e2e:composeTest`의 `ExperimentDashboardComposeScenarioTest`가 S-01 짧은 실행 뒤 모든 패널 질의를 Prometheus에 보내 확인한다.
 
@@ -430,7 +555,8 @@ traceId는 스레드에 붙은 컨텍스트(MDC, 관찰 컨텍스트)에 있어�
 |---|---|---|
 | feed-service | CPU 2, 메모리 1GB | Tomcat 최대 스레드 200을 `application.yml`에 명시한다(Boot 기본값, 4-2). Actuator는 관리 포트 8090(`MANAGEMENT_SERVER_PORT`)이고 헬스 체크와 Prometheus가 이 포트를 본다. 호스트 변수 `FEED_SPRING_APPLICATION_JSON`을 `SPRING_APPLICATION_JSON`으로 넘긴다(없으면 `{}`, 아래) |
 | 하위 서비스 5개 | 각 CPU 1, 메모리 512MB | |
-| MySQL, Toxiproxy | 각 CPU 1 | Redis는 post stale 캐시와 함께 F-002에서 더한다 |
+| MySQL, Toxiproxy | 각 CPU 1 | |
+| Redis (`redis:8.2.2`) | CPU 0.5, 메모리 256MB | post stale 캐시(6-3). 캐시라 저장하지 않는다(`--save "" --appendonly no`). 값은 키 최대 50개 × 약 6KB이고 S-06의 읽기 400회/초는 한 코어 처리량에 비해 작다. 호스트 포트는 열지 않고 Toxiproxy 뒤에 두지 않는다. feed-service는 `REDIS_HOST=redis`로 부르고 Redis가 healthy가 된 뒤 뜬다(`add-graceful-degradation` design 결정 12) |
 | Alloy, Prometheus, Grafana | 각 CPU 0.5, 메모리 512MB | 실험 대상이 아니라 상한만 건다. OOM 재시작이 보이면 근거와 함께 올린다 |
 | Loki, Tempo | 각 CPU 0.5, 메모리 1GB | 부하 중 로그·스팬이 쌓인다 |
 | k6 (`grafana/k6:2.3.0`) | CPU 2, 메모리 2GB | `profiles: [experiment]`라 `up`으로는 뜨지 않고 `run.sh`가 `docker compose run`으로 부른다. `experiments/`를 마운트한다 |
@@ -470,11 +596,11 @@ feed-service는 하위 서비스를 의존성마다 하나인 프록시를 거�
 experiments/
 ├── run.sh  run-all.sh       # 명령 (아래)
 ├── config.json              # 기본 RPS, 준비·측정 시간, k6 요청 시간 초과 5초, 사용자 ID 범위
-├── slo.json                 # PRD 2장 SLO(가용성 99.9%, p99 300ms). k6 threshold는 여기서만 읽는다
-├── expectations.json        # 단계별 기대 결과(시나리오마다 meet/miss, 또는 기준마다 {availability, p99})
+├── slo.json                 # PRD 2장 SLO(가용성 99.9%, p99 300ms, 평시 degrade 비율 1% 미만). k6 threshold는 여기서만 읽는다
+├── expectations.json        # 단계별 기대 결과(시나리오마다 meet/miss, 또는 기준마다 {availability, p99[, degradeRatio]})
 ├── scenarios/S-01.json ...  # 설명, PRD 4장 문장, 장애 시간표(측정 시작부터 잰 초, 동작, 대상)
 ├── k6/                      # feed.js(부하·장애·판정), faults.js, contract.js, reset.js
-├── lib/                     # verdict.sh(판정), windows.sh(10초 구간, 복구 시간), circuits.sh(서킷 상태 이어 적기)
+├── lib/                     # verdict.sh(판정), windows.sh(10초 구간, 복구 시간), circuits.sh(서킷 상태 이어 적기), degrade.sh(degrade 비율)
 └── results/                 # 실행마다 폴더 하나. 커밋하지 않는다
 ```
 
@@ -499,8 +625,8 @@ experiments/run-all.sh                                        # S-01~S-09 (약 1
 experiments/run-all.sh --list                                 # 돌릴 목록
 ```
 
-- `run.sh`는 장애를 되돌리고 feed-service를 다시 띄워(앞 실행이 묶어 둔 스레드를 지운다) 같은 상태에서 시작한다. k6가 준비 구간 뒤 측정 구간 동안 같은 RPS로 `GET /feed`를 보내고, 시간표대로 장애를 넣고 거둔다. 끝나면(실패하거나 Ctrl-C로 멈춰도) 장애를 모두 되돌린다.
-- 판정: k6 threshold는 늘 `slo.json`이고 측정 구간 요청만 센다. 가용성은 k6가 보내지 못한 요청도 실패로 넣어 `lib/verdict.sh`가 다시 계산한다. 기준(가용성, p99)마다의 충족 여부가 그 단계의 기대(`expectations.json`)와 모두 같으면 0, 하나라도 다르면 1, 실행하지 못하면 2로 끝난다. 기대는 시나리오마다 두 기준을 함께(`meet`, `miss`) 적거나 `{"availability": "miss", "p99": "meet"}`처럼 기준마다 적는다(add-call-isolation design 결정 10). 고도화 2의 기대는 S-01만 `meet`이다. `miss`인 기준을 지키면 장애가 재현되지 않은 것이라 기대와 다르다. 판정 출력의 `criteria`와 기대와 다른 기준 `mismatchedCriteria`가 `report.json`에, 기준별 결과가 `report.md` 판정 줄 아래에 들어간다.
+- `run.sh`는 장애를 되돌리고 feed-service를 다시 띄우고(앞 실행이 묶어 둔 스레드와 user 로컬 캐시를 지운다) post 캐시를 비워(`docker compose exec -T redis redis-cli FLUSHDB`, 준비 구간이 다시 채운다) 같은 상태에서 시작한다. Redis가 떠 있지 않으면 캐시를 쓸 수 없는 상태가 그 실험의 조건일 수 있어 비우지 않고 표준 오류에 한 줄 적은 뒤 계속한다. 캐시는 장애가 아니라 끝날 때는 비우지 않는다. k6가 준비 구간 뒤 측정 구간 동안 같은 RPS로 `GET /feed`를 보내고, 시간표대로 장애를 넣고 거둔다. 끝나면(실패하거나 Ctrl-C로 멈춰도) 장애를 모두 되돌린다.
+- 판정: k6 threshold는 늘 `slo.json`이고 측정 구간 요청만 센다. 가용성은 k6가 보내지 못한 요청도 실패로 넣어 `lib/verdict.sh`가 다시 계산한다. 기준(가용성, p99)마다의 충족 여부가 그 단계의 기대(`expectations.json`)와 모두 같으면 0, 하나라도 다르면 1, 실행하지 못하면 2로 끝난다. 기대는 시나리오마다 두 기준을 함께(`meet`, `miss`) 적거나 `{"availability": "miss", "p99": "meet"}`처럼 기준마다 적는다(add-call-isolation design 결정 10). 고도화 2의 기대는 S-01만 `meet`이다. `miss`인 기준을 지키면 장애가 재현되지 않은 것이라 기대와 다르다. 기대 객체에 `degradeRatio`가 있으면 의존성 5개의 degrade 비율(`lib/degrade.sh`)이 모두 `slo.json`의 `degradeRatio`(0.01)보다 작아야 그 기준을 지킨 것이다(200 응답이 없으면 지키지 못함). 장애 시나리오는 실패한 의존성만큼 오르는 것이 정상이라 적지 않는다(add-graceful-degradation design 결정 12). 판정 출력의 `criteria`와 기대와 다른 기준 `mismatchedCriteria`가 `report.json`에, 기준별 결과가 `report.md` 판정 줄 아래에 들어간다.
 - `run-all.sh`는 시나리오마다 `run.sh`를 부르고, 기대와 다르거나 실행하지 못한 시나리오가 있어도 끝까지 돈 뒤 판정 표(마크다운)를 출력한다. 종료 코드는 가장 나쁜 것이다.
 - `run-all.sh`는 첫 시나리오 전에 하위 서비스를 데우는 준비 실행(`run.sh S-01`, 같은 `--rps`·`--warmup`, 측정 1분)을 한 번 하고 판정 표에 넣지 않는다. 고도화 3(F-001)부터 막 띄운 하위 서비스가 느려 서킷이 열리면 트래픽이 가지 않아 데워지지 못하고 열림·닫힘을 되풀이한다(400 RPS에서 약 100초, `add-call-isolation` design 결정 10). `run.sh`는 feed-service만 다시 띄우므로 데운 하위 서비스는 남는다. 이미 데운 환경이면 `--skip-warm-up`. `run.sh`만 돌릴 때는 Compose를 띄운 뒤 S-01을 한 번 먼저 돌려 데운다.
 - Compose 프로젝트나 env 파일을 바꿀 때는 `COMPOSE_PROJECT_NAME`, `COMPOSE_ENV_FILE`을 준다(`:e2e:composeTest`는 `weave-compose-test`와 `e2e/build/compose-test.env`를 쓴다).
@@ -516,7 +642,7 @@ experiments/run-all.sh --list                                 # 돌릴 목록
 | 자원 사용량의 측정 구간 최댓값·평균: Tomcat 사용 중 스레드, 의존성별 벌크헤드 사용 중 스레드·대기열(`resilience4j_bulkhead_active_thread_count`, `resilience4j_bulkhead_queue_depth`. ThreadPool 벌크헤드 지표라 Semaphore 모드의 사용량은 담지 않는다), 의존성별 커넥션 풀 사용 중·대기, feed-service CPU | Prometheus |
 | feed-service 지표 수집 비율(측정 구간 `up` 표본 중 1인 비율). 1보다 작으면 자원 사용량이 긁힌 구간만의 값이라고 적는다 | Prometheus |
 | 의존성별 서킷 상태: 측정 구간에 거친 상태를 바뀔 때만 이어 적는다(`CLOSED → OPEN → HALF_OPEN → CLOSED`). `resilience4j_circuitbreaker_state`를 5초 간격 `query_range`로 읽어 그보다 짧게 머문 상태는 빠질 수 있고, 정확한 전이는 `circuit_state_changed` 로그로 본다. 서킷 지표가 없는 의존성은 "없음" | Prometheus, `lib/circuits.sh` |
-| degrade 비율 | 아직 없어 "없음". F-002가 채운다 |
+| 의존성별 degrade 비율과 "하나라도" 비율 = 그 영역이 `degradation.missing`이나 `degradation.stale`에 있던 200 응답 수 ÷ 측정 구간 200 응답 수. k6(`contract.js`)가 응답마다 세고 `lib/degrade.sh`가 계산한다. 200 응답이 없으면 "없음" | k6 요약, `lib/degrade.sh` |
 | 장애를 넣은 시각과 거둔 시각, 10초 구간 표(요청 수, `feed_latency` p99, 가용성), 복구 시간(S-08) | k6 원본, `lib/windows.sh` |
 | Grafana 링크(측정 구간을 붙인 `weave-feed` 대시보드, 7-4) | run.sh |
 
@@ -540,6 +666,7 @@ experiments/run-all.sh --list                                 # 돌릴 목록
 | 무엇 | 어디에 |
 |---|---|
 | 장애 대응 설정값, 시간 예산, 캐시 TTL | 서비스의 `application.yml`. 실험마다 바꿀 값은 환경 변수로 덮어쓸 수 있게 한다(느슨한 바인딩, 예: `RESILIENCE4J_TIMELIMITER_INSTANCES_RECOMMENDATION_TIMEOUTDURATION`). Compose의 feed-service는 여러 값을 한 번에 `FEED_SPRING_APPLICATION_JSON`(→ `SPRING_APPLICATION_JSON`)으로 덮는다(9-1). 의존성의 호출 시간 상한을 넓힐 때는 그 그룹의 응답·연결 타임아웃(`spring.http.serviceclient.<그룹>.read-timeout`·`connect-timeout`)도 함께 넓힌다. 상한만 넓히면 응답 타임아웃(상한과 같은 값)이 먼저 끊는다 |
+| 대체 설정값(F-002) | feed-service `application.yml`의 `weave.post-cache.*`(stale 허용 시간, 쓰기 간격), `weave.user-cache.*`(유효 기간, 최대 크기), `spring.data.redis.timeout`·`connect-timeout`(캐시 읽기 상한). 값과 근거는 6-4. 환경 변수로 덮을 때는 느슨한 바인딩(예: `WEAVE_POSTCACHE_MAXSTALENESS`)을 쓴다 |
 | 실행 환경별 차이(로컬 `bootRun`과 Compose의 주소) | Spring 프로필 `local`, `docker`. 실험 전용 엔드포인트는 `experiment` 프로필 |
 | 실험 전용 설정 | 하위 서비스 5개의 `src/main/resources/application-experiment.yml`. 장애 주입 스위치(`weave.fault-injection.enabled: true`)와 Actuator 노출 목록(`health,info,prometheus,faults`, ad-service는 `quota`도)을 둔다. ad-service는 요청 한도 스위치(`weave.ad.quota.enabled: true`)도 둔다. `libs/fault-injection`은 프로필 파일을 싣지 않는다(같은 이름의 파일이 서비스에도 있으면 하나만 읽힌다). feed-service에는 두지 않는다 |
 | MySQL 계정 | `.env` (커밋하지 않음). 이름과 설명만 `.env.example`에 |
@@ -552,17 +679,17 @@ experiments/run-all.sh --list                                 # 돌릴 목록
 | `add-trace-logging` (F-004) | 7-1 ~ 7-3, Compose의 서비스 6개·MySQL·관찰 인프라 |
 | `add-fault-experiments` (F-007) | 9장, 7-4 대시보드, 기준선 기록, 4-3과 5-6을 채울 측정 |
 | `add-call-isolation` (F-001) | 5-2 ~ 5-6, 7-3의 벌크헤드 전파, Resilience4j 4.1.2 호환 확인, 가상 스레드 + Semaphore 벌크헤드 비교(S-02). 5-2의 어노테이션 방식은 `IsolatedCalls` 한 곳에서 감싸는 방식으로 바꿨다(design 결정 1) |
-| `add-graceful-degradation` (F-002) | 6장 |
+| `add-graceful-degradation` (F-002) | 6장, 5-2의 fallback 위치. 응답 구성의 출발점이던 "Assembler가 성공·캐시 대체·실패를 받는다"를 의존성별 `Result`와 영역 결과(`SectionOutcome`)로 구체화했고, 6장에 없던 응답 계약·503 본문·대체 로그·Redis 장애 설정을 정했다(design 결정 1~10) |
 | `add-retry-policy` (F-005) | 5-5의 429 처리, Retry·RateLimiter 설정 |
 | `add-idempotent-like` (F-003) | 8장의 고도화 6 항목(카운터 방식 비교 포함), 10장의 속성 기반 테스트 |
 
 ## 13. 남은 것
 
-- user 로컬 캐시 TTL·크기, post 캐시 키 구조, fallback을 둘 곳(5-2): `add-graceful-degradation`
 - 429와 Retry-After 처리 방식: `add-retry-policy`
 - 좋아요 순서 판단 방법: `add-idempotent-like`
 - S-11의 몰림 부하 크기와 카운터 분할 수: `add-idempotent-like`
-- 장애를 넣지 않은 like-service의 순간 막힘(고도화 3의 S-04·S-08·S-09)과 like-service 컨테이너 메모리(G1에서 512MiB 중 약 500MiB)의 원인: [고도화 3 결과](experiments/call-isolation.md) "남은 것"
+- 장애를 넣지 않은 like-service의 순간 막힘(고도화 3의 S-04·S-08·S-09)과 like-service 컨테이너 메모리(G1에서 512MiB 중 약 500MiB)의 원인: [고도화 3 결과](experiments/call-isolation.md) "남은 것". 고도화 4부터는 피드 실패가 아니라 like degrade로 드러난다(S-01 0.51%, S-04 3.3%, [고도화 4 결과](experiments/graceful-degradation.md))
+- post 실패와 같은 순간의 캐시 읽기 실패(고도화 4의 S-01 503 6건, S-06 17건)의 원인. S-06의 11건은 Lettuce 지표에 남지 않아, 읽기 오류를 종류별로 세야 가를 수 있다: [고도화 4 결과](experiments/graceful-degradation.md) "남은 것"
 
 정한 것:
 
@@ -570,3 +697,6 @@ experiments/run-all.sh --list                                 # 돌릴 목록
 - 서비스 JVM의 GC(F-001): G1(9-1, `add-call-isolation` design 결정 15)
 - 가상 스레드 비교의 구성(F-001): `weave.isolation.bulkhead-type: semaphore`와 `spring.threads.virtual.enabled: true`로 바꾸고, Semaphore 벌크헤드 상한은 ThreadPool 벌크헤드 크기와 같게 둔다. 비교하려는 것이 크기가 아니라 격리 방식이어서다(`add-call-isolation` design 결정 11)
 - 가상 스레드 비교 결과(F-001): 격리 효과가 같고 400 RPS에서 기본 구성이 스레드에 묶이지 않아 기본 구성(플랫폼 스레드 + ThreadPool 벌크헤드)을 유지한다([고도화 3 결과](experiments/call-isolation.md))
+- fallback을 둘 곳(F-002): Gateway나 Resilience4j fallback이 아니라 `FeedAssembler` 한 곳(5-2, `add-graceful-degradation` design 결정 1)
+- post 캐시 키 구조와 응답 계약(F-002): `size`별 키 `weave:feed:posts:latest:v1:size:{size}`, 응답의 `degradation`(6-1·6-3, design 결정 2·4)
+- 대체 설정값(F-002, 6-4): Redis 읽기 상한 30ms(S-06의 GET 지연 측정), user 캐시 1시간·10,000명(판단과 잰 항목 크기), post stale 허용 10분(PRD)·쓰기 간격 1초(계산)

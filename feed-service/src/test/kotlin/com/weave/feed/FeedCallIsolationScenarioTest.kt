@@ -114,6 +114,9 @@ class FeedCallIsolationScenarioTest :
  * 두 시나리오의 GIVEN을 함께 준다: 예산 250ms, 의존성 다섯의 호출 시간 상한 200ms. "예산 안에 끝난다"에서 상한을 모두 200ms로
  * 두면 상한의 합(post 200ms + user·like 200ms)이 예산보다 커서, 피드를 끝내는 것이 예산인지 상한인지 가를 수 있다.
  * 첫 요청이 측정에 섞이지 않게 시나리오마다 지연 없이 한 번 먼저 부른다.
+ *
+ * 그 먼저 부른 요청이 작성자 3, 4를 user 로컬 캐시에 넣는다(add-graceful-degradation tasks 4.2부터 캐시가 켜져 있다). "합치면 예산을
+ * 넘는다"는 GIVEN대로 캐시에 없는 작성자(7, 8)의 게시글을 써, 예산을 넘긴 user가 캐시로 채워지지 않고 빠지게 한다.
  */
 @Tags("Integration")
 @SpringBootTest(
@@ -139,15 +142,21 @@ class FeedCallIsolationBudgetScenarioTest :
             FeedHttpClient(localPort()).getFeed()
         }
 
-        test("F-001 의존성마다는 상한 안이지만 합치면 예산을 넘는다: post와 user가 150ms씩 늦으면 350ms 안에 500이 오고 user budget_exhausted 실패 로그가 있다") {
-            wireMock.stubPosts(HEALTHY_POSTS, delayMs = 150)
-            wireMock.stubUsers(listOf(3, 4), delayMs = 150)
+        test("F-001 F-002 의존성마다는 상한 안이지만 합치면 예산을 넘는다: post와 user가 150ms씩 늦으면 350ms 안에 200이 오고 user가 빠지며 user budget_exhausted 실패 로그가 있다") {
+            // 먼저 부른 요청이 캐시에 넣은 작성자 3, 4가 아닌 작성자. 게시글 ID는 같아 좋아요 스텁이 그대로 맞는다
+            wireMock.stubPosts(listOf(Post(id = 10, authorId = 7), Post(id = 11, authorId = 8)), delayMs = 150)
+            wireMock.stubUsers(listOf(7, 8), delayMs = 150)
 
             LogCapture().use { capture ->
                 val (response, elapsed) = measureTimedValue { TracedFeedHttp(localPort()).getFeed() }
 
-                response.statusCode() shouldBe 500
+                response.statusCode() shouldBe 200
                 elapsed shouldBeLessThan 350.milliseconds
+                @Suppress("UNCHECKED_CAST")
+                withClue("degradation.missing") {
+                    ((response.json()["degradation"] as Map<String, Any?>)["missing"] as List<*>).contains("user") shouldBe
+                        true
+                }
                 val traceId = response.traceId()
                 eventually(5.seconds) {
                     withClue("traceId가 X-Trace-Id와 같은 user의 budget_exhausted downstream_call_failed 줄") {
