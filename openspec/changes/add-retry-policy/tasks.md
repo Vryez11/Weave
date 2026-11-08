@@ -11,7 +11,7 @@
   - `FeedCircuitBreakerScenarioTest`의 "4xx는 세지 않는다": ad 429에 `Retry-After: 60`, ad-service 요청 1개·recommendation 20개. 대기는 컨텍스트에 남지만 이 클래스의 뒤 시나리오는 ad를 보지 않는다.
   - `FeedDegradationScenarioTest`의 "중요·선택 등급 하나가 5xx": "최대 시도 횟수보다 많이 요청하지 않는다"(테스트 기본 설정에서 1). "광고가 속도 조절 응답을 준다"는 끝에 대기(1초)가 끝날 때까지 기다려 뒤 시나리오가 광고를 잃지 않게 한다.
   - 확인: `./gradlew :feed-service:integrationTest`에서 "4xx는 세지 않는다"만 새로 실패하고(ad 요청 20 ≠ 1), `./gradlew :feed-service:test`는 통과한다.
-- [ ] 1.2 `retry-policy`의 재시도 시나리오를 옮긴다.
+- [x] 1.2 `retry-policy`의 재시도 시나리오를 옮긴다.
   - `FeedRetryScenarioTest`: "멱등한 조회만 재시도한다"(넷), "재시도하는 실패"(다섯), "재시도 간격", "남은 예산이 모자라다". 재시도를 켜는 속성(`resilience4j.retry.instances.<의존성>.max-attempts`, `wait-duration` 등)과 서킷 설정을 클래스마다 준다. 첫 요청만 503은 WireMock 시나리오 상태로 만든다. 연결 실패는 듣지 않는 포트.
   - `FeedRetryBudgetScenarioTest`: "재시도 예산"(둘). 속성 이름은 `weave.retry.budget.ratio`, `min-retries`, `window`(design 결정 5, 11).
   - "기다리는 동안 호출이 먼저 끝났다"는 2.4의 단위 테스트(`gateway/RetryLoopTest`)로 둔다. 이 작업에서는 파일을 만들지 않는다.

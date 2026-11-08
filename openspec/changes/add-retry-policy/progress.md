@@ -14,8 +14,13 @@
 - 결과는 `<모듈>/build/test-results/<태스크>/TEST-*.xml`에서 본다. 클래스 몇 개만 돌리려면 `--tests 'com.weave.feed.<클래스>'`.
 - 전체 `:feed-service:integrationTest`에서 `ResilienceAutoConfigurationTest`가 `parsing HTTP/1.1 status line`으로 실패할 때가 있다(포트 겹침). 혼자 돌리면 통과한다.
 
+- 재시도 시나리오 클래스는 재시도 예산을 넉넉히 준다(`weave.retry.budget.ratio=1`, `min-retries=1000`, `window=10s`). 예산 상태가 컨텍스트에 남아 4.2의 main 값이 들어가도 흔들리지 않게 하려는 것이다. 2.2 구현은 세 속성이 모두 있으면 예산을 켜고, 없으면 보지 않으면 된다.
+- `weave_retry_calls_total{name,outcome}`은 피드를 부르기 **전에도** 표본이 있어야 한다(`FeedRetryDeadlineScenarioTest`, `FeedRetryBudgetScenarioTest`가 피드 전 값을 `shouldNotBeNull`로 읽는다). 2.4에서 결정을 세면서 0으로 등록하지 않으면 두 테스트가 2.6까지 실패한다. 0 등록은 2.4에서 같이 하는 게 낫다.
+- 재시도 간격 시나리오는 Resilience4j 스타터의 `enable-exponential-backoff` + `enable-randomized-wait`(합치면 `ofExponentialRandomBackoff`)를 쓴다. 2.4의 재시도 루프는 `retryConfig.intervalBiFunction`으로 간격을 꺼내야 이 속성이 먹는다.
+
 ## 지금 실패하는 것이 정상인 테스트 (구현 전)
 - **1.6 뒤:** feed-service `integrationTest`: `FeedCircuitBreakerScenarioTest` "4xx는 세지 않는다"(2.4). e2e `integrationTest`: `ExperimentVerdictScenarioTest`의 F-005 여섯(3.2, "지금 단계의 기대"는 4.5). Compose 테스트(5.3)는 3장과 4.5 뒤에 통과한다.
+- **1.2 뒤:** feed-service `integrationTest`: `FeedRetryScenarioTest`의 "한 번 실패한 뒤 성공한다", "계속 실패한다", `FeedRetryConnectFailureScenarioTest`, `FeedRetryCircuitOpensScenarioTest`, `FeedRetryIntervalScenarioTest`, `FeedRetryDeadlineScenarioTest`, `FeedRetryBudgetScenarioTest`, `FeedRetryBudgetWindowScenarioTest`(모두 2.4, 예산 둘은 2.2+2.4). 광고·토글·4xx·시간 상한·열린 서킷 다섯은 지금도 통과한다(재시도가 없어서 참인 동작을 지키는 테스트).
 
 ## 반복 기록
 
@@ -23,3 +28,13 @@
 - 1.1: `FeedDegradationScenarioTest` "광고가 속도 조절 응답을 준다"는 끝에 1.2초 기다려 대기가 풀리게 했다. `FeedCircuitBreakerScenarioTest`의 뒤 시나리오는 ad를 보지 않는다.
 - 1.5: `ExperimentVerdictScenarioTest`의 `verdict()`에 `verdictInput` 인자. "판정 입력이 없다"는 표준 오류에 "판정 입력 파일"이 있어야 한다.
 - 1.6: `ExperimentRuns.json(path)`를 더했다. "리포트 항목"은 S-02의 기대가 객체(`availability`, `p99`, `requestRatio`)라고 본다(4.5 뒤 통과). "광고 요청 한도를 넘는 짧은 실행"은 `allowed` = 4 × 40.
+
+### 2026-11-08 12:05 - 1.2 `retry-policy`의 재시도 시나리오를 옮긴다
+- 한 일: 재시도 시나리오 11개(멱등한 조회 넷, 재시도하는 실패 다섯, 간격, 남은 예산 모자람)와 재시도 예산 시나리오 둘을 Kotest 통합 테스트로 옮겼다. GIVEN이 다른 시나리오는 같은 파일의 다른 클래스로 컨텍스트를 나눴다.
+- 바꾼 파일: `feed-service/src/test/kotlin/com/weave/feed/FeedRetryScenarioTest.kt`(클래스 다섯: `FeedRetryScenarioTest`, `FeedRetryConnectFailureScenarioTest`, `FeedRetryCircuitOpensScenarioTest`, `FeedRetryIntervalScenarioTest`, `FeedRetryDeadlineScenarioTest`), `FeedRetryBudgetScenarioTest.kt`(클래스 둘: `FeedRetryBudgetScenarioTest`, `FeedRetryBudgetWindowScenarioTest`).
+- 확인: `integrationTest --tests 'com.weave.feed.FeedRetry*'`에서 13개 중 8개가 단언 실패(컴파일 오류 없음), 5개 통과. `:feed-service:test`, `ktlintCheck`, `openspec validate` 통과.
+- 다음 반복이 알아 둘 것:
+  - 로그가 "없다"는 단언은 그 피드의 `http_request` 줄을 기다린 뒤 본다(`awaitRequestLine`). 실패·재시도 로그는 그 줄보다 먼저 남아야 한다. 재시도 로그를 future가 끝난 뒤 다른 스레드에서 늦게 남기면 깨진다.
+  - 토글 경로는 feed-service `POST /feed/likes/{postId}/toggle` → like-service `/likes/{postId}/toggle`(스펙의 `/posts/{postId}/like`는 같은 동작을 가리킨다).
+  - "기다리는 동안 호출이 먼저 끝났다"는 2.4의 `gateway/RetryLoopTest`가 맡는다(아직 파일 없음).
+---
