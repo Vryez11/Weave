@@ -113,7 +113,7 @@
   - `experiments/run-all.sh`를 기본값으로 돌린다. 기대와 다른 시나리오가 있으면 기대를 고치지 말고 원인을 찾는다. 기대 자체가 틀렸다고 판단되면 멈추고 사람에게 묻는다.
   - `docs/experiments/graceful-degradation.md`에 고도화 3과 같은 형식의 표를 만들고, 고도화 3·기준선과 나란히 가용성·p99·degrade 비율을 비교한다. S-04의 user `cached` 비율, S-06의 stale 비율과 Redis 읽기 지연, S-01의 like degrade(고도화 3 "남은 것"의 like 순간 막힘)를 적는다. 실험 데이터가 고정이라 user 캐시 적중률이 현실보다 높다는 한계를 적는다.
   - 확인: `experiments/run-all.sh`가 0으로 끝나고, 문서의 표가 그 실행의 리포트 값과 같다.
-- [ ] 5.2 Compose 테스트를 돌린다. 확인: `./gradlew :e2e:composeTest`가 통과한다(1.4에서 고친 시나리오 포함).
+- [x] 5.2 Compose 테스트를 돌린다. 확인: `./gradlew :e2e:composeTest`가 통과한다(1.4에서 고친 시나리오 포함).
 - [x] 5.3 PRD와 아키텍처를 마무리한다.
   - PRD F-002 수용 기준을 체크하고, F-004의 "fallback" 부분 진행을 적는다(재시도는 F-005에 남는다). 10장 "남은 것"에서 user 캐시 TTL과 post 캐시 키 구조를 "정한 것"으로 옮긴다.
   - `docs/architecture.md` 맨 위 상태 줄과 13장을 고친다.
@@ -123,7 +123,7 @@
 
 이 묶음은 Ralph 루프가 하지 않는다([하네스 규칙](../../../conventions/harness.md) 3-3, 4장).
 
-- [ ] 6.1 구현에 참여하지 않은 리뷰어가 하네스 규칙 3-3의 검토 항목으로 change 문서와 diff를 본다.
+- [x] 6.1 구현에 참여하지 않은 리뷰어가 하네스 규칙 3-3의 검토 항목으로 change 문서와 diff를 본다.
   - 대체가 `FeedAssembler` 한 곳에만 있는지, 응답의 `degradation`이 실제 대체와 맞는지(등급표 단위 테스트), 대체 수단(Redis 읽기·쓰기)이 시간 예산과 헬스 체크를 해치지 않는지, 설정값마다 측정이나 계산이 있는지(design 결정 4~7), 재시도가 없는지 본다.
   - 사람이 Grafana에서 S-06 실행 하나의 측정 구간을 보고, 리포트의 degrade 비율과 그래프가 맞는지 확인한다. (사람의 Grafana 확인은 하지 않았다. Compose 테스트 전에 환경을 내려 데이터가 없어졌고, 다시 측정하지 않기로 사용자가 정했다. 대신 내리기 전 같은 측정 구간의 Prometheus 값으로 맞춰 봤다: S-06 `weave_feed_sections_total{section="post",outcome="stale"}` 119,981 = 캐시 읽기 `hit` 119,981, 503 17 = 읽기 `error` 17, S-04 user `cached` 119,993·`missing` 0. `docs/experiments/graceful-degradation.md`)
   - 확인: 막는 지적이 없다.
