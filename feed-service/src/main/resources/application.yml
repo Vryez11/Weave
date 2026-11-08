@@ -63,8 +63,11 @@ resilience4j:
         automatic-transition-from-open-to-half-open-enabled: true
         # 실패 로그의 cause와 같은 분류로 센다: 상한·응답 타임아웃, 연결 실패, 입출력 실패, 5xx (design 결정 7)
         record-failure-predicate: com.weave.feed.gateway.CircuitFailurePredicate
-        # 벌크헤드 거절은 하위 서비스를 부르지 않았으므로 성공으로도 세지 않는다. 세면 거절이 실패율을 묽힌다 (design 결정 5, 7)
-        ignore-exceptions: io.github.resilience4j.bulkhead.BulkheadFullException
+        # 벌크헤드 거절과 요청 수 상한(ad)이 막은 호출은 하위 서비스를 부르지 않았으므로 성공으로도 세지 않는다. 세면 거절이 실패율을
+        # 묽힌다 (design 결정 5, 7, add-retry-policy design 결정 6)
+        ignore-exceptions:
+          - io.github.resilience4j.bulkhead.BulkheadFullException
+          - io.github.resilience4j.ratelimiter.RequestNotPermitted
     instances:
       post: { base-config: default, slow-call-duration-threshold: 80ms }
       user: { base-config: default, slow-call-duration-threshold: 80ms }
@@ -132,6 +135,16 @@ resilience4j:
       user: { base-config: default }
       like: { base-config: default }
       recommendation: { base-config: default }
+  # ad(외부 API)의 요청 수 상한. 계약 쿼터를 넘기 전에 feed-service가 먼저 멈춘다 (add-retry-policy design 결정 6). IsolatedCalls가
+  # 인스턴스가 있는 의존성만 서킷 안, 시간 상한 바깥에서 감싼다
+  ratelimiter:
+    configs:
+      default:
+        # 허용을 기다리지 않는다. ad 호출은 요청 스레드에서 시작하므로 기다리면 요청 스레드가 묶인다 (design 결정 6). 주기와 주기당 한도는
+        # 근거와 함께 따로 넣는다(design 결정 11). 그때까지는 Resilience4j 기본값(500ns마다 50)이라 사실상 막지 않는다
+        timeout-duration: 0
+    instances:
+      ad: { base-config: default }
 
 weave:
   # post stale 캐시(Redis). post가 성공할 때마다 마지막 정상 응답을 size별로 남기고, 실패하면 허용 시간 안의 것으로 stale 응답한다

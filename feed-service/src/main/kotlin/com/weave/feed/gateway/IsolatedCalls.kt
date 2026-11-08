@@ -8,6 +8,8 @@ import io.github.resilience4j.bulkhead.ThreadPoolBulkheadRegistry
 import io.github.resilience4j.circuitbreaker.CircuitBreaker
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry
 import io.github.resilience4j.core.functions.Either
+import io.github.resilience4j.ratelimiter.RateLimiter
+import io.github.resilience4j.ratelimiter.RateLimiterRegistry
 import io.github.resilience4j.retry.RetryRegistry
 import io.github.resilience4j.timelimiter.TimeLimiter
 import io.github.resilience4j.timelimiter.TimeLimiterRegistry
@@ -32,9 +34,10 @@ import java.util.function.Supplier
 /**
  * 하위 서비스 조회를 격리해 부르는 유일한 경로 (add-call-isolation design 결정 1, 5, 7, add-retry-policy design 결정 1).
  *
- * 의존성마다 재시도 루프 → Retry-After 대기 → 서킷 브레이커 → 호출 시간 상한(TimeLimiter) → ThreadPool 벌크헤드 → 호출 순서로 감싼다.
- * 순서는 [call] 한 곳에만 있다. 시간 상한은 벌크헤드 대기까지 포함하고, 열린 서킷은 벌크헤드 자리를 쓰지 않는다. 인스턴스는 스타터가
- * `resilience4j.*` 설정으로 만든 레지스트리에서 의존성 이름으로 꺼낸다.
+ * 의존성마다 재시도 루프 → Retry-After 대기 → 서킷 브레이커 → 요청 수 상한(RateLimiter) → 호출 시간 상한(TimeLimiter) →
+ * ThreadPool 벌크헤드 → 호출 순서로 감싼다. 순서는 [call] 한 곳에만 있다. 시간 상한은 벌크헤드 대기까지 포함하고, 열린 서킷은 요청 수
+ * 허용도 벌크헤드 자리도 쓰지 않는다. 인스턴스는 스타터가 `resilience4j.*` 설정으로 만든 레지스트리에서 의존성 이름으로 꺼낸다.
+ * 요청 수 상한은 `resilience4j.ratelimiter.instances`에 인스턴스가 있는 의존성(ad)에만 건다(add-retry-policy design 결정 6).
  *
  * 재시도([RetryLoop])는 가장 바깥이라 시도 하나하나가 대기·서킷·시간 상한·벌크헤드를 다시 거친다. 설정은 `resilience4j.retry.instances`에서
  * 꺼내고(인스턴스가 없는 의존성은 다시 부르지 않는다), 마감은 [RequestDeadline], 재시도 예산은 `weave.retry.budget.*`다. 다음 시도는
@@ -63,6 +66,7 @@ import java.util.function.Supplier
 @EnableConfigurationProperties(IsolationProperties::class, RetryProperties::class, RetryAfterProperties::class)
 class IsolatedCalls(
     circuitBreakers: CircuitBreakerRegistry,
+    rateLimiters: RateLimiterRegistry,
     timeLimiters: TimeLimiterRegistry,
     bulkheads: ThreadPoolBulkheadRegistry,
     semaphoreBulkheads: BulkheadRegistry,
@@ -91,6 +95,7 @@ class IsolatedCalls(
         DEPENDENCIES.associateWith { dependency ->
             Isolation(
                 circuitBreakers.circuitBreaker(dependency),
+                rateLimiters.find(dependency).orElse(null),
                 timeLimiters.timeLimiter(dependency),
                 bulkheads.bulkhead(dependency),
                 semaphoreBulkheads.bulkhead(dependency),
@@ -119,7 +124,7 @@ class IsolatedCalls(
      * [dependency]의 격리 안에서 [block]을 부른다. [block]은 벌크헤드 스레드(Semaphore 모드면 `applicationTaskExecutor`)에서 돈다.
      *
      * 재시도할 수 있는 실패면 재시도 정책대로 [block]을 다시 부른다. 마지막 시도가 실패하면 `cause`가 `timeout`, `circuit_open`,
-     * `bulkhead_full`, `retry_after`, 또는 [block]의 예외를 [DownstreamFailure]가 분류한 값인 실패 로그를 한 줄 남기고 실패를 그대로 넘긴다.
+     * `bulkhead_full`, `retry_after`, `rate_limited`, 또는 [block]의 예외를 [DownstreamFailure]가 분류한 값인 실패 로그를 한 줄 남기고 실패를 그대로 넘긴다.
      * 돌려준 future를 먼저 끝내면(예: 요청 시간 예산) 그 뒤의 실패는 로그로 남기지 않고 기다리던 재시도도 보내지 않는다.
      * 로그는 future를 실제로 끝낸 쪽이 끝낸 뒤에 남긴다.
      */
@@ -149,11 +154,15 @@ class IsolatedCalls(
                     .executeCompletionStage(timeoutScheduler, inBulkhead)
                     .completingIn(callerContext, callerMdc)
             }
+        // 요청 수 상한은 서킷 안, 시간 상한 바깥이라 열린 서킷이 막은 호출은 허용을 쓰지 않는다. 허용이 없으면 기다리지 않고
+        // RequestNotPermitted로 바로 끝나고, 서킷은 이를 세지 않는다(add-retry-policy design 결정 6)
+        val rated =
+            isolation.rateLimiter?.let { rateLimiter -> Supplier { rateLimiter.executeCompletionStage(limited) } } ?: limited
         // 대기 중이면 서킷에 닿지 않고 바로 끝난다. 429로 끝난 시도는 결과를 넘기기 전에 대기를 시작한다(add-retry-policy design 결정 4)
         val attempt = {
             holds.check(dependency)
             isolation.circuitBreaker
-                .executeCompletionStage(limited)
+                .executeCompletionStage(rated)
                 .whenComplete { _, error -> if (error != null) holdOnTooManyRequests(dependency, error) }
         }
         // 로그는 future를 실제로 끝낸 쪽만 남긴다. 요청 시간 예산(RequestBudget.exhaust)도 같은 규칙이라, 시간 상한과 예산 마감이
@@ -251,6 +260,7 @@ class IsolatedCalls(
 
     private class Isolation(
         val circuitBreaker: CircuitBreaker,
+        val rateLimiter: RateLimiter?,
         val timeLimiter: TimeLimiter,
         val bulkhead: ThreadPoolBulkhead,
         val semaphore: Bulkhead,

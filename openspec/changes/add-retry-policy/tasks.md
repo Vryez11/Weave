@@ -48,7 +48,7 @@
   - 순서 `재시도 → 대기 → 서킷 → (RateLimiter, 2.5) → TimeLimiter → 벌크헤드`. `RetryRegistry.find`로 설정을 꺼낸다. 마감은 `RequestDeadline`(`RequestBudget.call`이 `start()` 동안 둔다). `isolation-retry` 스케줄러, 다음 시도는 부른 스레드의 trace 문맥·MDC로 시작한다. 이미 끝난 호출은 다시 부르지 않는다. 429면 대기를 시작한다.
   - `resilience4j.retry` 인스턴스 넷의 구조를 `application.yml`에 둔다(값은 4.1). 테스트 기본 설정이 끄므로 기존 테스트에는 영향이 없다.
   - 확인: 새 단위 테스트 `gateway/RetryLoopTest`("기다리는 동안 호출이 먼저 끝났다" 포함), 1.1의 "4xx는 세지 않는다", 1.2의 `FeedRetryScenarioTest`·`FeedRetryBudgetScenarioTest`, 1.3의 `FeedRetryAfterScenarioTest`가 통과한다.
-- [ ] 2.5 ad에 요청 수 상한을 둔다(design 결정 6).
+- [x] 2.5 ad에 요청 수 상한을 둔다(design 결정 6).
   - `RateLimiterRegistry.find`로 꺼내 서킷 안, TimeLimiter 바깥에서 감싼다. 서킷 `ignore-exceptions`에 `RequestNotPermitted`. `resilience4j.ratelimiter.instances.ad` 구조(값은 4.3).
   - 확인: 1.3의 `FeedAdRateLimitScenarioTest`가 통과한다.
 - [ ] 2.6 재시도·대기 로그와 지표를 낸다(design 결정 8, 9).

@@ -21,6 +21,7 @@
 - ad RateLimiter 인스턴스는 속성(`resilience4j.ratelimiter.instances.ad.*`)만 주면 스타터가 만들고 `resilience4j_ratelimiter_available_permissions{name="ad"}`를 낸다(구현 전에도). 주기는 인스턴스를 만든 시각부터 센다. 2.5는 이 인스턴스를 `RateLimiterRegistry.find`로 꺼내 쓰면 된다(새로 만들면 지표와 주기가 어긋난다).
 
 ## 지금 실패하는 것이 정상인 테스트 (구현 전)
+- **2.5 뒤(최신):** feed-service `integrationTest`에서 실패하는 것은 `FeedRetryLogScenarioTest`의 "Retry-After 대기를 시작한다"와 `FeedRetryMetricsScenarioTest` "지표가 있다"(둘 다 2.6) 둘뿐이다. 통합 테스트 결과의 skipped 110개는 태그가 없는 단위 테스트라 정상이다.
 - **2.4 뒤(최신):** feed-service `integrationTest`에서 실패하는 것은 `FeedAdRateLimitScenarioTest`, `FeedAdRateLimitNextPeriodScenarioTest`(2.5), `FeedRetryLogScenarioTest`의 "Retry-After 대기를 시작한다"(2.6, `retry_after_hold_started` 줄), `FeedRetryMetricsScenarioTest` "지표가 있다"(2.6, `weave_retry_after_*`·`weave_ratelimiter_rejected_calls_total` 0 등록)뿐이다. 아래 1.x 목록의 나머지는 모두 통과한다.
 - **1.4 뒤:** feed-service `integrationTest`: `FeedRetryLogScenarioTest` 둘(2.4 재시도 줄, 2.3+2.4 대기 줄. 로그는 2.6이 마무리), `FeedRetryMetricsScenarioTest` 둘(2.6, 0 등록은 2.4에서 해도 된다), `FeedRetryOverrideScenarioTest`(2.4. 레지스트리 단언은 지금도 통과하고 like 요청 수 1 ≠ 2로 실패).
 - **1.3 뒤:** feed-service `integrationTest`: `FeedRetryAfterScenarioTest`의 "초로 준다", "HTTP 날짜로 준다", "머리글이 없다"(2.3+2.4), `FeedAdRateLimitScenarioTest`, `FeedAdRateLimitNextPeriodScenarioTest`(2.5). "대기가 끝난다"와 `FeedRetryAfterMaxHoldScenarioTest`는 지금도 통과한다(대기가 없어서 참).
@@ -101,4 +102,13 @@
   - 2.5: RateLimiter는 `attempt` 람다의 `isolation.circuitBreaker.executeCompletionStage(limited)` 안, `limited`(TimeLimiter) 바깥에 끼운다. `Isolation`에 `rateLimiter: RateLimiter?`(`RateLimiterRegistry.find`)를 더하면 된다. `RequestNotPermitted`는 서킷 `ignore-exceptions`에도 더한다(지금은 `BulkheadFullException` 하나).
   - 2.6: 대기 시작 로그는 `IsolatedCalls.holdOnTooManyRequests`에서 `holds.hold(...)`의 반환값이 null이 아닐 때 남기면 된다. 이 함수는 시도 stage의 `whenComplete`에서 돌아 `completingIn`의 MDC가 펼쳐져 있지만, 확실히 하려면 `withMdc(callerMdc)`로 감싼다. `retry_after` 막은 호출 수는 `holds.check`가 던질 때 센다(`attempt` 람다). 게이지는 `holds.remaining(dep)`. 재시도 결정 카운터는 `IsolatedCalls.retryLoop`에 이미 있다.
   - 결정 순서에서 시간을 예산보다 먼저 본다(보내지 않을 재시도로 예산을 쓰지 않는다). 테스트 기본 설정(`max-attempts: 1`)에서는 재시도할 실패마다 `attempts_exhausted`가 하나씩 센다. ad는 인스턴스가 없어 늘 0이다.
+---
+
+### 2026-11-08 12:32 - 2.5 ad에 요청 수 상한을 둔다
+- 한 일: `IsolatedCalls`가 `RateLimiterRegistry.find(<의존성>)`으로 RateLimiter를 꺼내(`Isolation.rateLimiter`, 없으면 null) 서킷 안, TimeLimiter 바깥에서 `executeCompletionStage`로 감싼다. 허용이 없으면 부른 스레드에서 `RequestNotPermitted`로 바로 끝나고 실패 로그 `rate_limited`, 재시도 없음. 서킷 `ignore-exceptions`를 목록으로 바꿔 `RequestNotPermitted`를 더했다. main `application.yml`에 `resilience4j.ratelimiter`(`configs.default.timeout-duration: 0`, `instances.ad: { base-config: default }`).
+- 바꾼 파일: `feed-service/src/main/kotlin/com/weave/feed/gateway/IsolatedCalls.kt`, `src/main/resources/application.yml`, feed-service `CLAUDE.md` 첫 줄(순서).
+- 확인: `FeedAdRateLimitScenarioTest`, `FeedAdRateLimitNextPeriodScenarioTest`, `FeedCircuitBreakerScenarioTest`, `FeedDegradationScenarioTest`, `FeedRetryAfter*` 통과. 전체 `:feed-service:integrationTest`는 2.6 몫 2개만 실패. `ktlintCheck`, 타입 검사, `:feed-service:test`, `openspec validate` 통과.
+- 다음 반복이 알아 둘 것:
+  - main의 `timeout-duration: 0`은 design 결정 6의 "기다리지 않는다"(요청 스레드가 묶인다)를 구조로 먼저 넣은 것이다. Resilience4j 기본 기다림이 5초라 비워 두면 위험해서다. 주기·주기당 한도는 비워 두어 Resilience4j 기본값(500ns마다 50, 사실상 무제한)이다. 4.3은 `limit-refresh-period: 100ms`, `limit-for-period: 54`만 근거와 함께 넣으면 된다(기다림 0은 이미 있다).
+  - 2.6: `weave.ratelimiter.rejected.calls{name="ad"}`는 `rateLimiter.eventPublisher.onFailure { ... }`로 세면 된다(`executeCompletionStage`가 허용을 못 받으면 `onFailure` 이벤트를 낸다). 시작할 때 0으로 등록. RateLimiter가 있는 의존성만 등록하면 `name="ad"` 하나다.
 ---
