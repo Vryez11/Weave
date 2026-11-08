@@ -121,3 +121,12 @@
 - 다음 반복이 알아 둘 것:
   - 2.7 문서에 쓸 이름: 로그 `retry_after_hold_started`는 `IsolatedCalls.holdOnTooManyRequests`, 지표 넷은 `IsolatedCalls`(재시도 결정은 `retryLoop`, 나머지는 `holdRejections`와 `init`). feed-service `CLAUDE.md`는 2.7에서 고친다.
 ---
+
+### 2026-11-08 12:38 - 2.7 아키텍처 문서와 feed-service `CLAUDE.md`를 구현에 맞춘다
+- 한 일: `docs/architecture.md` 4-2 고도화 5 줄, 5-2 그림과 재시도 루프·`RequestDeadline` 항목, 5-3 설정 구조(`resilience4j.retry`·`ratelimiter`, `weave.retry.budget.*`, `weave.retry-after.*`, `ignore-exceptions`에 `RequestNotPermitted`), 5-4 순서(Retry-After 대기 줄), 5-5 실패 분류(`timeout` 줄을 나누고 `rate_limited`·`retry_after` 줄, Retry-After 대기와 재시도 판정 순서 문단), 7-3 `isolation-retry` 스케줄러의 traceId 줄, 12장 F-005 줄, 13장 "429와 Retry-After 처리 방식"을 남은 것 → 정한 것. feed-service `CLAUDE.md`에 `RetryLoop` 위치, 테스트 기본 설정이 재시도를 끈다는 것, 대기가 컨텍스트에 남는다(지우는 API 없음)는 것.
+- 바꾼 파일: `docs/architecture.md`, `feed-service/CLAUDE.md`, `tasks.md`.
+- 확인: 문서의 클래스·속성·지표·로그 이름을 `feed-service/src/main`에서 `grep`으로 모두 찾았다. `openspec validate --all --strict`, `:feed-service:ktlintCheck :feed-service:test` 통과.
+- 다음 반복이 알아 둘 것:
+  - 설정값(5-6 표, 맨 위 상태 줄, 13장의 설정값 항목)은 5.4 몫이라 손대지 않았다. 7-4 대시보드 표는 3.3, 9-3 리포트 표는 3.1이다.
+  - 다음은 3.1(`run.sh`). 스크립트는 Ralph 권한에서 직접 실행이 막히니 e2e `integrationTest`와 experiments/CLAUDE.md의 컨테이너 bash 구문 검사로 확인한다.
+---

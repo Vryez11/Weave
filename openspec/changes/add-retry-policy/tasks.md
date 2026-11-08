@@ -54,7 +54,7 @@
 - [x] 2.6 재시도·대기 로그와 지표를 낸다(design 결정 8, 9).
   - `downstream_call_retried`, `retry_after_hold_started`. `weave.retry.calls`(20개 시계열 0부터), `weave.retry.after.rejected.calls`, `weave.retry.after.hold.remaining`, `weave.ratelimiter.rejected.calls`.
   - 확인: 1.4의 세 클래스가 통과하고 `./gradlew :feed-service:test :feed-service:integrationTest`가 모두 통과한다.
-- [ ] 2.7 아키텍처 문서와 feed-service `CLAUDE.md`를 구현에 맞춘다.
+- [x] 2.7 아키텍처 문서와 feed-service `CLAUDE.md`를 구현에 맞춘다.
   - 4-2 표의 고도화 5 줄, 5-2 그림, 5-3 설정 구조, 5-4 순서(Retry-After 대기), 5-5 실패 분류 표, 12·13장의 F-005 항목. `CLAUDE.md`에 재시도 루프 위치, `RequestDeadline`의 전제, 테스트 기본 설정이 재시도를 끈다는 것, 대기 지우기.
   - 확인: 문서의 클래스·속성·지표 이름이 코드에 있다(`grep`).
 
