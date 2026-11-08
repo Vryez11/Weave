@@ -21,6 +21,7 @@
 - ad RateLimiter 인스턴스는 속성(`resilience4j.ratelimiter.instances.ad.*`)만 주면 스타터가 만들고 `resilience4j_ratelimiter_available_permissions{name="ad"}`를 낸다(구현 전에도). 주기는 인스턴스를 만든 시각부터 센다. 2.5는 이 인스턴스를 `RateLimiterRegistry.find`로 꺼내 쓰면 된다(새로 만들면 지표와 주기가 어긋난다).
 
 ## 지금 실패하는 것이 정상인 테스트 (구현 전)
+- **2.6 뒤(최신):** feed-service `test`·`integrationTest`는 모두 통과한다. 남은 실패는 e2e 쪽(`ExperimentVerdictScenarioTest`의 F-005, 3.2·4.5)과 Compose 테스트(5.3)뿐이다.
 - **2.5 뒤(최신):** feed-service `integrationTest`에서 실패하는 것은 `FeedRetryLogScenarioTest`의 "Retry-After 대기를 시작한다"와 `FeedRetryMetricsScenarioTest` "지표가 있다"(둘 다 2.6) 둘뿐이다. 통합 테스트 결과의 skipped 110개는 태그가 없는 단위 테스트라 정상이다.
 - **2.4 뒤(최신):** feed-service `integrationTest`에서 실패하는 것은 `FeedAdRateLimitScenarioTest`, `FeedAdRateLimitNextPeriodScenarioTest`(2.5), `FeedRetryLogScenarioTest`의 "Retry-After 대기를 시작한다"(2.6, `retry_after_hold_started` 줄), `FeedRetryMetricsScenarioTest` "지표가 있다"(2.6, `weave_retry_after_*`·`weave_ratelimiter_rejected_calls_total` 0 등록)뿐이다. 아래 1.x 목록의 나머지는 모두 통과한다.
 - **1.4 뒤:** feed-service `integrationTest`: `FeedRetryLogScenarioTest` 둘(2.4 재시도 줄, 2.3+2.4 대기 줄. 로그는 2.6이 마무리), `FeedRetryMetricsScenarioTest` 둘(2.6, 0 등록은 2.4에서 해도 된다), `FeedRetryOverrideScenarioTest`(2.4. 레지스트리 단언은 지금도 통과하고 like 요청 수 1 ≠ 2로 실패).
@@ -111,4 +112,12 @@
 - 다음 반복이 알아 둘 것:
   - main의 `timeout-duration: 0`은 design 결정 6의 "기다리지 않는다"(요청 스레드가 묶인다)를 구조로 먼저 넣은 것이다. Resilience4j 기본 기다림이 5초라 비워 두면 위험해서다. 주기·주기당 한도는 비워 두어 Resilience4j 기본값(500ns마다 50, 사실상 무제한)이다. 4.3은 `limit-refresh-period: 100ms`, `limit-for-period: 54`만 근거와 함께 넣으면 된다(기다림 0은 이미 있다).
   - 2.6: `weave.ratelimiter.rejected.calls{name="ad"}`는 `rateLimiter.eventPublisher.onFailure { ... }`로 세면 된다(`executeCompletionStage`가 허용을 못 받으면 `onFailure` 이벤트를 낸다). 시작할 때 0으로 등록. RateLimiter가 있는 의존성만 등록하면 `name="ad"` 하나다.
+---
+
+### 2026-11-08 12:40 - 2.6 재시도·대기 로그와 지표를 낸다
+- 한 일: `IsolatedCalls`에 `retry_after_hold_started`(WARN, `dependency`, `holdMs` = 파싱한 대기 그대로, `holdUntil` = `Instant.toString()`)를 `holds.hold`가 끝 시각을 돌려줄 때만 부른 스레드의 MDC(`withMdc(callerMdc)`)로 남긴다. `weave.retry.after.rejected.calls{name}`(`holds.check`가 던질 때), `weave.retry.after.hold.remaining{name}`(게이지, `baseUnit("seconds")` → Prometheus `_seconds`), `weave.ratelimiter.rejected.calls{name}`(RateLimiter가 있는 의존성만, `eventPublisher.onFailure`)을 시작할 때 0으로 등록한다. `downstream_call_retried`와 `weave.retry.calls`는 2.4에서 이미 냈다.
+- 바꾼 파일: `feed-service/src/main/kotlin/com/weave/feed/gateway/IsolatedCalls.kt`.
+- 확인: `FeedRetryLogScenarioTest`, `FeedRetryMetricsScenarioTest`, `FeedRetryOverrideScenarioTest` 통과. `:feed-service:ktlintCheck :feed-service:test :feed-service:integrationTest` 모두 통과(통합 스위트 75개 실패 0). `openspec validate` 통과.
+- 다음 반복이 알아 둘 것:
+  - 2.7 문서에 쓸 이름: 로그 `retry_after_hold_started`는 `IsolatedCalls.holdOnTooManyRequests`, 지표 넷은 `IsolatedCalls`(재시도 결정은 `retryLoop`, 나머지는 `holdRejections`와 `init`). feed-service `CLAUDE.md`는 2.7에서 고친다.
 ---

@@ -15,7 +15,9 @@ import io.github.resilience4j.timelimiter.TimeLimiter
 import io.github.resilience4j.timelimiter.TimeLimiterRegistry
 import io.micrometer.context.ContextSnapshot
 import io.micrometer.core.instrument.Counter
+import io.micrometer.core.instrument.Gauge
 import io.micrometer.core.instrument.MeterRegistry
+import org.slf4j.LoggerFactory
 import org.slf4j.MDC
 import org.springframework.beans.factory.DisposableBean
 import org.springframework.beans.factory.annotation.Qualifier
@@ -49,7 +51,10 @@ import java.util.function.Supplier
  * 그 MDC로 로그를 남긴다.
  *
  * 벌크헤드 거절 수는 Resilience4j 지표에 없어 `weave.bulkhead.rejected.calls`(태그 `name`)로 센다. 대시보드 질의가 장애 없이도
- * 시계열을 받게 의존성마다 0부터 등록한다(design Open Questions).
+ * 시계열을 받게 의존성마다 0부터 등록한다(design Open Questions). 재시도 결정(`weave.retry.calls`), Retry-After로 막은 호출
+ * (`weave.retry.after.rejected.calls`), 남은 대기 시간(`weave.retry.after.hold.remaining`, 게이지), 요청 수 상한으로 막은 호출
+ * (`weave.ratelimiter.rejected.calls`, RateLimiter가 있는 의존성만)도 같은 방식이다(add-retry-policy design 결정 9). 대기 시작 로그
+ * (`retry_after_hold_started`)는 대기를 새로 시작할 때만 남기고, 대기 중 막은 호출은 실패 로그와 지표로만 센다(design 결정 8).
  *
  * 요청 스레드에서 동기로 부르는 호출(좋아요 토글)은 [callBlocking]으로 부른다(design 결정 6).
  *
@@ -107,6 +112,16 @@ class IsolatedCalls(
 
     private val blockingBulkheads = BLOCKING_BULKHEADS.associateWith { semaphoreBulkheads.bulkhead(it) }
 
+    /** Retry-After 대기 중이라 막은 호출 수. 의존성마다 0부터 등록한다(add-retry-policy design 결정 9). */
+    private val holdRejections =
+        DEPENDENCIES.associateWith { dependency ->
+            Counter
+                .builder("weave.retry.after.rejected.calls")
+                .description("Retry-After 대기 중이라 부르지 않은 하위 서비스 호출 수")
+                .tag("name", dependency)
+                .register(meterRegistry)
+        }
+
     init {
         isolations.forEach { (dependency, isolation) ->
             val rejected =
@@ -117,6 +132,21 @@ class IsolatedCalls(
                     .register(meterRegistry)
             isolation.bulkhead.eventPublisher.onCallRejected { rejected.increment() }
             isolation.semaphore.eventPublisher.onCallRejected { rejected.increment() }
+            Gauge
+                .builder("weave.retry.after.hold.remaining", holds) { it.remaining(dependency).toNanos() / NANOS_PER_SECOND }
+                .description("남은 Retry-After 대기 시간. 대기 중이 아니면 0")
+                .baseUnit("seconds")
+                .tag("name", dependency)
+                .register(meterRegistry)
+            isolation.rateLimiter?.let { rateLimiter ->
+                val limited =
+                    Counter
+                        .builder("weave.ratelimiter.rejected.calls")
+                        .description("요청 수 상한에 허용이 없어 부르지 않은 하위 서비스 호출 수")
+                        .tag("name", dependency)
+                        .register(meterRegistry)
+                rateLimiter.eventPublisher.onFailure { limited.increment() }
+            }
         }
     }
 
@@ -160,10 +190,15 @@ class IsolatedCalls(
             isolation.rateLimiter?.let { rateLimiter -> Supplier { rateLimiter.executeCompletionStage(limited) } } ?: limited
         // 대기 중이면 서킷에 닿지 않고 바로 끝난다. 429로 끝난 시도는 결과를 넘기기 전에 대기를 시작한다(add-retry-policy design 결정 4)
         val attempt = {
-            holds.check(dependency)
+            try {
+                holds.check(dependency)
+            } catch (e: RetryAfterHoldException) {
+                holdRejections.getValue(dependency).increment()
+                throw e
+            }
             isolation.circuitBreaker
                 .executeCompletionStage(rated)
-                .whenComplete { _, error -> if (error != null) holdOnTooManyRequests(dependency, error) }
+                .whenComplete { _, error -> if (error != null) holdOnTooManyRequests(dependency, error, callerMdc) }
         }
         // 로그는 future를 실제로 끝낸 쪽만 남긴다. 요청 시간 예산(RequestBudget.exhaust)도 같은 규칙이라, 시간 상한과 예산 마감이
         // 거의 같은 순간에 와도 같은 호출의 실패 줄은 하나다. 그래서 실패 로그가 피드 응답보다 조금 늦을 수 있다
@@ -200,10 +235,15 @@ class IsolatedCalls(
         retryScheduler.shutdownNow()
     }
 
-    /** 429면 `Retry-After`만큼(없으면 기본 대기) [dependency]를 부르지 않는다. 이미 더 늦게까지 대기 중이면 그대로 둔다. */
+    /**
+     * 429면 `Retry-After`만큼(없으면 기본 대기) [dependency]를 부르지 않는다. 이미 더 늦게까지 대기 중이면 그대로 둔다.
+     *
+     * 대기 중이 아니던 의존성이 대기를 시작했을 때만 `retry_after_hold_started` 줄을 부른 스레드의 MDC([callerMdc])로 남긴다(design 결정 8).
+     */
     private fun holdOnTooManyRequests(
         dependency: String,
         error: Throwable,
+        callerMdc: Map<String, String>?,
     ) {
         val response = DownstreamFailure.unwrap(error) as? RestClientResponseException ?: return
         if (response.statusCode.value() != TOO_MANY_REQUESTS) return
@@ -214,7 +254,16 @@ class IsolatedCalls(
                 retryAfterProperties.defaultHold,
                 retryAfterProperties.maxHold,
             )
-        holds.hold(dependency, hold)
+        val until = holds.hold(dependency, hold) ?: return
+        withMdc(callerMdc) {
+            logger
+                .atWarn()
+                .addKeyValue("event", "retry_after_hold_started")
+                .addKeyValue("dependency", dependency)
+                .addKeyValue("holdMs", hold.toMillis())
+                .addKeyValue("holdUntil", until.toString())
+                .log("{} Retry-After 대기 시작({}ms)", dependency, hold.toMillis())
+        }
     }
 
     /**
@@ -278,6 +327,10 @@ class IsolatedCalls(
         val BLOCKING_BULKHEADS = listOf(LIKE_TOGGLE)
 
         private const val TOO_MANY_REQUESTS = 429
+
+        private const val NANOS_PER_SECOND = 1e9
+
+        private val logger = LoggerFactory.getLogger(IsolatedCalls::class.java)
     }
 }
 

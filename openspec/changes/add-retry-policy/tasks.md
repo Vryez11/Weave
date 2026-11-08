@@ -51,7 +51,7 @@
 - [x] 2.5 ad에 요청 수 상한을 둔다(design 결정 6).
   - `RateLimiterRegistry.find`로 꺼내 서킷 안, TimeLimiter 바깥에서 감싼다. 서킷 `ignore-exceptions`에 `RequestNotPermitted`. `resilience4j.ratelimiter.instances.ad` 구조(값은 4.3).
   - 확인: 1.3의 `FeedAdRateLimitScenarioTest`가 통과한다.
-- [ ] 2.6 재시도·대기 로그와 지표를 낸다(design 결정 8, 9).
+- [x] 2.6 재시도·대기 로그와 지표를 낸다(design 결정 8, 9).
   - `downstream_call_retried`, `retry_after_hold_started`. `weave.retry.calls`(20개 시계열 0부터), `weave.retry.after.rejected.calls`, `weave.retry.after.hold.remaining`, `weave.ratelimiter.rejected.calls`.
   - 확인: 1.4의 세 클래스가 통과하고 `./gradlew :feed-service:test :feed-service:integrationTest`가 모두 통과한다.
 - [ ] 2.7 아키텍처 문서와 feed-service `CLAUDE.md`를 구현에 맞춘다.
