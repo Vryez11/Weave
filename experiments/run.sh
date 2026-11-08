@@ -419,7 +419,7 @@ verdict_input="$(
 )" || fail "판정 입력을 만들지 못했다"
 echo "$verdict_input" >"$folder/verdict-input.json" || fail "판정 입력을 쓰지 못했다: $folder/verdict-input.json"
 
-verdict="$("$here/lib/verdict.sh" "$folder/summary.json" "$scenario")"
+verdict="$("$here/lib/verdict.sh" "$folder/summary.json" "$scenario" "$here/expectations.json" "$folder/verdict-input.json")"
 verdict_status=$?
 [ "$verdict_status" -le 1 ] || fail "판정하지 못했다(lib/verdict.sh 종료 코드 $verdict_status)"
 

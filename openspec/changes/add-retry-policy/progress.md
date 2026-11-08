@@ -23,6 +23,7 @@
 - ad RateLimiter 인스턴스는 속성(`resilience4j.ratelimiter.instances.ad.*`)만 주면 스타터가 만들고 `resilience4j_ratelimiter_available_permissions{name="ad"}`를 낸다(구현 전에도). 주기는 인스턴스를 만든 시각부터 센다. 2.5는 이 인스턴스를 `RateLimiterRegistry.find`로 꺼내 쓰면 된다(새로 만들면 지표와 주기가 어긋난다).
 
 ## 지금 실패하는 것이 정상인 테스트 (구현 전)
+- **3.2 뒤(최신):** e2e `integrationTest`에서 실패하는 것은 `ExperimentVerdictScenarioTest`의 "F-005 지금 단계의 기대"(4.5에서 `expectations.json`을 고도화 5로 바꾸면 통과) 하나뿐이다. Compose 테스트는 5.3.
 - **2.6 뒤(최신):** feed-service `test`·`integrationTest`는 모두 통과한다. 남은 실패는 e2e 쪽(`ExperimentVerdictScenarioTest`의 F-005, 3.2·4.5)과 Compose 테스트(5.3)뿐이다.
 - **2.5 뒤(최신):** feed-service `integrationTest`에서 실패하는 것은 `FeedRetryLogScenarioTest`의 "Retry-After 대기를 시작한다"와 `FeedRetryMetricsScenarioTest` "지표가 있다"(둘 다 2.6) 둘뿐이다. 통합 테스트 결과의 skipped 110개는 태그가 없는 단위 테스트라 정상이다.
 - **2.4 뒤(최신):** feed-service `integrationTest`에서 실패하는 것은 `FeedAdRateLimitScenarioTest`, `FeedAdRateLimitNextPeriodScenarioTest`(2.5), `FeedRetryLogScenarioTest`의 "Retry-After 대기를 시작한다"(2.6, `retry_after_hold_started` 줄), `FeedRetryMetricsScenarioTest` "지표가 있다"(2.6, `weave_retry_after_*`·`weave_ratelimiter_rejected_calls_total` 0 등록)뿐이다. 아래 1.x 목록의 나머지는 모두 통과한다.
@@ -140,4 +141,13 @@
 - 다음 반복이 알아 둘 것:
   - 3.2: `run.sh`는 아직 `lib/verdict.sh`에 넷째 인자를 넘기지 않는다(지금 verdict.sh는 인자 4개면 2로 끝난다). verdict.sh에 넷째 인자를 받게 한 뒤 `run.sh`의 호출(`verdict="$("$here/lib/verdict.sh" "$folder/summary.json" "$scenario")"`)에 기대 결과 파일(`"$here/expectations.json"`)과 `"$folder/verdict-input.json"`을 붙인다.
   - `report.md`의 `criterion_name`·`expected`는 이미 `requestRatio`·`retryAfter`를 안다.
+---
+
+### 2026-11-08 13:00 - 3.2 판정에 요청 배율·Retry-After 기준을 넣는다
+- 한 일: `slo.json`에 `requestRatio: 1.2`. `lib/verdict.sh`가 넷째 인자(판정 입력 파일)를 받고, 기대 객체의 `requestRatio`·`retryAfter` 키를 허용한다. 두 키 중 하나라도 있으면 파일이 있어야 하고(없으면 2, 표준 오류에 "판정 입력 파일"), `requestRatio`는 의존성 5개(post, user, like, recommendation, ad 순)의 `requestRatioMax`가 상한 이하, `retryAfter`는 `adRejections.rejected ≤ allowed`(null이면 "값 없음")로 `failedThresholds`에 더한다. `criteria` 순서는 availability, p99, degradeRatio, requestRatio, retryAfter. `run.sh`는 `expectations.json`과 `verdict-input.json`을 넘긴다. `run-all.sh` 기대 열에 ` · 요청 배율 <값>`, ` · Retry-After <값>`. `docs/architecture.md` 9장 `slo.json`·`expectations.json` 줄과 판정 문단.
+- 바꾼 파일: `experiments/slo.json`, `experiments/lib/verdict.sh`, `experiments/run.sh`, `experiments/run-all.sh`, `docs/architecture.md`, `tasks.md`.
+- 확인: `:e2e:integrationTest --tests 'com.weave.e2e.Experiment*'`에서 "지금 단계의 기대"(4.5)만 실패. 컨테이너 bash `-n`(run.sh, run-all.sh, verdict.sh) 통과. run-all.sh 기대 열 jq를 stage5 픽스처에 돌려 KDoc 형식과 같은 것을 봤다. `:e2e:test`, `:e2e:ktlintCheck`, `openspec validate` 통과.
+- 다음 반복이 알아 둘 것:
+  - 다음은 3.3(대시보드 "재시도·외부 API" 행). 3.3이 끝나면 4번 묶음이라 Ralph는 BLOCKED로 멈춘다(tasks.md 4장 머리말).
+  - `expectations.json`은 아직 고도화 4다(requestRatio 키 없음). 지금 `run.sh`는 판정 입력 파일을 늘 넘기지만 기대에 두 키가 없으면 읽지 않는다.
 ---

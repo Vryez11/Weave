@@ -64,7 +64,7 @@
   - Prometheus 질의 셋(요청 배율 최댓값, `weave_retry_calls_total` 증가, ad-service 429 증가)과 ad 동시 호출 상한, 시나리오의 요청 한도 창으로 `allowed`. `verdict-input.json`을 판정 전에 쓴다. `report.json`·`report.md` 항목.
   - `docs/architecture.md` 9-3 리포트 표를 고친다.
   - 확인: 바뀐 스크립트가 `/bin/bash -n`을 통과한다. 동작은 1.6의 Compose 테스트(5.3).
-- [ ] 3.2 판정에 요청 배율·Retry-After 기준을 넣는다(design 결정 10).
+- [x] 3.2 판정에 요청 배율·Retry-After 기준을 넣는다(design 결정 10).
   - `slo.json`의 `requestRatio`(1.2), `lib/verdict.sh`의 넷째 인자와 기대 객체의 `requestRatio`·`retryAfter` 키, `run-all.sh` 판정 표의 "기대" 열. `expectations.json`은 아직 바꾸지 않는다(4.5).
   - 확인: 1.5의 판정 테스트 중 "지금 단계의 기대"를 뺀 것이 `./gradlew :e2e:integrationTest`로 통과한다.
 - [ ] 3.3 대시보드에 "재시도·외부 API" 행을 더한다(design 결정 10).
