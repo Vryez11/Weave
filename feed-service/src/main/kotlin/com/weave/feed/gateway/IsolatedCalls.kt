@@ -7,6 +7,8 @@ import io.github.resilience4j.bulkhead.ThreadPoolBulkhead
 import io.github.resilience4j.bulkhead.ThreadPoolBulkheadRegistry
 import io.github.resilience4j.circuitbreaker.CircuitBreaker
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry
+import io.github.resilience4j.core.functions.Either
+import io.github.resilience4j.retry.RetryRegistry
 import io.github.resilience4j.timelimiter.TimeLimiter
 import io.github.resilience4j.timelimiter.TimeLimiterRegistry
 import io.micrometer.context.ContextSnapshot
@@ -17,6 +19,9 @@ import org.springframework.beans.factory.DisposableBean
 import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.stereotype.Component
+import org.springframework.web.client.RestClientResponseException
+import java.time.Clock
+import java.time.Duration
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CompletionStage
 import java.util.concurrent.Executor
@@ -25,13 +30,18 @@ import java.util.function.Predicate
 import java.util.function.Supplier
 
 /**
- * 하위 서비스 조회를 격리해 부르는 유일한 경로 (add-call-isolation design 결정 1, 5, 7).
+ * 하위 서비스 조회를 격리해 부르는 유일한 경로 (add-call-isolation design 결정 1, 5, 7, add-retry-policy design 결정 1).
  *
- * 의존성마다 서킷 브레이커 → 호출 시간 상한(TimeLimiter) → ThreadPool 벌크헤드 → 호출 순서로 감싼다. 순서는 [call] 한 곳에만 있다.
- * 시간 상한은 벌크헤드 대기까지 포함하고, 열린 서킷은 벌크헤드 자리를 쓰지 않는다. 인스턴스는 스타터가 `resilience4j.*` 설정으로
- * 만든 레지스트리에서 의존성 이름으로 꺼낸다.
+ * 의존성마다 재시도 루프 → Retry-After 대기 → 서킷 브레이커 → 호출 시간 상한(TimeLimiter) → ThreadPool 벌크헤드 → 호출 순서로 감싼다.
+ * 순서는 [call] 한 곳에만 있다. 시간 상한은 벌크헤드 대기까지 포함하고, 열린 서킷은 벌크헤드 자리를 쓰지 않는다. 인스턴스는 스타터가
+ * `resilience4j.*` 설정으로 만든 레지스트리에서 의존성 이름으로 꺼낸다.
  *
- * 실패 로그(`downstream_call_failed`)는 감싼 future의 결과에서 한 번만 남긴다. 시간 상한이 먼저 끝낸 호출이 나중에 응답 타임아웃으로
+ * 재시도([RetryLoop])는 가장 바깥이라 시도 하나하나가 대기·서킷·시간 상한·벌크헤드를 다시 거친다. 설정은 `resilience4j.retry.instances`에서
+ * 꺼내고(인스턴스가 없는 의존성은 다시 부르지 않는다), 마감은 [RequestDeadline], 재시도 예산은 `weave.retry.budget.*`다. 다음 시도는
+ * [retryScheduler] 스레드에서 부른 스레드의 trace 문맥과 MDC를 펼친 채 시작한다. 시도가 429로 끝나면 `Retry-After`로 그 의존성의 대기를
+ * 시작하고([RetryAfterHolds]), 대기 중인 시도는 서킷을 거치지 않고 `retry_after`로 바로 끝난다.
+ *
+ * 실패 로그(`downstream_call_failed`)는 마지막 시도의 실패로 한 번만 남긴다. 시간 상한이 먼저 끝낸 호출이 나중에 응답 타임아웃으로
  * 실패해도 그 실패는 버린다. 시간 상한 초과는 [timeoutScheduler] 스레드에서 끝나므로, 호출한 스레드의 MDC(`traceId`)를 받아 두고
  * 그 MDC로 로그를 남긴다.
  *
@@ -56,8 +66,12 @@ class IsolatedCalls(
     timeLimiters: TimeLimiterRegistry,
     bulkheads: ThreadPoolBulkheadRegistry,
     semaphoreBulkheads: BulkheadRegistry,
+    retries: RetryRegistry,
     meterRegistry: MeterRegistry,
     properties: IsolationProperties,
+    retryProperties: RetryProperties,
+    private val retryAfterProperties: RetryAfterProperties,
+    private val clock: Clock,
     @Qualifier("applicationTaskExecutor") private val taskExecutor: Executor,
 ) : DisposableBean {
     private val bulkheadType = properties.bulkheadType
@@ -67,6 +81,12 @@ class IsolatedCalls(
             // 시간 안에 끝난 호출의 시간 초과 작업을 바로 지운다. 지우지 않으면 상한이 지날 때까지 대기열에 남는다
             .apply { removeOnCancelPolicy = true }
 
+    /** 재시도 간격만큼 뒤에 다음 시도를 시작한다. 기다리는 동안 호출 스레드도 벌크헤드 자리도 잡지 않는다(add-retry-policy design 결정 1). */
+    private val retryScheduler =
+        ScheduledThreadPoolExecutor(1) { Thread(it, "isolation-retry").apply { isDaemon = true } }
+
+    private val holds = RetryAfterHolds(clock)
+
     private val isolations =
         DEPENDENCIES.associateWith { dependency ->
             Isolation(
@@ -74,6 +94,7 @@ class IsolatedCalls(
                 timeLimiters.timeLimiter(dependency),
                 bulkheads.bulkhead(dependency),
                 semaphoreBulkheads.bulkhead(dependency),
+                retryLoop(dependency, retries, timeLimiters, retryProperties, meterRegistry),
             )
         }
 
@@ -97,8 +118,9 @@ class IsolatedCalls(
     /**
      * [dependency]의 격리 안에서 [block]을 부른다. [block]은 벌크헤드 스레드(Semaphore 모드면 `applicationTaskExecutor`)에서 돈다.
      *
-     * 실패하면 `cause`가 `timeout`, `circuit_open`, `bulkhead_full`, 또는 [block]의 예외를 [DownstreamFailure]가 분류한 값인
-     * 실패 로그를 한 줄 남기고 실패를 그대로 넘긴다. 돌려준 future를 먼저 끝내면(예: 요청 시간 예산) 그 뒤의 실패는 로그로 남기지 않는다.
+     * 재시도할 수 있는 실패면 재시도 정책대로 [block]을 다시 부른다. 마지막 시도가 실패하면 `cause`가 `timeout`, `circuit_open`,
+     * `bulkhead_full`, `retry_after`, 또는 [block]의 예외를 [DownstreamFailure]가 분류한 값인 실패 로그를 한 줄 남기고 실패를 그대로 넘긴다.
+     * 돌려준 future를 먼저 끝내면(예: 요청 시간 예산) 그 뒤의 실패는 로그로 남기지 않고 기다리던 재시도도 보내지 않는다.
      * 로그는 future를 실제로 끝낸 쪽이 끝낸 뒤에 남긴다.
      */
     fun <T> call(
@@ -108,6 +130,7 @@ class IsolatedCalls(
         val isolation = isolations.getValue(dependency)
         val callerMdc: Map<String, String>? = MDC.getCopyOfContextMap()
         val callerContext = traceContexts.captureAll()
+        val deadline = RequestDeadline.current()
         val inBulkhead =
             when (bulkheadType) {
                 BulkheadType.THREAD_POOL -> Supplier<CompletionStage<T>> { isolation.bulkhead.executeSupplier(block) }
@@ -126,25 +149,29 @@ class IsolatedCalls(
                     .executeCompletionStage(timeoutScheduler, inBulkhead)
                     .completingIn(callerContext, callerMdc)
             }
-        val result = CompletableFuture<T>()
-        isolation.circuitBreaker
-            .executeCompletionStage(limited)
-            .whenComplete { value, error ->
-                when {
-                    error == null -> result.complete(value)
-                    // 로그는 future를 실제로 끝낸 쪽만 남긴다. 요청 시간 예산(RequestBudget.exhaust)도 같은 규칙이라, 시간 상한과 예산 마감이
-                    // 거의 같은 순간에 와도 같은 호출의 실패 줄은 하나다. 그래서 실패 로그가 피드 응답보다 조금 늦을 수 있다
-                    result.completeExceptionally(error) -> withMdc(callerMdc) { DownstreamFailure.log(dependency, error) }
-                }
-            }
-        return result
+        // 대기 중이면 서킷에 닿지 않고 바로 끝난다. 429로 끝난 시도는 결과를 넘기기 전에 대기를 시작한다(add-retry-policy design 결정 4)
+        val attempt = {
+            holds.check(dependency)
+            isolation.circuitBreaker
+                .executeCompletionStage(limited)
+                .whenComplete { _, error -> if (error != null) holdOnTooManyRequests(dependency, error) }
+        }
+        // 로그는 future를 실제로 끝낸 쪽만 남긴다. 요청 시간 예산(RequestBudget.exhaust)도 같은 규칙이라, 시간 상한과 예산 마감이
+        // 거의 같은 순간에 와도 같은 호출의 실패 줄은 하나다. 그래서 실패 로그가 피드 응답보다 조금 늦을 수 있다
+        return isolation.retryLoop.run(
+            deadline = deadline,
+            inCaller = { block -> callerContext.setThreadLocals().use { withMdc(callerMdc, block) } },
+            attempt = attempt,
+            failed = { error -> DownstreamFailure.log(dependency, error) },
+        )
     }
 
     /**
      * [dependency]의 서킷 브레이커 → Semaphore 벌크헤드 [bulkhead] → [block] 순서로 부른 스레드에서 바로 부른다(design 결정 6).
      *
      * 호출 시간 상한은 걸지 않는다. 동기 호출에 상한을 걸려면 다른 스레드로 넘겨야 하고, 그룹의 응답 타임아웃이 같은 역할을 한다.
-     * 벌크헤드는 기다리지 않고 거절한다. 실패하면 [call]과 같은 실패 로그를 한 줄 남기고 실패를 그대로 던진다.
+     * 벌크헤드는 기다리지 않고 거절한다. 실패하면 [call]과 같은 실패 로그를 한 줄 남기고 실패를 그대로 던진다. 다시 부르지 않는다
+     * (좋아요 토글은 멱등하지 않다, add-retry-policy design 결정 1).
      */
     fun <T> callBlocking(
         dependency: String,
@@ -161,6 +188,65 @@ class IsolatedCalls(
 
     override fun destroy() {
         timeoutScheduler.shutdownNow()
+        retryScheduler.shutdownNow()
+    }
+
+    /** 429면 `Retry-After`만큼(없으면 기본 대기) [dependency]를 부르지 않는다. 이미 더 늦게까지 대기 중이면 그대로 둔다. */
+    private fun holdOnTooManyRequests(
+        dependency: String,
+        error: Throwable,
+    ) {
+        val response = DownstreamFailure.unwrap(error) as? RestClientResponseException ?: return
+        if (response.statusCode.value() != TOO_MANY_REQUESTS) return
+        val hold =
+            RetryAfter.parse(
+                response.responseHeaders?.getFirst(RetryAfter.HEADER),
+                clock.instant(),
+                retryAfterProperties.defaultHold,
+                retryAfterProperties.maxHold,
+            )
+        holds.hold(dependency, hold)
+    }
+
+    /**
+     * [dependency]의 재시도 루프. 재시도 인스턴스(`resilience4j.retry.instances.<의존성>`)가 없으면 다시 부르지 않는다. 시도 시간 상한은 그
+     * 의존성의 TimeLimiter 값이다. 재시도 결정은 `weave.retry.calls`(태그 `name`, `outcome`)로 세고, 결과마다 0부터 등록한다
+     * (add-retry-policy design 결정 9).
+     */
+    private fun retryLoop(
+        dependency: String,
+        retries: RetryRegistry,
+        timeLimiters: TimeLimiterRegistry,
+        retryProperties: RetryProperties,
+        meterRegistry: MeterRegistry,
+    ): RetryLoop {
+        val settings =
+            retries.find(dependency).map { retry ->
+                val config = retry.retryConfig
+                val interval = config.getIntervalBiFunction<Any?>()
+                RetryLoop.Settings(
+                    maxAttempts = config.maxAttempts,
+                    attemptTimeout = timeLimiters.timeLimiter(dependency).timeLimiterConfig.timeoutDuration,
+                    interval = { attempt, error -> Duration.ofMillis(interval.apply(attempt, Either.left(error))) },
+                )
+            }
+        val decisions =
+            RetryOutcome.entries.associateWith { outcome ->
+                Counter
+                    .builder("weave.retry.calls")
+                    .description("재시도할 수 있는 실패에 대한 재시도 결정 수")
+                    .tag("name", dependency)
+                    .tag("outcome", outcome.tag)
+                    .register(meterRegistry)
+            }
+        return RetryLoop(
+            dependency = dependency,
+            settings = settings.orElse(null),
+            budget = retryProperties.budget.newBudget(clock),
+            scheduler = retryScheduler,
+            clock = clock,
+            decided = { decisions.getValue(it).increment() },
+        )
     }
 
     private class Isolation(
@@ -168,6 +254,7 @@ class IsolatedCalls(
         val timeLimiter: TimeLimiter,
         val bulkhead: ThreadPoolBulkhead,
         val semaphore: Bulkhead,
+        val retryLoop: RetryLoop,
     )
 
     companion object {
@@ -179,6 +266,8 @@ class IsolatedCalls(
 
         /** [callBlocking]이 쓰는 Semaphore 벌크헤드. `resilience4j.bulkhead.instances`의 이름이다. */
         val BLOCKING_BULKHEADS = listOf(LIKE_TOGGLE)
+
+        private const val TOO_MANY_REQUESTS = 429
     }
 }
 

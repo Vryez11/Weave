@@ -21,6 +21,7 @@
 - ad RateLimiter 인스턴스는 속성(`resilience4j.ratelimiter.instances.ad.*`)만 주면 스타터가 만들고 `resilience4j_ratelimiter_available_permissions{name="ad"}`를 낸다(구현 전에도). 주기는 인스턴스를 만든 시각부터 센다. 2.5는 이 인스턴스를 `RateLimiterRegistry.find`로 꺼내 쓰면 된다(새로 만들면 지표와 주기가 어긋난다).
 
 ## 지금 실패하는 것이 정상인 테스트 (구현 전)
+- **2.4 뒤(최신):** feed-service `integrationTest`에서 실패하는 것은 `FeedAdRateLimitScenarioTest`, `FeedAdRateLimitNextPeriodScenarioTest`(2.5), `FeedRetryLogScenarioTest`의 "Retry-After 대기를 시작한다"(2.6, `retry_after_hold_started` 줄), `FeedRetryMetricsScenarioTest` "지표가 있다"(2.6, `weave_retry_after_*`·`weave_ratelimiter_rejected_calls_total` 0 등록)뿐이다. 아래 1.x 목록의 나머지는 모두 통과한다.
 - **1.4 뒤:** feed-service `integrationTest`: `FeedRetryLogScenarioTest` 둘(2.4 재시도 줄, 2.3+2.4 대기 줄. 로그는 2.6이 마무리), `FeedRetryMetricsScenarioTest` 둘(2.6, 0 등록은 2.4에서 해도 된다), `FeedRetryOverrideScenarioTest`(2.4. 레지스트리 단언은 지금도 통과하고 like 요청 수 1 ≠ 2로 실패).
 - **1.3 뒤:** feed-service `integrationTest`: `FeedRetryAfterScenarioTest`의 "초로 준다", "HTTP 날짜로 준다", "머리글이 없다"(2.3+2.4), `FeedAdRateLimitScenarioTest`, `FeedAdRateLimitNextPeriodScenarioTest`(2.5). "대기가 끝난다"와 `FeedRetryAfterMaxHoldScenarioTest`는 지금도 통과한다(대기가 없어서 참).
 - **1.6 뒤:** feed-service `integrationTest`: `FeedCircuitBreakerScenarioTest` "4xx는 세지 않는다"(2.4). e2e `integrationTest`: `ExperimentVerdictScenarioTest`의 F-005 여섯(3.2, "지금 단계의 기대"는 4.5). Compose 테스트(5.3)는 3장과 4.5 뒤에 통과한다.
@@ -90,4 +91,14 @@
   - 2.4: 시도가 429(`HttpClientErrorException`/`RestClientResponseException`, 상태 429)로 끝나면 `responseHeaders?.getFirst(RetryAfter.HEADER)`를 `RetryAfter.parse(..., clock.instant(), props.defaultHold, props.maxHold)`에 넘기고 `holds.hold(dep, d)`. 반환값이 null이 아니면 `retry_after_hold_started`(holdMs = `d.toMillis()`, holdUntil = 반환값). `check`는 던지므로 `call` 안에서 실패 future로 바꿔야 한다(서킷을 거치기 전).
   - 테스트 파일마다 private 시계 클래스 이름이 달라야 한다(같은 패키지에서 `ManualClock` 재선언 불가). 이번엔 `HoldClock`.
   - 기존 `FeedDegradationScenarioTest`·`FeedCircuitBreakerScenarioTest`는 `weave.retry-after.*`를 주지 않는다. 둘 다 `Retry-After` 초를 주므로 속성이 없어도(상한 없음) 동작한다.
+---
+
+### 2026-11-08 12:30 - 2.4 `IsolatedCalls.call`에 재시도 루프와 대기를 넣는다
+- 한 일: `RetryLoop`(의존성마다, 결정 순서 = 재시도할 실패인가 → 시도 횟수 → 남은 시간(`마감 − 지금 ≥ TimeLimiter 상한 + 간격`) → 재시도 예산, `RetryOutcome` 넷)을 만들고 `IsolatedCalls.call`을 `RetryLoop.run` → `holds.check` → 서킷 → TimeLimiter → 벌크헤드로 감쌌다. 다음 시도는 `isolation-retry` 스케줄러에서 부른 스레드의 trace 문맥·MDC로 시작하고, 결과가 이미 끝났으면 보내지 않는다(그 뒤 끝난 시도의 실패는 결정으로 세지 않는다). 시도가 429면 `RetryAfter.parse` → `holds.hold`. `RequestDeadline`(ThreadLocal)을 `RequestBudget.call`이 `start()` 동안 둔다. `downstream_call_retried` 로그와 `weave.retry.calls`(5 × 4, 0부터)도 여기서 냈다(2.4의 확인 테스트가 필요로 한다). main `application.yml`에 `resilience4j.retry` 구조(`configs.default.max-attempts: 1`, 인스턴스 넷 `base-config: default`, ad 없음).
+- 바꾼 파일: `feed-service/src/main/kotlin/com/weave/feed/gateway/RetryLoop.kt`, `RequestDeadline.kt`(새), `IsolatedCalls.kt`, `FeedAssembler.kt`(`RequestBudget.call`), `src/main/resources/application.yml`, 테스트 `gateway/RetryLoopTest.kt`(새, 8개), feed-service `CLAUDE.md` 첫 줄.
+- 확인: `RetryLoopTest` 8개, `FeedRetry*`·`FeedRetryAfter*`·`FeedCircuitBreakerScenarioTest`(27개 중 2.6 몫 2개만 실패), 전체 `:feed-service:test`, `:feed-service:integrationTest`(2.5·2.6 몫 4클래스만 실패), `ktlintCheck`, 타입 검사, `openspec validate` 통과.
+- 다음 반복이 알아 둘 것:
+  - 2.5: RateLimiter는 `attempt` 람다의 `isolation.circuitBreaker.executeCompletionStage(limited)` 안, `limited`(TimeLimiter) 바깥에 끼운다. `Isolation`에 `rateLimiter: RateLimiter?`(`RateLimiterRegistry.find`)를 더하면 된다. `RequestNotPermitted`는 서킷 `ignore-exceptions`에도 더한다(지금은 `BulkheadFullException` 하나).
+  - 2.6: 대기 시작 로그는 `IsolatedCalls.holdOnTooManyRequests`에서 `holds.hold(...)`의 반환값이 null이 아닐 때 남기면 된다. 이 함수는 시도 stage의 `whenComplete`에서 돌아 `completingIn`의 MDC가 펼쳐져 있지만, 확실히 하려면 `withMdc(callerMdc)`로 감싼다. `retry_after` 막은 호출 수는 `holds.check`가 던질 때 센다(`attempt` 람다). 게이지는 `holds.remaining(dep)`. 재시도 결정 카운터는 `IsolatedCalls.retryLoop`에 이미 있다.
+  - 결정 순서에서 시간을 예산보다 먼저 본다(보내지 않을 재시도로 예산을 쓰지 않는다). 테스트 기본 설정(`max-attempts: 1`)에서는 재시도할 실패마다 `attempts_exhausted`가 하나씩 센다. ad는 인스턴스가 없어 늘 0이다.
 ---

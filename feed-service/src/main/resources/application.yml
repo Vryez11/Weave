@@ -120,6 +120,18 @@ resilience4j:
       like: { base-config: default }
       recommendation: { base-config: default }
       ad: { base-config: default }
+  # 멱등한 조회의 재시도 (add-retry-policy design 결정 1, 2). IsolatedCalls가 설정(최대 시도 횟수, 간격 함수)만 꺼내 쓰고 재시도 루프는
+  # 직접 돈다. ad(외부 API)는 인스턴스를 두지 않아 다시 부르지 않는다. 좋아요 토글은 이 설정과 관계없이 다시 부르지 않는다
+  retry:
+    configs:
+      default:
+        # 값(횟수, 간격, 배수, jitter)은 근거와 함께 따로 넣는다(design 결정 11). 그때까지는 1(다시 부르지 않음)이다
+        max-attempts: 1
+    instances:
+      post: { base-config: default }
+      user: { base-config: default }
+      like: { base-config: default }
+      recommendation: { base-config: default }
 
 weave:
   # post stale 캐시(Redis). post가 성공할 때마다 마지막 정상 응답을 size별로 남기고, 실패하면 허용 시간 안의 것으로 stale 응답한다
