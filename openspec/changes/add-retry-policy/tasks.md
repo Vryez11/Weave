@@ -75,11 +75,11 @@
 
 **Ralph 루프는 이 묶음을 하지 않는다.** 여기에 오면 progress.md에 "3번 묶음까지 끝남, 4번 묶음은 사람과 함께 `/opsx:apply`로 진행"이라고 적고 `<promise>BLOCKED</promise>`로 멈춘다. 값을 넣는 작업은 하나씩 커밋하고 본문에 근거를 적는다(커밋 컨벤션). 근거는 design 결정 11이다.
 
-- [ ] 4.1 재시도 횟수·간격·jitter를 넣는다(post, user, like, recommendation: 최대 3, 10ms, ×2, 0.5). 확인: 새 `RetrySettingsTest`(main 설정만 읽는다)의 재시도 단언이 통과한다.
-- [ ] 4.2 재시도 예산을 넣는다(비율 0.1, 창 10초, 최솟값 10). 확인: `RetrySettingsTest`의 예산 단언.
-- [ ] 4.3 ad 요청 수 상한을 넣는다(주기 100ms, 주기당 54, 기다림 0). 확인: `RetrySettingsTest`의 RateLimiter 단언.
-- [ ] 4.4 Retry-After 기본·최대 대기를 넣는다(1초, 60초). 확인: `RetrySettingsTest`가 모두 통과하고 `./gradlew ktlintCheck build`가 1.5의 "지금 단계의 기대" 말고는 통과한다.
-- [ ] 4.5 평시를 다시 재고 고도화 5의 기대를 적는다.
+- [x] 4.1 재시도 횟수·간격·jitter를 넣는다(post, user, like, recommendation: 최대 3, 10ms, ×2, 0.5). 확인: 새 `RetrySettingsTest`(main 설정만 읽는다)의 재시도 단언이 통과한다.
+- [x] 4.2 재시도 예산을 넣는다(비율 0.1, 창 10초, 최솟값 10). 확인: `RetrySettingsTest`의 예산 단언.
+- [x] 4.3 ad 요청 수 상한을 넣는다(주기 100ms, 주기당 54, 기다림 0). 확인: `RetrySettingsTest`의 RateLimiter 단언.
+- [x] 4.4 Retry-After 기본·최대 대기를 넣는다(1초, 60초). 확인: `RetrySettingsTest`가 모두 통과하고 `./gradlew ktlintCheck build`가 1.5의 "지금 단계의 기대" 말고는 통과한다.
+- [x] 4.5 평시를 다시 재고 고도화 5의 기대를 적는다.
   - `./gradlew bootJar` 뒤 Compose를 띄워 S-01로 데우고 `experiments/run.sh S-01`이 0으로 끝나는지, ad degrade(상한으로 막힌 호출)와 요청 배율 최댓값을 본다. 결과를 design 결정 13 아래에 적는다.
   - `experiments/expectations.json`을 고도화 5로 바꾼다(design 결정 10). 설정값 커밋과 섞지 않는다.
   - 확인: S-01이 0으로 끝나고 `./gradlew ktlintCheck build`가 통과한다.
