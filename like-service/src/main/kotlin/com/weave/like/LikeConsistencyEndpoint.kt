@@ -23,16 +23,19 @@ class LikeConsistencyEndpoint(
                     """
                     SELECT ids.post_id, COALESCE(counted.total, 0) AS like_count, COALESCE(rows_.liked_rows, 0) AS liked_rows
                     FROM (
-                        SELECT post_id FROM post_like_count
+                        SELECT post_id FROM post_like_count WHERE (:postId IS NULL OR post_id = :postId)
                         UNION
-                        SELECT post_id FROM post_like WHERE liked = TRUE
+                        SELECT post_id FROM post_like WHERE liked = TRUE AND (:postId IS NULL OR post_id = :postId)
                     ) ids
-                    LEFT JOIN (SELECT post_id, SUM(like_count) AS total FROM post_like_count GROUP BY post_id) counted
-                        ON counted.post_id = ids.post_id
-                    LEFT JOIN (SELECT post_id, COUNT(*) AS liked_rows FROM post_like WHERE liked = TRUE GROUP BY post_id) rows_
-                        ON rows_.post_id = ids.post_id
+                    LEFT JOIN (
+                        SELECT post_id, SUM(like_count) AS total FROM post_like_count
+                        WHERE (:postId IS NULL OR post_id = :postId) GROUP BY post_id
+                    ) counted ON counted.post_id = ids.post_id
+                    LEFT JOIN (
+                        SELECT post_id, COUNT(*) AS liked_rows FROM post_like
+                        WHERE liked = TRUE AND (:postId IS NULL OR post_id = :postId) GROUP BY post_id
+                    ) rows_ ON rows_.post_id = ids.post_id
                     WHERE COALESCE(counted.total, 0) <> COALESCE(rows_.liked_rows, 0)
-                      AND (:postId IS NULL OR ids.post_id = :postId)
                     ORDER BY ids.post_id
                     LIMIT $LIMIT
                     """.trimIndent(),
