@@ -23,6 +23,8 @@ REQUIRED_SERVICES="feed-service toxiproxy post-service user-service like-service
 SCRAPE_MARGIN_SECONDS=10
 LIKE_PROM='instance="like-service:8083"'
 LIKE_RECREATE_TIMEOUT_SECONDS=180
+# HikariCP 커넥션 대기 상한(기본 30초)에 처리할 시간을 더한 값
+LIKE_IDLE_TIMEOUT_SECONDS=90
 
 log() { echo "run-like.sh: $*" >&2; }
 fail() {
@@ -353,6 +355,21 @@ hikari_pending_max() {
   fi
 }
 
+# 준비 구간에 밀린 요청이 빠질 때까지 기다린다. k6는 시간 초과로 포기해도 like-service는 커넥션을 기다리며 처리를 이어 가므로,
+# 그대로 측정을 시작하면 첫 요청이 시간 초과되고 측정 구간에 앞 구간의 대기가 섞인다
+wait_like_idle() {
+  local waited=0 busy
+  while :; do
+    busy="$(compose exec -T like-service curl -fsS http://localhost:8083/actuator/prometheus 2>/dev/null |
+      awk '/^hikaricp_connections_(active|pending)\{/ { sum += $2 } END { print sum + 0 }')"
+    [ "$busy" = 0 ] && return 0
+    [ "$waited" -lt "$LIKE_IDLE_TIMEOUT_SECONDS" ] ||
+      fail "준비 구간의 대기가 ${LIKE_IDLE_TIMEOUT_SECONDS}초 안에 빠지지 않았다(커넥션 사용·대기 $busy). 부하가 처리 한계를 크게 넘었다"
+    sleep 1
+    waited=$((waited + 1))
+  done
+}
+
 # 방식 하나를 돌려 결과 한 줄(JSON)을 runs.jsonl에 덧붙인다
 run_strategy() {
   local strategy="$1" count="$2" json dir name base warm_post hot_post
@@ -378,6 +395,8 @@ run_strategy() {
 
   log "$name: 준비 $warmup"
   run_k6 k6/like-s11.js -e "POST_ID=$warm_post" -e "RPS=$rps" -e "DURATION=$warmup" -e "TIMEOUT_SECONDS=$timeout_seconds"
+
+  wait_like_idle
 
   read -r waits_before time_before dead_before <<<"$(lock_stats)" || fail "MySQL 잠금 카운터를 읽지 못했다"
   [ -n "${dead_before:-}" ] || fail "MySQL 잠금 카운터를 읽지 못했다"
