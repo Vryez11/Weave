@@ -46,7 +46,12 @@ class FeedEndToEndScenarioTest :
 
         fun getFeed() = send(feedRequest("/feed").GET())
 
-        fun toggleLike(postId: Any?) = send(feedRequest("/feed/likes/$postId/toggle").POST(HttpRequest.BodyPublishers.noBody()))
+        fun like(postId: Any?) =
+            send(
+                feedRequest("/feed/likes/$postId")
+                    .header("Content-Type", "application/json")
+                    .PUT(HttpRequest.BodyPublishers.ofString("""{"liked":true,"version":1}""")),
+            )
 
         @Suppress("UNCHECKED_CAST")
         fun Map<String, Any?>.list(key: String) = this[key] as List<Map<String, Any?>>
@@ -67,9 +72,9 @@ class FeedEndToEndScenarioTest :
             postId shouldNotBe null
             val countBefore = (firstPost.like()["count"] as Number).toLong()
 
-            val (toggleStatus, toggled) = toggleLike(postId)
-            withClue("토글 응답: $toggled") { toggleStatus shouldBe 200 }
-            toggled["liked"] shouldBe true
+            val (likeStatus, liked) = like(postId)
+            withClue("상태 변경 응답: $liked") { likeStatus shouldBe 200 }
+            liked["liked"] shouldBe true
 
             val (secondStatus, secondFeed) = getFeed()
             withClue("두 번째 피드 응답: $secondFeed") { secondStatus shouldBe 200 }

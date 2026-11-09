@@ -22,7 +22,7 @@
   - `DownstreamWireMock`(`stubLikeState`, `stubLikeStateFailure`), `TraceHttp`와 `FeedHttpClient`(`putLike`).
   - `FeedAggregationScenarioTest`: "좋아요 상태 전달"(본문 검증, 토글 API는 없다 포함). `FeedRetryScenarioTest`: "좋아요 상태 변경은 다시 부르지 않는다". `FeedCallFailureLogScenarioTest`, `FeedTraceLogScenarioTest`, `FeedUnhandledExceptionLogScenarioTest`의 토글 호출. `FeedLikeToggleIsolationScenarioTest`는 `FeedLikeWriteIsolationScenarioTest`로 이름을 바꿔 옮긴다.
   - 확인: `./gradlew :feed-service:test`가 통과하고 `:feed-service:integrationTest`에서 `PUT /feed/likes`를 부르는 시나리오만 실패한다.
-- [ ] 1.5 (대화형) e2e 테스트를 델타대로 고친다.
+- [x] 1.5 (대화형) e2e 테스트를 델타대로 고친다.
   - `FeedEndToEndScenarioTest`를 `PUT`으로. `ExperimentVerdictScenarioTest`의 "지금 단계의 기대"를 고도화 6으로.
   - 확인: `./gradlew :e2e:test`가 통과하고 `:e2e:integrationTest`에서 이 둘만 실패한다.
 - [ ] 1.6 상태 지정, 반복, 늦게 도착한 요청의 시나리오를 옮긴다.
