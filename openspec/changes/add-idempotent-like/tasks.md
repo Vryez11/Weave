@@ -47,7 +47,7 @@
 - [x] 2.3 `PUT /likes/{postId}`를 만들고 토글을 지운다(design 결정 1, 4).
   - READ COMMITTED 트랜잭션, `ON DUPLICATE KEY UPDATE`로 잠금, 원자적 UPDATE 카운터(방식 전환은 3.1). `POST /likes/{postId}/toggle`과 `toggle` 메서드를 지운다.
   - 확인: `PostLikeScenarioTest`, `PostLikeStateScenarioTest`, `PostLikeConcurrencyScenarioTest`, `TestLikeServiceApplicationTest`가 통과한다.
-- [ ] 2.4 불일치 검사 엔드포인트를 만든다(design 결정 7).
+- [x] 2.4 불일치 검사 엔드포인트를 만든다(design 결정 7).
   - `likeconsistency` Actuator 엔드포인트, `application-experiment.yml` 노출 목록, 100건 제한.
   - 확인: `PostLikeConsistencyScenarioTest`가 통과한다.
 - [ ] 2.5 아키텍처 8장과 `like-service/CLAUDE.md`를 구현에 맞춘다.
