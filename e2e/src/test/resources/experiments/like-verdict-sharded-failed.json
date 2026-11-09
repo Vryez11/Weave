@@ -1,0 +1,6 @@
+{
+  "runs": [
+    {"strategy": "atomic", "shards": 1, "requests": 1000, "failed": 0, "mismatch": 0},
+    {"strategy": "sharded", "shards": 8, "requests": 1000, "failed": 2, "mismatch": 0}
+  ]
+}

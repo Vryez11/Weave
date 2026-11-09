@@ -17,7 +17,7 @@
 | `post-service/` (8081), `user-service/` (8082), `like-service/` (8083), `recommendation-service/` (8084) | 하위 서비스 |
 | `ad-service/` (8085) | 광고. 통제할 수 없는 외부 API 역할 |
 | `e2e/` | 서비스 6개를 bootJar 프로세스로 띄우는 종단 간 테스트 |
-| `experiments/` | 장애 실험 세트(k6 시나리오 S-01~S-09, `run.sh`, `run-all.sh`). `results/`는 커밋하지 않는다 |
+| `experiments/` | 장애 실험 세트(k6 시나리오 S-01~S-09, `run.sh`, `run-all.sh`)와 좋아요 정합성 실험(S-10, S-11, `run-like.sh`). `results/`는 커밋하지 않는다 |
 | `libs/fault-injection/` | 하위 서비스 5개의 앱 수준 장애 주입(`experiment` 프로필) |
 | `libs/observability/` | 모든 서비스에 자동 적용되는 로그·트레이싱 설정 |
 | `buildSrc/` | 컨벤션 플러그인. 의존성과 테스트 설정은 여기서 정한다 |
@@ -41,6 +41,7 @@
 | 서비스 실행 | `./gradlew :feed-service:bootRun` (like-service는 `./gradlew :like-service:bootTestRun`으로 MySQL과 함께 띄운다) |
 | 로컬 인프라 | `./gradlew bootJar` 뒤 `docker compose up -d --build --wait` (서비스 6개, MySQL, Redis, Toxiproxy, 관찰 인프라. MySQL 계정은 루트 `.env`, 항목은 `.env.example`). 내리기는 `docker compose down -v` |
 | 장애 실험 시나리오 하나 | `experiments/run.sh S-02` (로컬 인프라를 먼저 띄운다. 짧게는 `--rps 5 --warmup 5s --duration 20s`). 리포트는 `experiments/results/<시각>-<ID>/report.md`. feed-service 설정을 바꿔 돌리려면 먼저 `FEED_SPRING_APPLICATION_JSON='{...}' docker compose up -d --force-recreate --no-deps --wait feed-service`(끝나면 변수 없이 다시) |
+| 좋아요 정합성 실험 | `experiments/run-like.sh S-10`, `experiments/run-like.sh S-11` (로컬 인프라를 먼저 띄운다. S-11은 방식마다 like-service를 다시 띄운다. 짧게는 `--strategy atomic --rps 5 --warmup 3s --duration 10s`) |
 | 장애 실험 세트 | `experiments/run-all.sh` (먼저 S-01로 하위 서비스를 데운 뒤 S-01~S-09, 약 1시간. 이미 데운 환경이면 `--skip-warm-up`). 0으로 끝나면 통과 |
 
 훅은 `jq`를 쓴다. 실험 스크립트는 bash, `jq`, `gzip`, `docker compose`를 쓴다.

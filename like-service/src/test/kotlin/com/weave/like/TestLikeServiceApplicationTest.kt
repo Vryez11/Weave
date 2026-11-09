@@ -19,18 +19,19 @@ import javax.sql.DataSource
 @Tags("Integration")
 class TestLikeServiceApplicationTest :
     FunSpec({
-        test("F-006 로컬 실행 진입점으로 띄운 like-service가 POST /likes/1/toggle에 liked true를 준다") {
+        test("F-006 로컬 실행 진입점으로 띄운 like-service가 PUT /likes/1에 liked true를 준다") {
             TestLikeServiceApplication.start("--server.port=0").use { application ->
-                // 같은 JVM의 다른 테스트가 남긴 좋아요가 있으면 토글이 취소가 되므로 먼저 비운다
+                // 같은 JVM의 다른 테스트가 남긴 version이 있으면 요청이 반영되지 않으므로 먼저 비운다
                 val jdbc = JdbcTemplate(application.getBean(DataSource::class.java))
                 listOf("post_like", "post_like_count").forEach { jdbc.update("DELETE FROM $it") }
 
                 val port = application.environment.getRequiredProperty("local.server.port")
                 val request =
                     HttpRequest
-                        .newBuilder(URI.create("http://localhost:$port/likes/1/toggle"))
+                        .newBuilder(URI.create("http://localhost:$port/likes/1"))
                         .header("X-User-Id", "1")
-                        .POST(HttpRequest.BodyPublishers.noBody())
+                        .header("Content-Type", "application/json")
+                        .PUT(HttpRequest.BodyPublishers.ofString("""{"liked":true,"version":1}"""))
                         .build()
                 val response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString())
 

@@ -100,11 +100,11 @@ class FeedCallFailureLogScenarioTest :
             }
         }
 
-        test("F-004 토글 전달이 실패한다: like-service가 토글에 503을 주면 like http_503 실패 로그가 남는다") {
-            wireMock.stubToggleFailure(postId = 5, status = 503)
+        test("F-004 F-003 좋아요 상태 전달이 실패한다: like-service가 상태 변경에 503을 주면 like http_503 실패 로그가 남는다") {
+            wireMock.stubLikeStateFailure(postId = 5, status = 503)
 
             LogCapture().use { capture ->
-                val traceId = feed().toggleLike(5).traceId()
+                val traceId = feed().putLike(5).traceId()
 
                 eventually(5.seconds) {
                     withClue("traceId가 X-Trace-Id와 같은 like의 http_503 downstream_call_failed 줄") {

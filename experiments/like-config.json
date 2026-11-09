@@ -1,0 +1,7 @@
+{
+  "rps": 400,
+  "warmup": "1m",
+  "duration": "2m",
+  "requestTimeout": "5s",
+  "shards": [4, 8, 16]
+}

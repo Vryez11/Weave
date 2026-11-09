@@ -152,10 +152,10 @@ class ExperimentVerdictScenarioTest :
         }
 
         test(
-            "F-005 지금 단계의 기대: experiments/expectations.json은 고도화 5이고 S-01~S-09 모두 가용성·p99·요청 배율이 meet, S-01은 degrade 비율, S-07은 Retry-After도 meet이다",
+            "F-005 F-003 지금 단계의 기대: experiments/expectations.json은 고도화 6이고 S-01~S-09 모두 가용성·p99·요청 배율이 meet, S-01은 degrade 비율, S-07은 Retry-After도 meet이다",
         ) {
             val actual = mapper.readValue<Map<String, Any?>>(ExperimentScripts.dir.resolve("expectations.json").toFile())
-            actual["stage"] shouldBe "고도화 5"
+            actual["stage"] shouldBe "고도화 6"
             val scenarios = actual["scenarios"] as Map<*, *>
             scenarios.keys shouldBe (1..9).map { "S-0$it" }.toSet()
             val base = mapOf("availability" to "meet", "p99" to "meet", "requestRatio" to "meet")

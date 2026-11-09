@@ -69,8 +69,8 @@ import java.util.concurrent.atomic.AtomicInteger
         "resilience4j.bulkhead.instances.like.max-concurrent-calls=4",
         "resilience4j.bulkhead.instances.recommendation.max-concurrent-calls=4",
         "resilience4j.bulkhead.instances.ad.max-concurrent-calls=4",
-        "resilience4j.bulkhead.instances.like-toggle.max-concurrent-calls=2",
-        "resilience4j.bulkhead.instances.like-toggle.max-wait-duration=0",
+        "resilience4j.bulkhead.instances.like-write.max-concurrent-calls=2",
+        "resilience4j.bulkhead.instances.like-write.max-wait-duration=0",
         "resilience4j.timelimiter.instances.post.timeout-duration=1500ms",
         "resilience4j.timelimiter.instances.user.timeout-duration=1500ms",
         "resilience4j.timelimiter.instances.like.timeout-duration=1500ms",
@@ -128,16 +128,16 @@ class ResilienceAutoConfigurationTest :
                 }
             }
 
-            test("F-001 Semaphore 벌크헤드 레지스트리가 설정의 의존성 다섯과 like-toggle마다 벌크헤드를 미리 만든다") {
+            test("F-001 Semaphore 벌크헤드 레지스트리가 설정의 의존성 다섯과 like-write마다 벌크헤드를 미리 만든다") {
                 val registry = context().getBean(BulkheadRegistry::class.java)
-                (dependencies.associateWith { 4 } + ("like-toggle" to 2)).forEach { (name, maxCalls) ->
+                (dependencies.associateWith { 4 } + ("like-write" to 2)).forEach { (name, maxCalls) ->
                     withClue(name) {
                         val config = registry.find(name).map { it.bulkheadConfig }.orElse(null)
                         config?.maxConcurrentCalls shouldBe maxCalls
                     }
                 }
                 registry
-                    .find("like-toggle")
+                    .find("like-write")
                     .get()
                     .bulkheadConfig.maxWaitDuration shouldBe Duration.ZERO
             }
@@ -180,9 +180,9 @@ class ResilienceAutoConfigurationTest :
                 }
             }
 
-            test("F-001 의존성 다섯과 like-toggle마다 Semaphore 벌크헤드의 남은 자리와 최대 동시 호출 지표가 name 라벨로 있다") {
+            test("F-001 의존성 다섯과 like-write마다 Semaphore 벌크헤드의 남은 자리와 최대 동시 호출 지표가 name 라벨로 있다") {
                 val body = prometheus()
-                (dependencies + "like-toggle").forEach { name ->
+                (dependencies + "like-write").forEach { name ->
                     withClue("$name Semaphore 벌크헤드 지표") {
                         metricNames(body, "resilience4j_bulkhead_", name) shouldContainAll
                             setOf("resilience4j_bulkhead_available_concurrent_calls", "resilience4j_bulkhead_max_allowed_concurrent_calls")

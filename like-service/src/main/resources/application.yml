@@ -1,6 +1,10 @@
 spring:
   application:
     name: like-service
+  jackson:
+    # 본문의 version·liked를 소수 버림이나 문자열 변환으로 받아들이지 않고 400으로 돌려준다 (post-like 스펙 "본문이 잘못됐다")
+    deserialization: { accept-float-as-int: false }
+    mapper: { allow-coercion-of-scalars: false }
   datasource:
     url: ${LIKE_DB_URL}
     username: ${LIKE_DB_USERNAME}
@@ -12,3 +16,12 @@ spring:
 
 server:
   port: 8083
+
+weave:
+  like:
+    counter:
+      # 좋아요 수 갱신 방식: read-modify-write(비교 기준선), atomic, sharded. S-11(400 RPS)에서 atomic과 sharded 모두 불일치 0이고
+      # 막히지 않은 실행의 p99가 11ms와 8~10ms로 같아, 구성이 단순한 atomic을 쓴다 (docs/experiments/idempotent-like.md)
+      strategy: atomic
+      # sharded를 켤 때의 칸 수. 행 잠금 대기 2분에 분할 4 약 300회, 8 10~37회, 16 0회다. 8에서 16으로 늘려 줄어드는 대기가 2분에 200ms 안팎이라 더 늘릴 이유가 없다
+      shards: 8

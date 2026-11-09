@@ -64,23 +64,6 @@ feed-service는 피드 조회의 하위 서비스 호출을 의존성마다 따�
 - **WHEN** post·user·like의 동시 호출 상한보다 적은 수의 `GET /feed`를 동시에 보낸다
 - **THEN** post, user, like 호출은 모두 하위 서비스까지 가고, 그 호출의 실패 로그는 없다
 
-### Requirement: 좋아요 토글의 격리 (F-001)
-
-feed-service는 좋아요 토글 호출에도 동시 호출 상한과 like의 연결·응답 타임아웃을 적용하고, like의 서킷이 열려 있으면 like-service를 부르지 않고 바로 실패해야 한다(SHALL). 토글은 한 번만 보내는 동작(F-006 "좋아요 토글 전달")을 그대로 지킨다. 실패하면 500이다.
-
-#### Scenario: like의 서킷이 열려 있다
-
-- **GIVEN** like의 서킷이 열려 있다
-- **WHEN** `POST /feed/likes/5/toggle`을 부른다
-- **THEN** 500이 오고, like-service는 토글 요청을 받지 않는다
-- **AND** `dependency` `like`, `cause` `circuit_open`인 `downstream_call_failed` 줄이 있다
-
-#### Scenario: like-service가 응답하지 않는다
-
-- **GIVEN** like의 응답 타임아웃이 100ms이고, like-service가 토글에 2초 늦게 응답한다
-- **WHEN** `POST /feed/likes/5/toggle`을 부른다
-- **THEN** 400ms 안에 500이 오고, like-service에는 토글을 한 번만 요청한다
-
 ### Requirement: 서킷 브레이커의 실패 분류 (F-001)
 
 feed-service는 의존성마다 서킷 브레이커를 두고, 호출 시간 상한 초과, 연결 실패, 그 밖의 입출력 실패, 5xx 응답을 실패로 세야 한다(SHALL). 4xx 응답(429 포함), 벌크헤드 거절, 열린 서킷으로 막힌 호출, 요청 시간 예산 초과, 요청 수 상한(RateLimiter)으로 막은 호출, Retry-After 대기로 막은 호출은 실패로 세지 않는다(뒤의 둘은 `retry-policy`). 설정한 최근 호출 수 중 실패 비율이 문턱 이상이면 서킷이 열린다. 재시도(`retry-policy`)는 시도마다 서킷을 거치므로 시도 하나하나가 집계된다.
@@ -185,3 +168,20 @@ feed-service는 `/actuator/prometheus`에 의존성마다 서킷 상태, 서킷�
 - **GIVEN** recommendation의 호출 시간 상한을 환경 변수로 1,000ms로 바꿔 띄웠고, recommendation-service가 500ms 늦게 응답한다
 - **WHEN** `GET /feed`를 부른다
 - **THEN** 200과 함께 추천이 채워진 피드가 온다
+
+### Requirement: 좋아요 상태 변경의 격리 (F-001, F-003)
+
+feed-service는 좋아요 상태 변경 호출에도 동시 호출 상한과 like의 연결·응답 타임아웃을 적용하고, like의 서킷이 열려 있으면 like-service를 부르지 않고 바로 실패해야 한다(SHALL). 동시 호출 상한은 좋아요 조회의 벌크헤드와 따로 둔다. 실패하면 500이다.
+
+#### Scenario: like의 서킷이 열려 있다
+
+- **GIVEN** like의 서킷이 열려 있다
+- **WHEN** `PUT /feed/likes/5`를 부른다
+- **THEN** 500이 오고, like-service는 상태 변경 요청을 받지 않는다
+- **AND** `dependency` `like`, `cause` `circuit_open`인 `downstream_call_failed` 줄이 있다
+
+#### Scenario: like-service가 응답하지 않는다
+
+- **GIVEN** like의 응답 타임아웃이 100ms이고, like-service가 상태 변경에 2초 늦게 응답한다
+- **WHEN** `PUT /feed/likes/5`를 부른다
+- **THEN** 400ms 안에 500이 오고, like-service에는 한 번만 요청한다

@@ -1,6 +1,10 @@
 spring:
   application:
     name: feed-service
+  jackson:
+    # 본문의 version·liked를 소수 버림이나 문자열 변환으로 받아들이지 않고 400으로 돌려준다 (post-like 스펙 "본문이 잘못됐다")
+    deserialization: { accept-float-as-int: false }
+    mapper: { allow-coercion-of-scalars: false }
   data:
     redis:
       # post stale 캐시 저장소. Compose는 REDIS_HOST=redis를 준다 (add-graceful-degradation design 결정 14)
@@ -25,7 +29,7 @@ spring:
       like:
         base-url: ${LIKE_BASE_URL:http://localhost:8083}
         connect-timeout: 100ms
-        # 토글도 이 값을 쓴다. 무부하 토글 p99 약 60ms, 100ms 초과 1,000건 중 0~1건 (design 결정 6)
+        # 좋아요 상태 변경도 이 값을 쓴다. MVP 토글의 무부하 p99 약 60ms, 100ms 초과 1,000건 중 0~1건 (design 결정 6)
         read-timeout: 100ms
       recommendation:
         base-url: ${RECOMMENDATION_BASE_URL:http://localhost:8084}
@@ -114,9 +118,10 @@ resilience4j:
         # 자리가 없으면 기다리지 않고 바로 거절한다 (design 결정 6)
         max-wait-duration: 0
     instances:
-      # 좋아요 토글. 요청 스레드에서 동기로 부르고 like 서킷을 같이 쓴다. 동시 10은 like 커넥션 풀에서 읽기 몫(40) 밖에 둔 자리다.
-      # 실험 세트는 토글에 부하를 주지 않아 측정값이 없다. F-003의 S-11에서 다시 정한다 (design 결정 6)
-      like-toggle: { base-config: default, max-concurrent-calls: 10 }
+      # 좋아요 상태 변경. 요청 스레드에서 동기로 부르고 like 서킷을 같이 쓴다. 동시 10은 like 커넥션 풀에서 읽기 몫(40) 밖에 둔 자리다.
+      # S-11(400 RPS, 앱 지연 없는 직접 호출의 막히지 않은 p99 11ms)의 리틀의 법칙: 400 × 0.011 = 4.4, 여유 2배로 약 9라 10을 유지한다.
+      # 조회 상한처럼 p99 51ms를 전제하면 약 20이다. feed-service를 거친 쓰기 부하는 재지 않았다 (docs/experiments/idempotent-like.md)
+      like-write: { base-config: default, max-concurrent-calls: 10 }
       # Semaphore 모드(weave.isolation.bulkhead-type: semaphore)에서 조회를 감싼다 (design 결정 11)
       post: { base-config: default }
       user: { base-config: default }
@@ -124,7 +129,7 @@ resilience4j:
       recommendation: { base-config: default }
       ad: { base-config: default }
   # 멱등한 조회의 재시도 (add-retry-policy design 결정 1, 2). IsolatedCalls가 설정(최대 시도 횟수, 간격 함수)만 꺼내 쓰고 재시도 루프는
-  # 직접 돈다. ad(외부 API)는 인스턴스를 두지 않아 다시 부르지 않는다. 좋아요 토글은 이 설정과 관계없이 다시 부르지 않는다
+  # 직접 돈다. ad(외부 API)는 인스턴스를 두지 않아 다시 부르지 않는다. 좋아요 상태 변경은 이 설정과 관계없이 다시 부르지 않는다
   retry:
     configs:
       default:
@@ -207,7 +212,7 @@ weave:
     # 의존성별 벌크헤드 크기(40)와 같게 둬 커넥션을 기다리는 일이 없게 한다. 기다림은 벌크헤드 한 곳에서만 일어난다 (design 결정 5)
     max-connections-per-route: 40
     groups:
-      # 읽기 벌크헤드 40 + 토글 상한 10 (design 결정 5, 6)
+      # 읽기 벌크헤드 40 + 쓰기 상한 10 (design 결정 5, 6)
       like:
         max-connections: 50
     # 벌크헤드 크기 ≤ 커넥션 풀이라 평시에는 기다리지 않는다. 기다린다면 설정 오류라 가장 짧은 상한으로 빨리 실패한다 (design 결정 3)

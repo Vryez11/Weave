@@ -3,7 +3,8 @@ package com.weave.like
 import org.springframework.http.HttpStatus
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
-import org.springframework.web.bind.annotation.PostMapping
+import org.springframework.web.bind.annotation.PutMapping
+import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
@@ -28,14 +29,18 @@ class LikeController(
         return LikesResponse(likeService.findAll(userId, postIds))
     }
 
-    @PostMapping("/likes/{postId}/toggle")
-    fun toggle(
+    @PutMapping("/likes/{postId}")
+    fun setLike(
         @RequestHeader(USER_ID_HEADER) userId: Long,
         @PathVariable postId: Long,
+        @RequestBody request: SetLikeRequest,
     ): LikeStatus {
         requirePositive(USER_ID_HEADER, userId)
         requirePositive("postId", postId)
-        return likeService.toggle(userId, postId)
+        val liked = request.liked ?: throw ResponseStatusException(HttpStatus.BAD_REQUEST, "liked가 필요하다")
+        val version = request.version ?: throw ResponseStatusException(HttpStatus.BAD_REQUEST, "version이 필요하다")
+        requirePositive("version", version)
+        return likeService.setLike(userId, postId, liked, version)
     }
 
     private fun requirePositive(
@@ -49,6 +54,12 @@ class LikeController(
 
     data class LikesResponse(
         val likes: List<LikeStatus>,
+    )
+
+    /** 빠진 필드를 0·false로 채우지 않고 400으로 돌려주려고 null을 받는다. */
+    data class SetLikeRequest(
+        val liked: Boolean?,
+        val version: Long?,
     )
 
     companion object {

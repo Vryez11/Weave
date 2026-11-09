@@ -222,12 +222,18 @@ object ExperimentRuns {
      * `experiments/run.sh`를 띄우고 기다리지 않는다. SIGTERM을 보내는 시나리오에서 쓴다.
      * 환경 변수는 [ComposeEnvironment.experiment]와 같다.
      */
-    fun startRun(vararg args: String): StartedRun {
+    fun startRun(vararg args: String): StartedRun = startScript("run.sh", *args)
+
+    /** `experiments/[script]`를 기다리지 않고 띄운다. */
+    fun startScript(
+        script: String,
+        vararg args: String,
+    ): StartedRun {
         val outputs = createTempDirectory("weave-run")
         val stdout = outputs.resolve("stdout")
         val stderr = outputs.resolve("stderr")
         val builder =
-            ProcessBuilder(listOf(ExperimentScripts.dir.resolve("run.sh").absolutePathString()) + args)
+            ProcessBuilder(listOf(ExperimentScripts.dir.resolve(script).absolutePathString()) + args)
                 .directory(ComposeEnvironment.composeFile.parent.toFile())
                 .redirectOutput(stdout.toFile())
                 .redirectError(stderr.toFile())

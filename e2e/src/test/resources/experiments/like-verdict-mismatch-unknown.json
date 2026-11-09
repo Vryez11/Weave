@@ -1,0 +1,5 @@
+{
+  "runs": [
+    {"strategy": "atomic", "shards": 1, "requests": 1000, "failed": 0, "mismatch": null}
+  ]
+}

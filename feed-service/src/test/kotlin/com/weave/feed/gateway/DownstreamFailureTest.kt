@@ -77,7 +77,7 @@ class DownstreamFailureTest :
 
         test("F-001 벌크헤드가 거절한 호출: BulkheadFullException은 ThreadPool·Semaphore 벌크헤드 모두 bulkhead_full이다") {
             val threadPool = BulkheadFullException.createBulkheadFullException(ThreadPoolBulkhead.ofDefaults("recommendation"))
-            val semaphore = BulkheadFullException.createBulkheadFullException(Bulkhead.ofDefaults("like-toggle"))
+            val semaphore = BulkheadFullException.createBulkheadFullException(Bulkhead.ofDefaults("like-write"))
 
             DownstreamFailure.of(CompletionException(threadPool)) shouldBe
                 DownstreamFailure("bulkhead_full", BulkheadFullException::class.java.name)
