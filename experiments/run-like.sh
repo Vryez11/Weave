@@ -420,10 +420,10 @@ run_strategy() {
     --argjson mysqlCpu "$(max_cores "$dir/cpu-mysql.txt")" \
     '.metrics as $m | {
       strategy: $strategy, shards: $shards,
-      requests: ($m.http_reqs.count // 0),
+      requests: ($m.like_requests.count // 0),
       failed: ($m.like_failed.count // 0),
       dropped: ($m.dropped_iterations.count // 0),
-      throughputRps: ((($m.http_reqs.count // 0) - ($m.like_failed.count // 0)) / $seconds),
+      throughputRps: ((($m.like_requests.count // 0) - ($m.like_failed.count // 0)) / $seconds),
       p50Ms: $m.like_latency["p(50)"],
       p99Ms: $m.like_latency["p(99)"],
       rowLockWaits: $waits, rowLockTimeMs: $lockMs, deadlocks: $deadlocks,

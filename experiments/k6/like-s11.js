@@ -18,6 +18,8 @@ const PRIMING_USER_ID = 9000000000000;
 
 const latency = new Trend('like_latency', true);
 const failed = new Counter('like_failed');
+// http_reqs는 setup()의 요청까지 세므로 부하 요청만 따로 센다
+const requests = new Counter('like_requests');
 
 // 요청 시간 초과까지 모두 묶여도 보낼 수 있는 가상 사용자 수(feed.js와 같은 계산)
 const vus = Math.ceil(RPS * TIMEOUT_SECONDS * 1.1);
@@ -62,5 +64,6 @@ export default function () {
   const started = Date.now();
   const res = put(exec.scenario.iterationInTest + 1);
   latency.add(Date.now() - started);
+  requests.add(1);
   failed.add(res.status === 200 ? 0 : 1);
 }
