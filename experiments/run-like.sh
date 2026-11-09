@@ -484,8 +484,7 @@ run_s11() {
     echo "- 시작: $started_at"
     echo "- 부하: ${rps} RPS, 준비 $warmup, 측정 $duration"
     echo "- 판정: $verdict"
-    jq -r 'if (.notReproduced | length) > 0 then "- 재현되지 않음: \(.notReproduced | join(", "))" else empty end' "$folder/report.json"
-    jq -r '.brokenRuns[] | "- 깨진 방식: \(.strategy) (분할 \(.shards)): \(.reasons | join(", "))"' "$folder/report.json"
+    "$here/lib/like-report-lines.sh" "$folder/report.json"
     echo
     echo "| 방식 | 분할 | 요청 | 실패 | 못 보냄 | 처리량(RPS) | p50(ms) | p99(ms) | 행 잠금 대기 | 대기 시간(ms) | 교착 | 수 | 행 | 불일치 | Hikari 대기 최대 | like CPU 최대 | MySQL CPU 최대 |"
     echo "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"

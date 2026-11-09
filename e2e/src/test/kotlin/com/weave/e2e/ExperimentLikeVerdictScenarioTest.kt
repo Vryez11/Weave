@@ -4,6 +4,7 @@ import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldBeEmpty
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldContain
 import tools.jackson.module.kotlin.jacksonObjectMapper
 import tools.jackson.module.kotlin.readValue
 import kotlin.io.path.createTempFile
@@ -28,6 +29,9 @@ import kotlin.io.path.writeText
  * ```
  *
  * **종료 코드:** 0 정합성 유지, 1 정합성 깨짐, 2 판정하지 못함(파일이 없거나 JSON이 아니거나 `runs`가 비어 있음). 2일 때는 표준 출력에 아무것도 쓰지 않는다.
+ *
+ * **리포트 줄:** `experiments/lib/like-report-lines.sh <판정 JSON 파일>`이 위 출력(`report.json`도 같은 필드를 갖는다)에서 `report.md`의 판정 줄을 쓴다.
+ * `notReproduced`가 있으면 `- 재현되지 않음: <방식, ...>`, `brokenRuns` 항목마다 `- 깨진 방식: <방식> (분할 <수>): <이유, ...>`다.
  */
 @Tags("Integration")
 class ExperimentLikeVerdictScenarioTest :
@@ -41,6 +45,13 @@ class ExperimentLikeVerdictScenarioTest :
         }
 
         fun fixture(name: String) = verdict(ExperimentScripts.fixture(name).toString())
+
+        fun reportLines(verdictJson: String): String {
+            val file = createTempFile("like-verdict", ".json").apply { writeText(verdictJson) }
+            val result = ExperimentScripts.run("lib/like-report-lines.sh", file.toString())
+            result.exitCode shouldBe 0
+            return result.stdout
+        }
 
         test("F-003 정합성을 지킨다: atomic과 sharded의 불일치와 실패가 0이면 0으로 끝나고 기준선 불일치는 실패로 세지 않는다") {
             val (result, output) = fixture("like-verdict-ok.json")
@@ -57,6 +68,7 @@ class ExperimentLikeVerdictScenarioTest :
             result.exitCode shouldBe 1
             output["verdict"] shouldBe "정합성 깨짐"
             output["brokenRuns"] shouldBe listOf(mapOf("strategy" to "atomic", "shards" to 1, "reasons" to listOf("mismatch 3")))
+            reportLines(result.stdout) shouldContain "- 깨진 방식: atomic (분할 1): mismatch 3"
         }
 
         test("F-003 정합성을 보장하는 방식에 실패가 있다: sharded의 failed가 2면 1로 끝난다") {
@@ -78,6 +90,7 @@ class ExperimentLikeVerdictScenarioTest :
 
             result.exitCode shouldBe 0
             output["notReproduced"] shouldBe listOf("read-modify-write")
+            reportLines(result.stdout) shouldContain "- 재현되지 않음: read-modify-write"
         }
 
         test("F-003 판정하지 못한다: JSON이 아니면 2로 끝나고 표준 출력은 비어 있다") {
