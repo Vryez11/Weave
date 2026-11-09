@@ -165,13 +165,13 @@ class FeedTraceLogScenarioTest :
                 }
             }
 
-            test("F-004 좋아요 토글: like-service로 간 토글 요청의 traceparent traceId가 X-Trace-Id와 같다") {
-                wireMock.stubToggle(postId = 5, liked = true, likeCount = 3)
+            test("F-004 F-003 좋아요 상태 변경: like-service로 간 상태 변경 요청의 traceparent traceId가 X-Trace-Id와 같다") {
+                wireMock.stubLikeState(postId = 5, liked = true, likeCount = 3)
 
-                val response = feed().toggleLike(5)
+                val response = feed().putLike(5)
 
                 response.statusCode() shouldBe 200
-                downstreamTraceIds("/likes/5/toggle") shouldBe listOf(response.traceId())
+                downstreamTraceIds("/likes/5") shouldBe listOf(response.traceId())
             }
         }
 

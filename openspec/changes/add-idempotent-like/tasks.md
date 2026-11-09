@@ -18,7 +18,7 @@
 - [x] 1.3 (대화형) 벌크헤드 이름을 `like-toggle`에서 `like-write`로 바꾼다(동작과 값은 그대로, design 결정 9).
   - `IsolatedCalls`(`LIKE_TOGGLE` → `LIKE_WRITE`), `application.yml`, 테스트 설정, `IsolationSettingsTest`, `ResilienceAutoConfigurationTest`, `DownstreamFailureTest`, Grafana 패널 설명.
   - 확인: `./gradlew :feed-service:test :feed-service:integrationTest`가 통과하고 `grep -rn "like-toggle" feed-service docker`가 비어 있다.
-- [ ] 1.4 (대화형) feed-service 테스트를 델타대로 옮긴다.
+- [x] 1.4 (대화형) feed-service 테스트를 델타대로 옮긴다.
   - `DownstreamWireMock`(`stubLikeState`, `stubLikeStateFailure`), `TraceHttp`와 `FeedHttpClient`(`putLike`).
   - `FeedAggregationScenarioTest`: "좋아요 상태 전달"(본문 검증, 토글 API는 없다 포함). `FeedRetryScenarioTest`: "좋아요 상태 변경은 다시 부르지 않는다". `FeedCallFailureLogScenarioTest`, `FeedTraceLogScenarioTest`, `FeedUnhandledExceptionLogScenarioTest`의 토글 호출. `FeedLikeToggleIsolationScenarioTest`는 `FeedLikeWriteIsolationScenarioTest`로 이름을 바꿔 옮긴다.
   - 확인: `./gradlew :feed-service:test`가 통과하고 `:feed-service:integrationTest`에서 `PUT /feed/likes`를 부르는 시나리오만 실패한다.

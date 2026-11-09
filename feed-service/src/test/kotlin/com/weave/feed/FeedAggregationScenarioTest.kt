@@ -10,11 +10,14 @@ import io.kotest.extensions.spring.testContextManager
 import io.kotest.matchers.collections.shouldBeEmpty
 import io.kotest.matchers.collections.shouldContainExactlyInAnyOrder
 import io.kotest.matchers.collections.shouldHaveSize
+import io.kotest.matchers.ints.shouldBeGreaterThanOrEqual
 import io.kotest.matchers.longs.shouldBeLessThan
 import io.kotest.matchers.shouldBe
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
+import tools.jackson.module.kotlin.jacksonObjectMapper
+import tools.jackson.module.kotlin.readValue
 
 /**
  * `feed-aggregation` 스펙에서 "종단 간 동작"을 뺀 시나리오 (F-006, F-001, F-002).
@@ -218,56 +221,82 @@ class FeedAggregationScenarioTest :
             }
         }
 
-        context("좋아요 토글 전달") {
-            test("F-006 토글을 넘긴다: like-service에 POST /likes/5/toggle과 X-User-Id 1로 한 번 요청하고 그 결과를 그대로 돌려준다") {
-                wireMock.stubToggle(postId = 5, liked = true, likeCount = 3)
+        context("좋아요 상태 전달") {
+            test("F-003 상태를 넘긴다: like-service에 PUT /likes/5와 X-User-Id 1, 같은 liked·version으로 한 번 요청하고 그 결과를 그대로 돌려준다") {
+                wireMock.stubLikeState(postId = 5, liked = true, likeCount = 3)
 
-                val response = feed().toggleLike("5", userId = "1")
+                val response = feed().putLike("5", userId = "1", body = """{"liked":true,"version":7}""")
 
-                val toggleRequests = wireMock.requestsTo("/likes/5/toggle")
-                toggleRequests shouldHaveSize 1
-                toggleRequests.single().method.value() shouldBe "POST"
-                toggleRequests.single().getHeader("X-User-Id") shouldBe "1"
+                val requests = wireMock.requestsTo("/likes/5")
+                requests shouldHaveSize 1
+                requests.single().method.value() shouldBe "PUT"
+                requests.single().getHeader("X-User-Id") shouldBe "1"
+                jacksonObjectMapper().readValue<Map<String, Any?>>(requests.single().bodyAsString) shouldBe
+                    mapOf("liked" to true, "version" to 7)
                 response.status shouldBe 200
                 response.json() shouldBe mapOf("postId" to 5, "liked" to true, "likeCount" to 3)
             }
 
-            test("F-006 사용자 헤더가 없다: X-User-Id 없이 토글하면 400이 오고 like-service는 부르지 않는다") {
-                wireMock.stubToggle(postId = 5, liked = true, likeCount = 3)
+            test("F-003 사용자 헤더가 없다: X-User-Id 없이 PUT /feed/likes/5를 부르면 400이 오고 like-service는 부르지 않는다") {
+                wireMock.stubLikeState(postId = 5, liked = true, likeCount = 3)
 
-                val response = feed().toggleLike("5", userId = null)
+                val response = feed().putLike("5", userId = null)
 
                 response.status shouldBe 400
                 wireMock.allRequests().shouldBeEmpty()
             }
 
             listOf("0", "abc").forEach { userId ->
-                test("F-006 사용자 헤더 값이 잘못됐다: X-User-Id $userId 로 토글하면 400이 오고 like-service는 부르지 않는다") {
-                    wireMock.stubToggle(postId = 5, liked = true, likeCount = 3)
+                test("F-003 사용자 헤더 값이 잘못됐다: X-User-Id $userId 로 PUT /feed/likes/5를 부르면 400이 오고 like-service는 부르지 않는다") {
+                    wireMock.stubLikeState(postId = 5, liked = true, likeCount = 3)
 
-                    val response = feed().toggleLike("5", userId = userId)
+                    val response = feed().putLike("5", userId = userId)
 
                     response.status shouldBe 400
                     wireMock.allRequests().shouldBeEmpty()
                 }
             }
 
-            test("F-006 like-service가 토글에 실패한다: 503이면 500이 오고 like-service에는 토글을 한 번만 요청한다") {
-                wireMock.stubToggleFailure(postId = 5, status = 503)
+            listOf(
+                "본문 없음" to null,
+                "liked 없음" to """{"version":1}""",
+                "version 없음" to """{"liked":true}""",
+                "version 0" to """{"liked":true,"version":0}""",
+                "version이 숫자가 아님" to """{"liked":true,"version":"abc"}""",
+            ).forEach { (name, body) ->
+                test("F-003 본문이 잘못됐다: $name 이면 400이 오고 like-service는 부르지 않는다") {
+                    wireMock.stubLikeState(postId = 5, liked = true, likeCount = 3)
 
-                val response = feed().toggleLike("5", userId = "1")
+                    val response = feed().putLike("5", body = body)
+
+                    response.status shouldBe 400
+                    wireMock.allRequests().shouldBeEmpty()
+                }
+            }
+
+            test("F-003 like-service가 상태 변경에 실패한다: 503이면 500이 오고 like-service에는 한 번만 요청한다") {
+                wireMock.stubLikeStateFailure(postId = 5, status = 503)
+
+                val response = feed().putLike("5", userId = "1")
 
                 response.status shouldBe 500
-                wireMock.requestsTo("/likes/5/toggle") shouldHaveSize 1
+                wireMock.requestsTo("/likes/5") shouldHaveSize 1
             }
 
             listOf("0", "abc").forEach { postId ->
-                test("F-006 게시글 ID가 양의 정수가 아니다: postId $postId 로 토글하면 400이 오고 like-service는 부르지 않는다") {
-                    val response = feed().toggleLike(postId)
+                test("F-003 게시글 ID가 양의 정수가 아니다: postId $postId 로 부르면 400이 오고 like-service는 부르지 않는다") {
+                    val response = feed().putLike(postId)
 
                     response.status shouldBe 400
                     wireMock.allRequests().shouldBeEmpty()
                 }
+            }
+
+            test("F-003 토글 API는 없다: POST /feed/likes/5/toggle은 2xx가 오지 않고 like-service는 부르지 않는다") {
+                val response = feed().postToggle("5")
+
+                response.status shouldBeGreaterThanOrEqual 300
+                wireMock.allRequests().shouldBeEmpty()
             }
         }
     }) {

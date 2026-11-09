@@ -66,14 +66,14 @@ class FeedUnhandledExceptionLogScenarioTest :
 
         beforeEach { wireMock.reset() }
 
-        test("F-004 F-002 처리되지 않은 예외로 끝난 요청: 좋아요 토글이 500이면 그 요청의 ERROR 줄은 모두 X-Trace-Id를 갖고, 한 줄에 실패 예외가 있다") {
+        test("F-004 F-002 처리되지 않은 예외로 끝난 요청: 좋아요 상태 변경이 500이면 그 요청의 ERROR 줄은 모두 X-Trace-Id를 갖고, 한 줄에 실패 예외가 있다") {
             stubAllHealthy()
 
             LogCapture().use { capture ->
                 val start = capture.awaitProbe() + 1
 
-                wireMock.stubToggleFailure(postId = 5, status = 503)
-                val response = feed().toggleLike(5)
+                wireMock.stubLikeStateFailure(postId = 5, status = 503)
+                val response = feed().putLike(5)
                 response.statusCode() shouldBe 500
                 val traceId = response.traceId()
 
