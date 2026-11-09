@@ -29,6 +29,16 @@
 | S-09 하위 요청 배율 최댓값 (user, 상한 1.2) | 1.224 | **1.02** |
 | S-07 광고 요청 한도 초과: ad-service의 429 | 약 59,400건 (Retry-After 무시) | **30건**, 상한을 한도 아래로 두면 **0건** |
 
+고도화 6에서는 좋아요를 토글에서 상태 지정과 `version` 순서 판단으로 바꿨다. 피드의 p99는 고도화 5와 4ms 안으로 같고, 가용성은 S-03만 1에서 0.9992로 낮아졌을 뿐 SLO 안이다.
+
+| 상황 | 고치기 전 (토글, 읽고 고쳐 저장) | 고도화 6 |
+|---|---|---|
+| 이미 반영된 요청을 다시 보낸다 | 둘째 요청이 의도를 뒤집는다 | **한 번만 반영** (타임아웃 뒤 재전송 포함) |
+| 좋아요 → 취소 → 늦게 온 좋아요 | 순서를 판단할 근거가 없다 | **취소가 남는다** |
+| like-service에 서로 다른 사용자 50명이 동시에 | 갱신 44건 유실 | **수 50, 불일치 0** |
+| like-service에 같은 사용자의 같은 요청 20개가 동시에 | 500이 17~18개, 끝 상태가 정해지지 않는다 | **모두 200, 수 1** |
+| S-11 한 글에 몰림 (400 RPS, 2분): 수 불일치 | 1,898~2,626건 | **원자적 UPDATE 0건** |
+
 ## 목차
 
 1. [프로젝트 개요](#1-프로젝트-개요)
@@ -176,7 +186,7 @@ flowchart LR
 
 ## 2. 단계별 기록: 보려던 것, 결정, 결과
 
-자세한 숫자와 근거는 [MVP 기준선](docs/experiments/baseline-mvp.md), [고도화 3 결과](docs/experiments/call-isolation.md), [고도화 4 결과](docs/experiments/graceful-degradation.md), [고도화 5 결과](docs/experiments/retry-policy.md), [아키텍처](docs/architecture.md)에 있다.
+자세한 숫자와 근거는 [MVP 기준선](docs/experiments/baseline-mvp.md), [고도화 3 결과](docs/experiments/call-isolation.md), [고도화 4 결과](docs/experiments/graceful-degradation.md), [고도화 5 결과](docs/experiments/retry-policy.md), [고도화 6 결과](docs/experiments/idempotent-like.md), [아키텍처](docs/architecture.md)에 있다.
 
 ### 2-1. MVP: 보호 장치 없는 피드 (F-006)
 
@@ -480,9 +490,16 @@ docker compose up -d --build --wait
 curl -i -H 'X-User-Id: 1' 'http://localhost:8080/feed?size=10'
 ```
 
+좋아요는 원하는 상태와 `version`을 보낸다. 같은 요청을 다시 보내도 결과는 같고, 저장된 값 이하의 `version`은 반영되지 않는다.
+
+```bash
+curl -i -X PUT -H 'X-User-Id: 1' -H 'Content-Type: application/json' -d '{"liked":true,"version":1}' 'http://localhost:8080/feed/likes/1'
+```
+
 | 주소 | 무엇 |
 |---|---|
 | `http://localhost:8080/feed?size=10` | 피드 (헤더 `X-User-Id`) |
+| `PUT http://localhost:8080/feed/likes/{postId}` | 좋아요 상태 지정 (헤더 `X-User-Id`, 본문 `{"liked": 불리언, "version": 양의 정수}`) |
 | `http://localhost:3000` | Grafana. Explore에서 Loki로 `{service=~".+"} \| traceId="<traceId>"`를 조회하고, 로그의 traceId 링크로 Tempo 트레이스를 연다 |
 | `http://localhost:3000/d/weave-feed` | 피드 실험 대시보드 (피드 SLO, 의존성별 호출, 자원 사용량, 서킷·벌크헤드, degrade 비율, 재시도·외부 API) |
 | `http://localhost:9090` | Prometheus |
@@ -538,6 +555,33 @@ FEED_SPRING_APPLICATION_JSON='{"weave.isolation.bulkhead-type":"semaphore","spri
 | S-08 | recommendation 무응답을 120초에 거둔다 (복구 시간) |
 | S-09 | user·like 5xx를 10초씩 세 번 |
 
+### 좋아요 정합성 실험
+
+좋아요 쓰기는 S-01~S-09와 따로 돌린다. 위의 Compose 환경을 띄운 뒤 돌리고, 리포트는 같은 `experiments/results/` 아래에 남는다.
+
+중복, 동시, 순서 뒤바뀜, 타임아웃 뒤 재전송의 최종 상태 확인:
+
+```bash
+experiments/run-like.sh S-10
+```
+
+한 글에 좋아요를 몰아 카운터 방식 비교. 기본값(400 RPS, 준비 1분 + 측정 2분)으로 방식마다 like-service를 다시 띄워 다섯 구성을 돌린다(약 17분).
+
+```bash
+experiments/run-like.sh S-11
+```
+
+한 방식만 짧게:
+
+```bash
+experiments/run-like.sh S-11 --strategy atomic --rps 5 --warmup 3s --duration 10s
+```
+
+| ID | 무엇을 보나 |
+|---|---|
+| S-10 | 같은 요청의 중복·동시·순서 뒤바뀜과 타임아웃 뒤 재전송이 사용자의 마지막 의도로 끝나는지 |
+| S-11 | `read-modify-write`, `atomic`, `sharded`(4, 8, 16칸)의 p99, 행 잠금 대기, 수 불일치 |
+
 ---
 
 ### 문서
@@ -546,6 +590,6 @@ FEED_SPRING_APPLICATION_JSON='{"weave.isolation.bulkhead-type":"semaphore","spri
 |---|---|
 | [PRD](docs/prd.md) | 단계, SLO, 의존성 등급, 장애 시나리오, 기능 ID와 수용 기준, 정한 것과 이유 |
 | [아키텍처](docs/architecture.md) | 요청 흐름, 시간 예산, Resilience4j 구성과 설정값 근거, 대체 구현, 관찰, 실험 환경 |
-| [MVP 기준선](docs/experiments/baseline-mvp.md), [고도화 3 결과](docs/experiments/call-isolation.md), [고도화 4 결과](docs/experiments/graceful-degradation.md), [고도화 5 결과](docs/experiments/retry-policy.md) | 단계별 장애 실험 결과와 비교 |
+| [MVP 기준선](docs/experiments/baseline-mvp.md), [고도화 3 결과](docs/experiments/call-isolation.md), [고도화 4 결과](docs/experiments/graceful-degradation.md), [고도화 5 결과](docs/experiments/retry-policy.md), [고도화 6 결과](docs/experiments/idempotent-like.md) | 단계별 장애 실험 결과와 비교 |
 | `openspec/specs/`, `openspec/changes/archive/` | 동작 스펙과 change별 설계 결정 |
 | [conventions/](conventions/) | 하네스, 스펙, 커밋, 브랜치 규칙 |
