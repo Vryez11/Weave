@@ -6,7 +6,7 @@
 
 **1.1~1.5는 커밋된 테스트를 고치거나 지우므로 Ralph 루프가 아니라 대화형(`/opsx:apply`)으로 먼저 끝낸다**(하네스 규칙 2-2의 훅). Ralph가 이 다섯 중 체크되지 않은 작업을 만나면 구현하지 말고 progress.md에 적은 뒤 `<promise>BLOCKED</promise>`로 멈춘다.
 
-- [ ] 1.1 (대화형) 토글의 문제를 재현하고 기록한다(design 결정 8).
+- [x] 1.1 (대화형) 토글의 문제를 재현하고 기록한다(design 결정 8).
   - `like-service`에 `ToggleBreakageReproductionTest`(Integration, 실제 HTTP 포트): 같은 요청을 다시 보내면 의도가 뒤집힌다, 서로 다른 사용자 50명의 동시 토글에서 수가 행 수보다 작다(갱신 유실), 같은 사용자의 동시 첫 토글 일부가 5xx다. 수치는 단언하지 않고 "깨진다"만 단언하며 값을 출력한다.
   - `docs/experiments/idempotent-like.md`의 "토글의 문제" 절에 수치를 적는다. 해시는 1.2에서 적는다.
   - 확인: `./gradlew :like-service:integrationTest -Pkotest.filter.tests='*F-003*'`이 통과하고 문서에 세 경우의 수치가 있다.
