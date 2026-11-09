@@ -64,7 +64,7 @@
 
 ## 4. feed-service 전달
 
-- [ ] 4.1 `PUT /feed/likes/{postId}`를 만들고 토글을 지운다(design 결정 5).
+- [x] 4.1 `PUT /feed/likes/{postId}`를 만들고 토글을 지운다(design 결정 5).
   - `FeedController`(본문 검증), `LikeClient`, `LikeGateway`(`callBlocking("like", LIKE_WRITE)`). `POST /feed/likes/{postId}/toggle`을 지운다.
   - 확인: `./gradlew :feed-service:test :feed-service:integrationTest`와 `:e2e:integrationTest`의 `FeedEndToEndScenarioTest`가 통과한다.
 - [ ] 4.2 아키텍처 4-2, 5장과 feed-service `CLAUDE.md`의 토글 설명을 상태 변경으로 고치고, 다시 부르지 않는 이유를 적는다.
