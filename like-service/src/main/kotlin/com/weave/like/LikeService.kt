@@ -1,7 +1,7 @@
 package com.weave.like
 
-import org.springframework.data.repository.findByIdOrNull
 import org.springframework.stereotype.Service
+import org.springframework.transaction.annotation.Isolation
 import org.springframework.transaction.annotation.Transactional
 import java.time.Clock
 import java.time.Instant
@@ -12,32 +12,31 @@ class LikeService(
     private val postLikeCountRepository: PostLikeCountRepository,
 ) {
     /**
-     * 사용자의 좋아요 상태를 뒤집는다.
+     * 사용자의 좋아요 상태를 [liked]로 만든다. [version]이 반영해 둔 값보다 크지 않으면 바꾸지 않고 지금 상태를 돌려준다.
      *
-     * 읽고 고쳐 저장하는 방식을 일부러 쓴다(design 결정 6). 동시 요청에서 수가 어긋나고,
-     * 같은 사용자의 동시 첫 요청은 유니크 위반으로 실패한다. 고도화 6(F-003)에서 재현할 대상이라 막지 않는다.
+     * 행 잠금을 먼저 잡고 그 안에서 판단한다(add-idempotent-like design 결정 4). READ COMMITTED여야 없는 행에 갭 잠금을 잡지 않고,
+     * 잠근 뒤의 읽기가 마지막으로 커밋된 값을 본다. 잠금 순서는 언제나 좋아요 행 → 카운터 행이라 순환이 없다.
      */
-    @Transactional
-    fun toggle(
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    fun setLike(
         userId: Long,
         postId: Long,
+        liked: Boolean,
+        version: Long,
     ): LikeStatus {
-        val existing = postLikeRepository.findByUserIdAndPostId(userId, postId)
-        val liked =
-            if (existing != null) {
-                postLikeRepository.delete(existing)
-                false
-            } else {
-                postLikeRepository.save(PostLike(userId = userId, postId = postId, createdAt = Instant.now(Clock.systemUTC())))
-                true
-            }
+        postLikeRepository.lockOrCreate(userId, postId, Instant.now(Clock.systemUTC()))
+        val row = checkNotNull(postLikeRepository.findByUserIdAndPostId(userId, postId)) { "방금 만든 좋아요 행이 없다" }
 
-        val id = PostLikeCountId(postId = postId, shard = 0)
-        val count = postLikeCountRepository.findByIdOrNull(id) ?: PostLikeCount(id = id, likeCount = 0)
-        count.likeCount += if (liked) 1 else -1
-        postLikeCountRepository.save(count)
+        val decision = LikeIntent.decide(LikeState(row.liked, row.version), liked, version)
+        if (decision.applied) {
+            postLikeRepository.updateState(userId, postId, decision.state.liked, decision.state.version)
+        }
+        if (decision.countDelta != 0L) {
+            postLikeCountRepository.addAtomically(postId, ATOMIC_SHARD, decision.countDelta)
+        }
 
-        return LikeStatus(postId = postId, likeCount = count.likeCount, liked = liked)
+        val count = postLikeCountRepository.sumByPostIds(listOf(postId)).singleOrNull()?.likeCount ?: 0
+        return LikeStatus(postId = postId, likeCount = count, liked = decision.state.liked)
     }
 
     /** 게시글마다 좋아요 수와 사용자의 좋아요 여부. 같은 ID는 한 번만, 요청 순서대로 준다. */
@@ -50,6 +49,10 @@ class LikeService(
         val counts = postLikeCountRepository.sumByPostIds(ids).associate { it.postId to it.likeCount }
         val likedPostIds = postLikeRepository.findAllByUserIdAndPostIdInAndLikedTrue(userId, ids).mapTo(HashSet()) { it.postId }
         return ids.map { LikeStatus(postId = it, likeCount = counts[it] ?: 0, liked = it in likedPostIds) }
+    }
+
+    private companion object {
+        const val ATOMIC_SHARD = 0
     }
 }
 

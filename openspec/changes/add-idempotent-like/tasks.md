@@ -44,7 +44,7 @@
 - [x] 2.2 상태 전이 판단을 만든다(design 결정 2).
   - 지금 상태와 요청으로 "반영할지, 수를 얼마나 바꿀지"를 돌려주는 순수 함수.
   - 확인: 단위 테스트 `LikeIntentTest`(`checkAll`: 임의 순서·중복의 최종 상태가 가장 큰 `version`의 값, 수의 합이 최종 상태와 같다)가 통과한다.
-- [ ] 2.3 `PUT /likes/{postId}`를 만들고 토글을 지운다(design 결정 1, 4).
+- [x] 2.3 `PUT /likes/{postId}`를 만들고 토글을 지운다(design 결정 1, 4).
   - READ COMMITTED 트랜잭션, `ON DUPLICATE KEY UPDATE`로 잠금, 원자적 UPDATE 카운터(방식 전환은 3.1). `POST /likes/{postId}/toggle`과 `toggle` 메서드를 지운다.
   - 확인: `PostLikeScenarioTest`, `PostLikeStateScenarioTest`, `PostLikeConcurrencyScenarioTest`, `TestLikeServiceApplicationTest`가 통과한다.
 - [ ] 2.4 불일치 검사 엔드포인트를 만든다(design 결정 7).
