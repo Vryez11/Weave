@@ -31,7 +31,12 @@ class PostLikeConcurrencyScenarioTest :
 
             val responses = concurrently(20) { http.putLike(5, userId = 1, liked = true, version = 1) }
 
-            withClue("상태 코드 ${responses.map { it.status }}") { responses.forAll { it.status shouldBe 200 } }
+            withClue("상태 코드 ${responses.map { it.status }}") {
+                responses.forAll {
+                    it.status shouldBe 200
+                    it.json() shouldBe mapOf("postId" to 5, "liked" to true, "likeCount" to 1)
+                }
+            }
             http.like(5) shouldBe mapOf("postId" to 5, "likeCount" to 1, "liked" to true)
             context.likedRows(5) shouldBe 1L
         }

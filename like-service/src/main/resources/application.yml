@@ -1,6 +1,10 @@
 spring:
   application:
     name: like-service
+  jackson:
+    # 본문의 version·liked를 소수 버림이나 문자열 변환으로 받아들이지 않고 400으로 돌려준다 (post-like 스펙 "본문이 잘못됐다")
+    deserialization: { accept-float-as-int: false }
+    mapper: { allow-coercion-of-scalars: false }
   datasource:
     url: ${LIKE_DB_URL}
     username: ${LIKE_DB_USERNAME}
