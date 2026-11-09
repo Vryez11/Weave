@@ -41,7 +41,7 @@
 - [x] 2.1 스키마를 바꾸고 조회를 맞춘다(design 결정 3, 6).
   - Flyway `V2`: `post_like`에 `liked`(기본 true), `version`(기본 0), `(post_id, liked)` 인덱스. `post_like_count`에 `shard`(기본 0), 기본 키 `(post_id, shard)`. 엔티티를 맞추고, 배치 조회는 `liked = true`와 `SUM ... GROUP BY post_id`로 한다.
   - 확인: `PostLikeScenarioTest`의 "좋아요 배치 조회" 시나리오가 통과한다(GIVEN의 쓰기는 임시로 실패하므로 `PUT`이 필요 없는 것만). `./gradlew :like-service:compileKotlin`이 통과한다.
-- [ ] 2.2 상태 전이 판단을 만든다(design 결정 2).
+- [x] 2.2 상태 전이 판단을 만든다(design 결정 2).
   - 지금 상태와 요청으로 "반영할지, 수를 얼마나 바꿀지"를 돌려주는 순수 함수.
   - 확인: 단위 테스트 `LikeIntentTest`(`checkAll`: 임의 순서·중복의 최종 상태가 가장 큰 `version`의 값, 수의 합이 최종 상태와 같다)가 통과한다.
 - [ ] 2.3 `PUT /likes/{postId}`를 만들고 토글을 지운다(design 결정 1, 4).
