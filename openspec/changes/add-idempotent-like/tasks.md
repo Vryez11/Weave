@@ -96,7 +96,7 @@
 - [x] 6.3 기본 방식을 정한다.
   - `weave.like.counter.*` 기본값만 바꾸는 커밋.
   - 확인: `./gradlew :like-service:integrationTest`가 통과하고 결과 문서에 고른 이유가 있다.
-- [ ] 6.4 `like-write` 상한과 like 커넥션 풀을 다시 정한다(design 결정 9).
+- [x] 6.4 `like-write` 상한과 like 커넥션 풀을 다시 정한다(design 결정 9).
   - 리틀의 법칙으로 계산해 `application.yml`만 바꾸는 커밋. 아키텍처 5-6의 근거를 고친다. `IsolationSettingsTest`가 값을 단언하므로 대화형으로 함께 고친다.
   - 확인: `./gradlew :feed-service:test`가 통과하고 5-6 표의 값과 `application.yml`이 같다.
 - [ ] 6.5 S-10을 돌려 기록한다.
