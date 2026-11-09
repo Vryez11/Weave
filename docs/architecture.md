@@ -569,18 +569,18 @@ traceId는 스레드에 붙은 컨텍스트(MDC, 관찰 컨텍스트)에 있어�
 
 ## 8. 좋아요 저장
 
-| 테이블 (안) | 열 | 제약 |
+| 테이블 | 열 | 제약 |
 |---|---|---|
-| `post_like` | `user_id`, `post_id`, `created_at` | `(user_id, post_id)` 유니크 |
-| `post_like_count` | `post_id`, `like_count` | `post_id` 기본 키 |
+| `post_like` | `user_id`, `post_id`, `liked`, `version`, `created_at` | `(user_id, post_id)` 유니크, `(post_id, liked)` 인덱스 |
+| `post_like_count` | `post_id`, `shard`, `like_count` | `(post_id, shard)` 기본 키 |
 
-- MVP는 토글 API로, 누르면 행이 있는지 보고 넣거나 지우며 좋아요 수를 엔티티로 읽어 고친 뒤 저장한다. 고도화 6에서 이 방식이 동시 요청과 재시도에서 깨지는 것(갱신 유실, 중복)을 재현한다.
-- 고도화 6에서 바꿀 때 다룰 것:
-  - 좋아요 수는 엔티티를 읽고 고치지 않고 원자적 UPDATE(`@Modifying` 쿼리)로 바꾼다. 원자적 UPDATE 뒤 영속성 컨텍스트에 남은 옛 값을 비운다.
-  - 유니크 제약 위반은 "이미 반영된 요청"으로 처리한다.
-  - 늦게 도착한 재시도가 최근 결과를 덮어쓰지 않게 하는 방법(`@Version`, 요청 시각 등)을 정한다.
-  - 좋아요 수와 실제 행 수가 어긋났는지 검사하는 쿼리를 둔다.
-  - 인기 글 몰림(PRD S-11): 읽고 고쳐 저장하기, 원자적 UPDATE, 카운터 분할(`post_like_count`를 게시글당 N개 행으로 나누고 쓸 때 하나를 골라 더하고, 읽을 때 합친다)을 같은 몰림 부하로 비교해 처리량, p99, 잠금 대기, 수 불일치를 잰다. 모아서 반영하기는 PRD 8장의 비동기 집계로 보고 다루지 않는다.
+- MVP의 토글은 고도화 6에서 없앴다. 재전송과 동시 요청에서 깨지는 것은 [고도화 6 결과](experiments/idempotent-like.md)에 재현해 두었다.
+- **API:** `PUT /likes/{postId}`에 `{"liked": 불리언, "version": 양의 정수}`를 보낸다. `version`은 클라이언트가 의도를 만들 때 정하고(epoch 밀리초, 앞서 쓴 값 이하면 앞 값 + 1) 재전송에도 그대로 쓴다.
+- **순서:** `version`이 저장된 값보다 클 때만 바꾼다. 아니면 바꾸지 않고 200과 지금 상태를 돌려준다. 취소해도 행을 지우지 않아(`liked = false`) 늦게 온 요청을 가려낸다.
+- **동시성:** READ COMMITTED 트랜잭션에서 `INSERT ... ON DUPLICATE KEY UPDATE version = version`으로 행을 만들거나 X 잠금을 잡고, 그 안에서 읽고 판단한다. 잠금 순서는 좋아요 행 → 카운터 행이다.
+  - 유니크 위반을 "이미 반영된 요청"으로 처리하지 않는다. 취소 기록이 행으로 남아 위반이 반영을 뜻하지 않는다(`add-idempotent-like` design 결정 4).
+  - 네이티브·벌크 갱신은 `@Modifying(clearAutomatically = true, flushAutomatically = true)`로 영속성 컨텍스트의 옛 값을 비운다.
+- **불일치 검사:** `GET /actuator/likeconsistency[?postId=]`가 저장된 수와 `liked` 행 수가 다른 게시글을 최대 100건 돌려준다. 값은 고치지 않는다. 노출은 `experiment` 프로필의 Actuator 목록에 있다.
 - 스키마는 Flyway로 관리한다.
 
 ## 9. 장애 실험 환경

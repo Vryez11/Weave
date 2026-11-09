@@ -50,7 +50,7 @@
 - [x] 2.4 불일치 검사 엔드포인트를 만든다(design 결정 7).
   - `likeconsistency` Actuator 엔드포인트, `application-experiment.yml` 노출 목록, 100건 제한.
   - 확인: `PostLikeConsistencyScenarioTest`가 통과한다.
-- [ ] 2.5 아키텍처 8장과 `like-service/CLAUDE.md`를 구현에 맞춘다.
+- [x] 2.5 아키텍처 8장과 `like-service/CLAUDE.md`를 구현에 맞춘다.
   - 8장의 표와 "다룰 것"을 정한 것으로 바꾼다. 유니크 위반을 쓰지 않는 이유를 적는다.
   - 확인: 문서의 열·엔드포인트 이름이 코드에 있다(`grep`).
 
