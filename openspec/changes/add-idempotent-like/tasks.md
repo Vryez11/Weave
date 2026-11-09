@@ -38,7 +38,7 @@
 
 ## 2. like-service 상태 저장과 API
 
-- [ ] 2.1 스키마를 바꾸고 조회를 맞춘다(design 결정 3, 6).
+- [x] 2.1 스키마를 바꾸고 조회를 맞춘다(design 결정 3, 6).
   - Flyway `V2`: `post_like`에 `liked`(기본 true), `version`(기본 0), `(post_id, liked)` 인덱스. `post_like_count`에 `shard`(기본 0), 기본 키 `(post_id, shard)`. 엔티티를 맞추고, 배치 조회는 `liked = true`와 `SUM ... GROUP BY post_id`로 한다.
   - 확인: `PostLikeScenarioTest`의 "좋아요 배치 조회" 시나리오가 통과한다(GIVEN의 쓰기는 임시로 실패하므로 `PUT`이 필요 없는 것만). `./gradlew :like-service:compileKotlin`이 통과한다.
 - [ ] 2.2 상태 전이 판단을 만든다(design 결정 2).

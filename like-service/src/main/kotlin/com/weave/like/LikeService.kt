@@ -32,7 +32,8 @@ class LikeService(
                 true
             }
 
-        val count = postLikeCountRepository.findByIdOrNull(postId) ?: PostLikeCount(postId = postId, likeCount = 0)
+        val id = PostLikeCountId(postId = postId, shard = 0)
+        val count = postLikeCountRepository.findByIdOrNull(id) ?: PostLikeCount(id = id, likeCount = 0)
         count.likeCount += if (liked) 1 else -1
         postLikeCountRepository.save(count)
 
@@ -46,8 +47,8 @@ class LikeService(
         postIds: Collection<Long>,
     ): List<LikeStatus> {
         val ids = postIds.distinct()
-        val counts = postLikeCountRepository.findAllById(ids).associate { it.postId to it.likeCount }
-        val likedPostIds = postLikeRepository.findAllByUserIdAndPostIdIn(userId, ids).mapTo(HashSet()) { it.postId }
+        val counts = postLikeCountRepository.sumByPostIds(ids).associate { it.postId to it.likeCount }
+        val likedPostIds = postLikeRepository.findAllByUserIdAndPostIdInAndLikedTrue(userId, ids).mapTo(HashSet()) { it.postId }
         return ids.map { LikeStatus(postId = it, likeCount = counts[it] ?: 0, liked = it in likedPostIds) }
     }
 }
