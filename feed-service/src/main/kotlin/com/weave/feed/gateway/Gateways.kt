@@ -51,7 +51,7 @@ class LikeGateway(
     fun toggle(
         userId: Long,
         postId: Long,
-    ): ToggleResponse = isolated.callBlocking("like", IsolatedCalls.LIKE_TOGGLE) { client.toggle(userId, postId) }
+    ): ToggleResponse = isolated.callBlocking("like", IsolatedCalls.LIKE_WRITE) { client.toggle(userId, postId) }
 }
 
 @Component

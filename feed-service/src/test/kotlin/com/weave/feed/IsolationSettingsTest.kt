@@ -131,9 +131,9 @@ class IsolationSettingsTest :
                 }
             }
 
-            test("F-001 Semaphore 벌크헤드는 의존성마다 40, 토글(like-toggle)은 10이고 모두 기다리지 않는다") {
+            test("F-001 Semaphore 벌크헤드는 의존성마다 40, 토글(like-write)은 10이고 모두 기다리지 않는다") {
                 val registry = context().getBean(BulkheadRegistry::class.java)
-                (callTimeouts.keys.associateWith { 40 } + ("like-toggle" to 10)).forEach { (name, maxCalls) ->
+                (callTimeouts.keys.associateWith { 40 } + ("like-write" to 10)).forEach { (name, maxCalls) ->
                     val config = registry.bulkhead(name).bulkheadConfig
                     withClue(name) {
                         config.maxConcurrentCalls shouldBe maxCalls

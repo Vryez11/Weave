@@ -324,10 +324,10 @@ class IsolatedCalls(
         val DEPENDENCIES = listOf("post", "user", "like", "recommendation", "ad")
 
         /** 좋아요 토글의 Semaphore 벌크헤드 이름. 읽기 벌크헤드(`like`)와 자리를 나눈다(design 결정 6). */
-        const val LIKE_TOGGLE = "like-toggle"
+        const val LIKE_WRITE = "like-write"
 
         /** [callBlocking]이 쓰는 Semaphore 벌크헤드. `resilience4j.bulkhead.instances`의 이름이다. */
-        val BLOCKING_BULKHEADS = listOf(LIKE_TOGGLE)
+        val BLOCKING_BULKHEADS = listOf(LIKE_WRITE)
 
         private const val TOO_MANY_REQUESTS = 429
 

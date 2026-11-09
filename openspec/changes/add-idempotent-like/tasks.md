@@ -15,7 +15,7 @@
   - `PostLikeScenarioTest`: GIVEN과 "사용자 식별"을 `PUT /likes/{postId}`로 바꾸고 토글 시나리오를 지운다. "좋아요 영속"은 그대로 둔다.
   - `TestLikeServiceApplicationTest`도 `PUT`으로 바꾼다. `LikeServiceTest`는 조회 구현에 묶인 목 테스트라 지우고, "요청 순서대로"는 `PostLikeScenarioTest`로 옮긴다.
   - 확인: `./gradlew :like-service:test`가 통과하고 `:like-service:integrationTest`에서 `PUT`을 쓰는 시나리오만 실패한다.
-- [ ] 1.3 (대화형) 벌크헤드 이름을 `like-toggle`에서 `like-write`로 바꾼다(동작과 값은 그대로, design 결정 9).
+- [x] 1.3 (대화형) 벌크헤드 이름을 `like-toggle`에서 `like-write`로 바꾼다(동작과 값은 그대로, design 결정 9).
   - `IsolatedCalls`(`LIKE_TOGGLE` → `LIKE_WRITE`), `application.yml`, 테스트 설정, `IsolationSettingsTest`, `ResilienceAutoConfigurationTest`, `DownstreamFailureTest`, Grafana 패널 설명.
   - 확인: `./gradlew :feed-service:test :feed-service:integrationTest`가 통과하고 `grep -rn "like-toggle" feed-service docker`가 비어 있다.
 - [ ] 1.4 (대화형) feed-service 테스트를 델타대로 옮긴다.

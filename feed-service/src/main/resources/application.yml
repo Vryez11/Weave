@@ -116,7 +116,7 @@ resilience4j:
     instances:
       # 좋아요 토글. 요청 스레드에서 동기로 부르고 like 서킷을 같이 쓴다. 동시 10은 like 커넥션 풀에서 읽기 몫(40) 밖에 둔 자리다.
       # 실험 세트는 토글에 부하를 주지 않아 측정값이 없다. F-003의 S-11에서 다시 정한다 (design 결정 6)
-      like-toggle: { base-config: default, max-concurrent-calls: 10 }
+      like-write: { base-config: default, max-concurrent-calls: 10 }
       # Semaphore 모드(weave.isolation.bulkhead-type: semaphore)에서 조회를 감싼다 (design 결정 11)
       post: { base-config: default }
       user: { base-config: default }

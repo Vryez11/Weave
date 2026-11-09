@@ -302,7 +302,7 @@
       "id": 18,
       "type": "timeseries",
       "title": "의존성별 벌크헤드 사용 중·최대 스레드",
-      "description": "기본 구성(weave.isolation.bulkhead-type: thread-pool)의 의존성별 ThreadPool 벌크헤드. Semaphore 모드와 토글의 like-toggle은 resilience4j_bulkhead_available_concurrent_calls에 있다.",
+      "description": "기본 구성(weave.isolation.bulkhead-type: thread-pool)의 의존성별 ThreadPool 벌크헤드. Semaphore 모드와 좋아요 쓰기의 like-write은 resilience4j_bulkhead_available_concurrent_calls에 있다.",
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 28 },
       "fieldConfig": { "defaults": { "unit": "short", "min": 0, "decimals": 0 }, "overrides": [] },
