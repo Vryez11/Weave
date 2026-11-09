@@ -214,6 +214,7 @@ PR 템플릿(`.github/pull_request_template.md`)의 "확인한 것"이 이 목�
 | 로컬 인프라 | `./gradlew bootJar` 뒤 `docker compose up -d --build --wait`. 서비스 6개, MySQL, 관찰 인프라(Alloy, Loki, Tempo, Prometheus, Grafana)를 띄운다. MySQL 계정은 루트 `.env`에서 읽는다(`.env.example`). 내리기는 `docker compose down -v` |
 | Compose 테스트 | `./gradlew :e2e:composeTest`. 프로젝트 이름 `weave-compose-test`로 Compose 환경을 띄워 `Compose` 태그 테스트(Loki·Tempo의 traceId 조회, 프록시 경로, 대시보드, `run.sh`·`run-all.sh` 짧은 실행)를 돌리고, 성공·실패와 관계없이 내린다. 호스트 포트가 같아 손으로 띄운 환경은 먼저 내린다 |
 | 장애 실험 시나리오 하나 | 로컬 인프라를 띄운 뒤 `experiments/run.sh <S-xx> [--rps N] [--warmup 1m] [--duration 5m]`. 옵션 기본값은 `experiments/config.json`이다. 장애를 되돌리고 feed-service를 다시 띄운 뒤 부하를 주고, 끝나면(실패·중단해도) 장애를 모두 되돌린다. 리포트는 `experiments/results/<UTC 시각>-<S-xx>/report.md`(같은 값이 `report.json`). 종료 코드는 0 기대와 같음, 1 기대와 다름, 2 실행하지 못함. 다른 Compose 프로젝트에 돌릴 때는 `COMPOSE_PROJECT_NAME`, `COMPOSE_ENV_FILE`을 준다 |
+| 좋아요 정합성 실험 | 로컬 인프라를 띄운 뒤 `experiments/run-like.sh S-10`, `experiments/run-like.sh S-11 [--strategy 방식] [--rps N] [--warmup 30s] [--duration 2m] [--shards 4,8,16]`. 옵션 기본값은 `experiments/like-config.json`이다. 종료 코드는 0 기대와 같음, 1 다름, 2 실행하지 못함이고, 끝나면 장애와 like-service 설정을 되돌린다. 실험 세트(`run-all.sh`)에는 들어가지 않는다 |
 | 장애 실험 세트 | `experiments/run-all.sh [옵션] [S-xx ...]`. 첫 시나리오 전에 S-01을 측정 1분으로 한 번 돌려 하위 서비스를 데우고(판정 표에 넣지 않는다. 이미 데운 환경이면 `--skip-warm-up`), 시나리오가 없으면 S-01~S-09를 차례로 돌리고(기본값으로 약 1시간) 판정 표를 출력한다. **시나리오 없이 돌려 0으로 끝나는 것이 "장애 실험 세트 통과"다.** 목록만 보려면 `--list` |
 
 Stop 훅은 ktlint가 위반을 보고하면 증분 결과를 버리고(`--rerun-tasks`) 한 번 더 돌린다. ktlint-gradle이 지운 파일의 예전 위반을 계속 보고할 때가 있어서다.

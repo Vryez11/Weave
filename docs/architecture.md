@@ -603,7 +603,7 @@ traceId는 스레드에 붙은 컨텍스트(MDC, 관찰 컨텍스트)에 있어�
 | 대상 | 자원 상한 (`deploy.resources.limits`) | 메모 |
 |---|---|---|
 | feed-service | CPU 2, 메모리 1GB | Tomcat 최대 스레드 200을 `application.yml`에 명시한다(Boot 기본값, 4-2). Actuator는 관리 포트 8090(`MANAGEMENT_SERVER_PORT`)이고 헬스 체크와 Prometheus가 이 포트를 본다. 호스트 변수 `FEED_SPRING_APPLICATION_JSON`을 `SPRING_APPLICATION_JSON`으로 넘긴다(없으면 `{}`, 아래) |
-| 하위 서비스 5개 | 각 CPU 1, 메모리 512MB. like-service만 메모리 768MB | like-service는 JVM이 보는 메모리를 `-XX:MaxRAM=512m`으로 다른 서비스와 같게 둬 힙(128MB)과 GC를 그대로 두고 컨테이너 상한만 올렸다. 512MB에서 고도화 5 실험 세트 중 OOMKilled로 죽었다(힙 128MB에 네이티브 메모리 약 460MB, 2026-11-08) |
+| 하위 서비스 5개 | 각 CPU 1, 메모리 512MB. like-service만 메모리 768MB이고, S-11이 갱신 방식을 바꾸도록 호스트 변수 `LIKE_SPRING_APPLICATION_JSON`을 `SPRING_APPLICATION_JSON`으로 넘긴다(없으면 `{}`) | like-service는 JVM이 보는 메모리를 `-XX:MaxRAM=512m`으로 다른 서비스와 같게 둬 힙(128MB)과 GC를 그대로 두고 컨테이너 상한만 올렸다. 512MB에서 고도화 5 실험 세트 중 OOMKilled로 죽었다(힙 128MB에 네이티브 메모리 약 460MB, 2026-11-08) |
 | MySQL, Toxiproxy | 각 CPU 1 | |
 | Redis (`redis:8.2.2`) | CPU 0.5, 메모리 256MB | post stale 캐시(6-3). 캐시라 저장하지 않는다(`--save "" --appendonly no`). 값은 키 최대 50개 × 약 6KB이고 S-06의 읽기 400회/초는 한 코어 처리량에 비해 작다. 호스트 포트는 열지 않고 Toxiproxy 뒤에 두지 않는다. feed-service는 `REDIS_HOST=redis`로 부르고 Redis가 healthy가 된 뒤 뜬다(`add-graceful-degradation` design 결정 12) |
 | Alloy, Prometheus, Grafana | 각 CPU 0.5, 메모리 512MB | 실험 대상이 아니라 상한만 건다. OOM 재시작이 보이면 근거와 함께 올린다 |
@@ -644,6 +644,7 @@ feed-service는 하위 서비스를 의존성마다 하나인 프록시를 거�
 ```
 experiments/
 ├── run.sh  run-all.sh       # 명령 (아래)
+├── run-like.sh  like-config.json  # 좋아요 정합성 S-10, S-11 (아래 "좋아요 정합성 실험")
 ├── config.json              # 기본 RPS, 준비·측정 시간, k6 요청 시간 초과 5초, 사용자 ID 범위
 ├── slo.json                 # PRD 2장 SLO(가용성 99.9%, p99 300ms, 평시 degrade 비율 1% 미만)와 요청 배율 상한 1.2(PRD 10장). k6 threshold는 여기서만 읽는다
 ├── expectations.json        # 단계별 기대 결과(시나리오마다 meet/miss, 또는 기준마다 {availability, p99[, degradeRatio, requestRatio, retryAfter]})
@@ -699,6 +700,22 @@ experiments/run-all.sh --list                                 # 돌릴 목록
 | Grafana 링크(측정 구간을 붙인 `weave-feed` 대시보드, 7-4) | run.sh |
 
 원본 결과는 커밋하지 않는다. 기준선과 비교 요약은 `docs/experiments/`와 PR 설명에 적는다.
+
+### 9-4. 좋아요 정합성 실험 (S-10, S-11)
+
+피드 SLO로 판정하지 않아 `run.sh`와 나눴다(PRD 4장, `add-idempotent-like` design 결정 10). `run-all.sh`는 그대로 S-01~S-09다.
+
+```bash
+experiments/run-like.sh S-10                                   # 경우 네 개를 차례로 (약 20초)
+experiments/run-like.sh S-11                                   # 방식마다 like-service를 다시 띄워 같은 부하로 비교
+experiments/run-like.sh S-11 --strategy atomic --rps 5 --warmup 3s --duration 10s   # 방식 하나, 짧게
+```
+
+- **S-10:** 중복, 동시, 순서 뒤바뀜은 feed-service를 거쳐 보내고, 타임아웃 뒤 재전송은 like 프록시에 응답 지연 300ms(like 응답 타임아웃 100ms보다 길다)를 넣어 만든다. 반영 여부와 최종 상태는 k6가 Compose 네트워크 안에서 like-service를 직접 본다. 모든 경우가 기대와 같으면 0이다.
+- **S-11:** like-service를 직접 부른다. feed-service의 100ms 상한과 쓰기 상한이 비교할 대상을 잘라 버리기 때문이다. 반복마다 새 사용자가 눌러 모든 요청이 실제 수 갱신이 되고, 앱 수준 지연은 0으로 둔다. 준비와 측정을 따로 돌려 측정 구간의 행 잠금 대기만 뺀다(`Innodb_row_lock_waits`, `Innodb_row_lock_time`, `INNODB_METRICS`의 `lock_deadlocks`). CPU는 `docker stats`로 1초마다, HikariCP 대기는 Prometheus로 본다.
+- **판정:** `lib/like-verdict.sh`. `atomic`, `sharded`에 불일치나 실패가 있으면 1이다. `read-modify-write`의 불일치는 리포트에만 적고, 불일치가 없으면 "재현되지 않음"으로 적는다.
+- **설정 바꾸기:** `compose.yaml`의 `LIKE_SPRING_APPLICATION_JSON`으로 방식을 바꿔 컨테이너를 새로 만들고, 끝나면(실패·중단해도) 기본값으로 다시 만든다. MySQL 계정은 컨테이너 환경에서 쓰고 `.env`를 읽지 않는다.
+- 기본값은 `experiments/like-config.json`이다. 결과는 `experiments/results/<UTC 시각>-<S-10|S-11>/report.md`와 `report.json`이다.
 
 ## 10. 테스트
 
