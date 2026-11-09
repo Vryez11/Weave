@@ -90,7 +90,7 @@
 - [x] 6.1 S-11의 부하 크기를 정한다(design 결정 10).
   - `atomic`으로 RPS를 단계적으로 올려 p99, 행 잠금 대기, like-service·MySQL CPU를 재고 `like-config.json`에 값을 넣는다.
   - 확인: `docs/experiments/idempotent-like.md`에 단계별 표와 고른 이유가 있다.
-- [ ] 6.2 세 방식을 비교하고 분할 수를 정한다.
+- [x] 6.2 세 방식을 비교하고 분할 수를 정한다.
   - `run-like.sh S-11`로 `read-modify-write`, `atomic`, `sharded` 4·8·16을 돌린다.
   - 확인: 결과 문서에 방식별 처리량, p99, 실패, 잠금 대기, 교착, 수 불일치 표가 있고 `atomic`·`sharded`의 불일치와 교착이 0이다. 교착이 있으면 멈추고 원인을 본다(design 결정 4).
 - [ ] 6.3 기본 방식을 정한다.
