@@ -263,6 +263,10 @@ class FeedAggregationScenarioTest :
                 "version 없음" to """{"liked":true}""",
                 "version 0" to """{"liked":true,"version":0}""",
                 "version이 숫자가 아님" to """{"liked":true,"version":"abc"}""",
+                "version이 소수" to """{"liked":true,"version":1.5}""",
+                "version이 지수 표기" to """{"liked":true,"version":1e3}""",
+                "version이 숫자 문자열" to """{"liked":true,"version":"7"}""",
+                "liked가 문자열" to """{"liked":"true","version":1}""",
             ).forEach { (name, body) ->
                 test("F-003 본문이 잘못됐다: $name 이면 400이 오고 like-service는 부르지 않는다") {
                     wireMock.stubLikeState(postId = 5, liked = true, likeCount = 3)
