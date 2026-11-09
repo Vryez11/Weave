@@ -16,5 +16,8 @@ server:
 weave:
   like:
     counter:
-      # 좋아요 수 갱신 방식: read-modify-write(비교 기준선), atomic, sharded(shards 필요). S-11 측정으로 정한다 (add-idempotent-like design 결정 6, 10)
+      # 좋아요 수 갱신 방식: read-modify-write(비교 기준선), atomic, sharded. S-11(400 RPS)에서 atomic과 sharded 모두 불일치 0이고
+      # 막히지 않은 실행의 p99가 11ms와 8~10ms로 같아, 구성이 단순한 atomic을 쓴다 (docs/experiments/idempotent-like.md)
       strategy: atomic
+      # sharded를 켤 때의 칸 수. 행 잠금 대기 2분에 분할 4 약 300회, 8 10~37회, 16 0회로, 대기가 더 줄지 않는 가장 작은 값이다
+      shards: 8

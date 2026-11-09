@@ -93,7 +93,7 @@
 - [x] 6.2 세 방식을 비교하고 분할 수를 정한다.
   - `run-like.sh S-11`로 `read-modify-write`, `atomic`, `sharded` 4·8·16을 돌린다.
   - 확인: 결과 문서에 방식별 처리량, p99, 실패, 잠금 대기, 교착, 수 불일치 표가 있고 `atomic`·`sharded`의 불일치와 교착이 0이다. 교착이 있으면 멈추고 원인을 본다(design 결정 4).
-- [ ] 6.3 기본 방식을 정한다.
+- [x] 6.3 기본 방식을 정한다.
   - `weave.like.counter.*` 기본값만 바꾸는 커밋.
   - 확인: `./gradlew :like-service:integrationTest`가 통과하고 결과 문서에 고른 이유가 있다.
 - [ ] 6.4 `like-write` 상한과 like 커넥션 풀을 다시 정한다(design 결정 9).
