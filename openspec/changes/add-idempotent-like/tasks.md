@@ -104,7 +104,7 @@
 
 ## 7. 실험 세트와 PRD
 
-- [ ] 7.1 `experiments/expectations.json`의 단계를 고도화 6으로 바꾼다.
+- [x] 7.1 `experiments/expectations.json`의 단계를 고도화 6으로 바꾼다.
   - 확인: `ExperimentVerdictScenarioTest`의 "지금 단계의 기대"가 통과한다.
 - [ ] 7.2 장애 실험 세트를 돌려 기록한다(design 결정 12).
   - 확인: `experiments/run-all.sh`가 0으로 끝나고 결과 문서에 고도화 5와의 비교 표가 있다.
