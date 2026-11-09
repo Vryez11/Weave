@@ -31,7 +31,7 @@
 - [x] 1.7 동시성, 불일치 검사, 카운터 방식의 시나리오를 옮긴다.
   - `PostLikeConcurrencyScenarioTest`: "동시 요청의 정합성"(둘, 실제 HTTP 포트와 스레드). `PostLikeConsistencyScenarioTest`: "좋아요 수 불일치 검사"(넷, 어긋남은 SQL로 만든다). `PostLikeCounterScenarioTest`: "좋아요 수 갱신 방식"(셋, 속성 `weave.like.counter.strategy`, `weave.like.counter.shards`).
   - 확인: 1.6과 같다.
-- [ ] 1.8 S-10, S-11 실험 스크립트의 판정·실행 시나리오를 옮긴다.
+- [x] 1.8 S-10, S-11 실험 스크립트의 판정·실행 시나리오를 옮긴다.
   - `ExperimentLikeVerdictScenarioTest`: `lib/like-verdict.sh`의 인자와 출력 형식을 KDoc에 정하고 "정합성을 보장하는 방식이 어긋난다", "기준선이 깨지지 않았다"를 픽스처로.
   - `ExperimentLikeRunComposeScenarioTest`(Compose): S-10의 셋, S-11의 "방식별 비교 리포트", "방식 하나만 돌린다", "like-service 설정을 되돌린다". KDoc에 `report.json` 형식을 정하고 짧은 부하 옵션을 쓴다.
   - 확인: `./gradlew :e2e:compileTestKotlin`이 통과하고 판정 테스트는 `:e2e:integrationTest`에서 스크립트가 없어 실패한다. Compose 테스트는 5.3에서 돌린다.
