@@ -4,7 +4,7 @@
 
 ## 토글의 문제
 
-MVP의 `POST /likes/{postId}/toggle`을 Testcontainers MySQL 9.7에 실제 HTTP로 불렀다(`ToggleBreakageReproductionTest`, 3회 실행). 토글을 없애면서 테스트도 지웠다(design 결정 8). 재현 커밋은 아래 "다시 돌려 보기"에 있다.
+MVP의 `POST /likes/{postId}/toggle`을 Testcontainers MySQL 9.7에 실제 HTTP로 불렀다(`ToggleBreakageReproductionTest`, 3회 실행). 토글을 없애면서 테스트도 지웠다(design 결정 8). 재현 커밋은 `98f193f`다. 그 커밋을 받아 `./gradlew :like-service:integrationTest -Pkotest.filter.tests='*F-003*'`로 다시 돌려 볼 수 있다.
 
 | 경우 | 보낸 요청 | 결과 (3회) | 뜻 |
 |---|---|---|---|

@@ -10,7 +10,7 @@
   - `like-service`에 `ToggleBreakageReproductionTest`(Integration, 실제 HTTP 포트): 같은 요청을 다시 보내면 의도가 뒤집힌다, 서로 다른 사용자 50명의 동시 토글에서 수가 행 수보다 작다(갱신 유실), 같은 사용자의 동시 첫 토글 일부가 5xx다. 수치는 단언하지 않고 "깨진다"만 단언하며 값을 출력한다.
   - `docs/experiments/idempotent-like.md`의 "토글의 문제" 절에 수치를 적는다. 해시는 1.2에서 적는다.
   - 확인: `./gradlew :like-service:integrationTest -Pkotest.filter.tests='*F-003*'`이 통과하고 문서에 세 경우의 수치가 있다.
-- [ ] 1.2 (대화형) 재현 테스트를 지우고 like-service의 기존 테스트를 새 API로 옮긴다.
+- [x] 1.2 (대화형) 재현 테스트를 지우고 like-service의 기존 테스트를 새 API로 옮긴다.
   - 문서에 1.1의 커밋 해시를 적고 `ToggleBreakageReproductionTest`를 지운다.
   - `PostLikeScenarioTest`: GIVEN과 "사용자 식별"을 `PUT /likes/{postId}`로 바꾸고 토글 시나리오를 지운다. "좋아요 영속"은 그대로 둔다.
   - `TestLikeServiceApplicationTest`도 `PUT`으로 바꾼다. `LikeServiceTest`는 조회 구현에 묶인 목 테스트라 지우고, "요청 순서대로"는 `PostLikeScenarioTest`로 옮긴다.
