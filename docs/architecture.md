@@ -1,4 +1,6 @@
 # 아키텍처
+- 좋아요 순서 판단(F-003): 클라이언트가 정한 `version`을 재전송에도 그대로 보내고, 저장 값 이하면 바꾸지 않는다(8장, `add-idempotent-like` design)
+- S-11 몰림 부하와 카운터 방식(F-003): 400 RPS, 기본 `atomic`, 분할을 켤 때 8칸([고도화 6 결과](experiments/idempotent-like.md))
 
 - 작성일: 2026-11-04
 - 상태: 초안. 고도화 5(`add-retry-policy`, F-005)까지 반영했다. 격리·재시도 설정값과 근거는 4-3과 5-6, 대체 설정값은 6-4, 결과는 [고도화 3 결과](experiments/call-isolation.md), [고도화 4 결과](experiments/graceful-degradation.md), [고도화 5 결과](experiments/retry-policy.md)에 있다.
@@ -750,14 +752,12 @@ experiments/run-like.sh S-11 --strategy atomic --rps 5 --warmup 3s --duration 10
 | `add-call-isolation` (F-001) | 5-2 ~ 5-6, 7-3의 벌크헤드 전파, Resilience4j 4.1.2 호환 확인, 가상 스레드 + Semaphore 벌크헤드 비교(S-02). 5-2의 어노테이션 방식은 `IsolatedCalls` 한 곳에서 감싸는 방식으로 바꿨다(design 결정 1) |
 | `add-graceful-degradation` (F-002) | 6장, 5-2의 fallback 위치. 응답 구성의 출발점이던 "Assembler가 성공·캐시 대체·실패를 받는다"를 의존성별 `Result`와 영역 결과(`SectionOutcome`)로 구체화했고, 6장에 없던 응답 계약·503 본문·대체 로그·Redis 장애 설정을 정했다(design 결정 1~10) |
 | `add-retry-policy` (F-005) | 5-5의 429 처리, Retry·RateLimiter 설정. 재시도 루프는 Resilience4j `Retry`가 아니라 `IsolatedCalls`(`RetryLoop`)가 직접 돌고 설정만 레지스트리에서 꺼낸다(design 결정 1). 5-4 순서에 Retry-After 대기를 더했고, 429 처리 방식(서킷 바깥의 의존성별 대기, `RetryAfterHolds`)과 재시도 예산(`RetryBudget`), 새 실패 분류(`rate_limited`, `retry_after`)를 정했다(design 결정 2~7) |
-| `add-idempotent-like` (F-003) | 8장의 고도화 6 항목(카운터 방식 비교 포함), 10장의 속성 기반 테스트 |
+| `add-idempotent-like` (F-003) | 8장의 고도화 6 항목(카운터 방식 비교 포함), 10장의 속성 기반 테스트. 순서 판단(`version`, 취소해도 행 유지), 잠금 순서(좋아요 행 → 카운터 행), 쓰기 재시도 없음, 카운터 방식 설정(`weave.like.counter`)을 정했다(design 결정 1~12) |
 
 ## 13. 남은 것
 
-- 좋아요 순서 판단 방법: `add-idempotent-like`
-- S-11의 몰림 부하 크기와 카운터 분할 수: `add-idempotent-like`
-- 장애를 넣지 않은 like-service의 순간 막힘(고도화 3의 S-04·S-08·S-09)과 like-service 컨테이너 메모리(G1에서 512MiB 중 약 500MiB)의 원인: [고도화 3 결과](experiments/call-isolation.md) "남은 것". 고도화 4부터는 피드 실패가 아니라 like degrade로 드러난다(S-01 0.51%, S-04 3.3%, [고도화 4 결과](experiments/graceful-degradation.md))
-- 장애 시작 순간의 feed-service 멈춤(0.2~0.7초, 고도화 5의 재시도가 있는 모든 구성의 S-09). GC·BLOCKED 스레드는 아니었고, 5초 수집 간격으로는 가르지 못한다. safepoint 로그와 `AsyncAppender` 대기열을 재면 가를 수 있다: [고도화 5 결과](experiments/retry-policy.md) "남은 것"
+- 장애를 넣지 않은 like-service의 순간 막힘(고도화 3의 S-04·S-08·S-09)과 like-service 컨테이너 메모리(G1에서 512MiB 중 약 500MiB)의 원인: [고도화 3 결과](experiments/call-isolation.md) "남은 것". 고도화 4부터는 피드 실패가 아니라 like degrade로 드러난다(S-01 0.51%, S-04 3.3%, [고도화 4 결과](experiments/graceful-degradation.md)). 고도화 6의 S-11에서도 카운터 방식과 관계없이 like-service CPU가 한 코어에 닿고 HikariCP 대기가 189까지 차는 실행이 나왔다([고도화 6 결과](experiments/idempotent-like.md))
+- 장애 시작 순간의 feed-service 멈춤(0.2~0.7초, 고도화 5의 재시도가 있는 모든 구성의 S-09, 고도화 6의 S-03에서 약 0.5초에 503 92건). GC·BLOCKED 스레드는 아니었고, 5초 수집 간격으로는 가르지 못한다. safepoint 로그와 `AsyncAppender` 대기열을 재면 가를 수 있다: [고도화 5 결과](experiments/retry-policy.md) "남은 것"
 - like-service의 네이티브 메모리(힙 128MB에 약 460MB, 9-1): 고도화 5 실험 세트 중 512MB에서 OOMKilled로 죽어 컨테이너 상한만 768MB로 올렸다. 원인은 가리지 못했다
 - post 실패와 같은 순간의 캐시 읽기 실패(고도화 4의 S-01 503 6건, S-06 17건)의 원인. S-06의 11건은 Lettuce 지표에 남지 않아, 읽기 오류를 종류별로 세야 가를 수 있다: [고도화 4 결과](experiments/graceful-degradation.md) "남은 것"
 
