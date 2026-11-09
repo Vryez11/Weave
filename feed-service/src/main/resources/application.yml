@@ -119,7 +119,8 @@ resilience4j:
         max-wait-duration: 0
     instances:
       # 좋아요 상태 변경. 요청 스레드에서 동기로 부르고 like 서킷을 같이 쓴다. 동시 10은 like 커넥션 풀에서 읽기 몫(40) 밖에 둔 자리다.
-      # S-11(400 RPS, 막히지 않은 실행의 p99 11ms)의 리틀의 법칙: 400 × 0.011 = 4.4, 여유 2배로 약 9라 10을 유지한다 (docs/experiments/idempotent-like.md)
+      # S-11(400 RPS, 앱 지연 없는 직접 호출의 막히지 않은 p99 11ms)의 리틀의 법칙: 400 × 0.011 = 4.4, 여유 2배로 약 9라 10을 유지한다.
+      # 조회 상한처럼 p99 51ms를 전제하면 약 20이다. feed-service를 거친 쓰기 부하는 재지 않았다 (docs/experiments/idempotent-like.md)
       like-write: { base-config: default, max-concurrent-calls: 10 }
       # Semaphore 모드(weave.isolation.bulkhead-type: semaphore)에서 조회를 감싼다 (design 결정 11)
       post: { base-config: default }

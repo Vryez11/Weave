@@ -41,7 +41,7 @@ class LikeCounter(
         when (properties.strategy) {
             LikeCounterProperties.Strategy.READ_MODIFY_WRITE -> readModifyWrite(postId, delta)
             LikeCounterProperties.Strategy.ATOMIC -> repository.addAtomically(postId, SINGLE_SHARD, delta)
-            // 사용자로 칸을 고르면 같은 사용자의 +1과 -1이 같은 칸에 들어가 칸의 값이 음수가 되지 않는다
+            // 사용자로 칸을 고르면 같은 사용자의 +1과 -1이 같은 칸에 들어가 칸의 값이 음수가 되지 않는다. 방식을 바꾼 뒤의 취소는 음수가 될 수 있지만 합계는 맞다
             LikeCounterProperties.Strategy.SHARDED ->
                 repository.addAtomically(postId, Math.floorMod(userId, requireNotNull(properties.shards)), delta)
         }
