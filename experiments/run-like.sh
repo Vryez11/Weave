@@ -114,7 +114,8 @@ timeout_seconds="$(to_seconds "$(jq -r '.requestTimeout' "$config")")" || fail "
 case "$rps" in
   '' | *[!0-9]* | 0*) fail "--rps는 1 이상의 정수여야 한다: $rps" ;;
 esac
-to_seconds "$warmup" >/dev/null || fail "--warmup은 h·m·s 시간이어야 한다: $warmup"
+warmup_seconds="$(to_seconds "$warmup")" || fail "--warmup은 h·m·s 시간이어야 한다: $warmup"
+[ "$warmup_seconds" -ge 2 ] || fail "--warmup은 2초 이상이어야 한다(올리는 구간과 유지 구간): $warmup"
 duration_seconds="$(to_seconds "$duration")" || fail "--duration은 h·m·s 시간이어야 한다: $duration"
 [ "$duration_seconds" -gt 0 ] || fail "--duration은 0보다 길어야 한다: $duration"
 case "$shards" in
@@ -358,11 +359,15 @@ hikari_pending_max() {
 # 준비 구간에 밀린 요청이 빠질 때까지 기다린다. k6는 시간 초과로 포기해도 like-service는 커넥션을 기다리며 처리를 이어 가므로,
 # 그대로 측정을 시작하면 첫 요청이 시간 초과되고 측정 구간에 앞 구간의 대기가 섞인다
 wait_like_idle() {
-  local waited=0 busy
+  local waited=0 busy body
   while :; do
-    busy="$(compose exec -T like-service curl -fsS http://localhost:8083/actuator/prometheus 2>/dev/null |
-      awk '/^hikaricp_connections_(active|pending)\{/ { sum += $2 } END { print sum + 0 }')"
-    [ "$busy" = 0 ] && return 0
+    # 응답이 없으면 대기가 빠진 것이 아니다
+    if body="$(compose exec -T like-service curl -m 5 -fsS http://localhost:8083/actuator/prometheus 2>/dev/null)"; then
+      busy="$(awk '/^hikaricp_connections_(active|pending)\{/ { sum += $2 } END { print sum + 0 }' <<<"$body")"
+      [ "$busy" = 0 ] && return 0
+    else
+      busy="응답 없음"
+    fi
     [ "$waited" -lt "$LIKE_IDLE_TIMEOUT_SECONDS" ] ||
       fail "준비 구간의 대기가 ${LIKE_IDLE_TIMEOUT_SECONDS}초 안에 빠지지 않았다(커넥션 사용·대기 $busy). 부하가 처리 한계를 크게 넘었다"
     sleep 1
@@ -394,7 +399,8 @@ run_strategy() {
   hot_post=$((base + 1))
 
   log "$name: 준비 $warmup"
-  run_k6 k6/like-s11.js -e "POST_ID=$warm_post" -e "RPS=$rps" -e "DURATION=$warmup" -e "TIMEOUT_SECONDS=$timeout_seconds"
+  run_k6 k6/like-s11.js -e "POST_ID=$warm_post" -e "RPS=$rps" -e "DURATION=$warmup" -e "TIMEOUT_SECONDS=$timeout_seconds" \
+    -e "RAMP_SECONDS=$((warmup_seconds / 2))" -e "HOLD_SECONDS=$((warmup_seconds - warmup_seconds / 2))"
 
   wait_like_idle
 
