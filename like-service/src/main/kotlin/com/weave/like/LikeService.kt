@@ -10,6 +10,7 @@ import java.time.Instant
 class LikeService(
     private val postLikeRepository: PostLikeRepository,
     private val postLikeCountRepository: PostLikeCountRepository,
+    private val likeCounter: LikeCounter,
 ) {
     /**
      * 사용자의 좋아요 상태를 [liked]로 만든다. [version]이 반영해 둔 값보다 크지 않으면 바꾸지 않고 지금 상태를 돌려준다.
@@ -32,7 +33,7 @@ class LikeService(
             postLikeRepository.updateState(userId, postId, decision.state.liked, decision.state.version)
         }
         if (decision.countDelta != 0L) {
-            postLikeCountRepository.addAtomically(postId, ATOMIC_SHARD, decision.countDelta)
+            likeCounter.add(userId, postId, decision.countDelta)
         }
 
         val count = postLikeCountRepository.sumByPostIds(listOf(postId)).singleOrNull()?.likeCount ?: 0
@@ -49,10 +50,6 @@ class LikeService(
         val counts = postLikeCountRepository.sumByPostIds(ids).associate { it.postId to it.likeCount }
         val likedPostIds = postLikeRepository.findAllByUserIdAndPostIdInAndLikedTrue(userId, ids).mapTo(HashSet()) { it.postId }
         return ids.map { LikeStatus(postId = it, likeCount = counts[it] ?: 0, liked = it in likedPostIds) }
-    }
-
-    private companion object {
-        const val ATOMIC_SHARD = 0
     }
 }
 

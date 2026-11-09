@@ -12,3 +12,9 @@ spring:
 
 server:
   port: 8083
+
+weave:
+  like:
+    counter:
+      # 좋아요 수 갱신 방식: read-modify-write(비교 기준선), atomic, sharded(shards 필요). S-11 측정으로 정한다 (add-idempotent-like design 결정 6, 10)
+      strategy: atomic

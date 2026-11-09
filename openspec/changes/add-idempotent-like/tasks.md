@@ -56,7 +56,7 @@
 
 ## 3. 카운터 방식
 
-- [ ] 3.1 갱신 방식을 설정으로 고르게 한다(design 결정 6).
+- [x] 3.1 갱신 방식을 설정으로 고르게 한다(design 결정 6).
   - `read-modify-write`, `atomic`, `sharded`와 `weave.like.counter.*` 속성 구조. 잘못된 값과 `shards` < 1은 시작할 때 실패한다. 값은 기본 `atomic`, 분할 수는 6.2에서 넣는다.
   - 확인: `PostLikeCounterScenarioTest`가 통과하고, 세 방식의 칸 선택과 갱신을 보는 단위 테스트가 통과한다.
 - [ ] 3.2 아키텍처 8장에 세 방식, 칸 선택, 조회 합계를 적는다.
