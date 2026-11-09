@@ -29,8 +29,8 @@
 
 #### Scenario: 처리되지 않은 예외로 끝난 요청
 
-- **GIVEN** like-service가 토글에 503을 준다. 피드 조회의 하위 서비스 실패는 고도화 4부터 등급대로 대체돼(`graceful-degradation`) 처리되지 않은 예외가 되지 않는다
-- **WHEN** `POST /feed/likes/{postId}/toggle`이 500으로 응답한다
+- **GIVEN** like-service가 상태 변경에 503을 준다. 피드 조회의 하위 서비스 실패는 고도화 4부터 등급대로 대체돼(`graceful-degradation`) 처리되지 않은 예외가 되지 않는다
+- **WHEN** `PUT /feed/likes/{postId}`가 500으로 응답한다
 - **THEN** feed-service가 그 요청을 처리하며 쓴 ERROR 줄은 모두 `traceId`가 응답의 `X-Trace-Id`와 같다
 - **AND** 그중 한 줄의 `stack_trace`에 하위 서비스 호출 실패 예외의 클래스 이름이 있다
 
@@ -63,27 +63,6 @@
 
 - **WHEN** `traceparent` 없이 `GET /feed`를 두 번 부른다
 - **THEN** 두 응답의 `X-Trace-Id`가 서로 다르다
-
-### Requirement: 하위 서비스 호출로 전파 (F-004)
-
-feed-service는 하위 서비스를 부를 때마다 W3C `traceparent` 헤더에 피드 요청의 traceId를 실어 보내야 한다(SHALL). 호출이 요청 스레드가 아닌 다른 스레드에서 시작해도 같다.
-
-#### Scenario: 피드 요청의 다섯 호출
-
-- **WHEN** `GET /feed`를 부른다
-- **THEN** post, recommendation, ad, user, like로 간 요청 다섯 개 모두 `traceparent`가 있다
-- **AND** 다섯 요청의 traceId가 모두 응답의 `X-Trace-Id`와 같다
-
-#### Scenario: post가 끝난 뒤 시작한 호출
-
-- **GIVEN** post-service가 200ms 늦게 응답한다
-- **WHEN** `GET /feed`를 부른다
-- **THEN** post 응답을 받은 뒤 시작한 user, like 요청의 traceId가 응답의 `X-Trace-Id`와 같다
-
-#### Scenario: 좋아요 토글
-
-- **WHEN** `POST /feed/likes/{postId}/toggle`을 부른다
-- **THEN** like-service로 간 토글 요청의 traceId가 응답의 `X-Trace-Id`와 같다
 
 ### Requirement: 요청 완료 로그 (F-004)
 
@@ -151,3 +130,24 @@ Docker Compose로 띄운 환경에서, 피드 요청 하나의 스팬은 Tempo�
 - **GIVEN** `docker compose`로 서비스 6개와 관찰 인프라를 띄웠다
 - **WHEN** `GET /feed`를 부르고, 응답의 `X-Trace-Id`로 Tempo를 조회한다
 - **THEN** 서비스 6개 모두의 스팬이 한 트레이스에 나온다
+
+### Requirement: 하위 서비스 호출로 traceId를 전파한다 (F-004)
+
+feed-service는 하위 서비스를 부를 때마다 W3C `traceparent` 헤더에 피드 요청의 traceId를 실어 보내야 한다(SHALL). 호출이 요청 스레드가 아닌 다른 스레드에서 시작해도 같다.
+
+#### Scenario: 피드 요청의 다섯 호출
+
+- **WHEN** `GET /feed`를 부른다
+- **THEN** post, recommendation, ad, user, like로 간 요청 다섯 개 모두 `traceparent`가 있다
+- **AND** 다섯 요청의 traceId가 모두 응답의 `X-Trace-Id`와 같다
+
+#### Scenario: post가 끝난 뒤 시작한 호출
+
+- **GIVEN** post-service가 200ms 늦게 응답한다
+- **WHEN** `GET /feed`를 부른다
+- **THEN** post 응답을 받은 뒤 시작한 user, like 요청의 traceId가 응답의 `X-Trace-Id`와 같다
+
+#### Scenario: 좋아요 상태 변경
+
+- **WHEN** `PUT /feed/likes/{postId}`를 부른다
+- **THEN** like-service로 간 상태 변경 요청의 traceId가 응답의 `X-Trace-Id`와 같다
