@@ -74,10 +74,10 @@
 
 스크립트는 `experiments/CLAUDE.md`의 bash 3.2, 신호, 표준 출력 규칙을 따른다.
 
-- [ ] 5.1 S-10을 만든다(design 결정 10).
+- [x] 5.1 S-10을 만든다(design 결정 10).
   - `compose.yaml`의 `LIKE_SPRING_APPLICATION_JSON`, `experiments/like-config.json`, `k6/like-s10.js`, `run-like.sh S-10`(리포트, 장애 되돌리기 trap).
   - 확인: `/bin/bash -n experiments/run-like.sh`와 `docker compose run --rm -T --no-deps k6 inspect k6/like-s10.js`가 통과한다.
-- [ ] 5.2 S-11을 만든다(design 결정 10).
+- [x] 5.2 S-11을 만든다(design 결정 10).
   - `k6/like-s11.js`, `run-like.sh S-11 [--strategy] [--rps] [--warmup] [--duration]`, `lib/like-verdict.sh`, 잠금 대기·교착 읽기, HikariCP 대기·CPU 기록, 방식별 재기동과 복원.
   - 확인: `ExperimentLikeVerdictScenarioTest`가 통과하고 `/bin/bash -n`과 k6 `inspect`가 통과한다.
 - [ ] 5.3 Compose 테스트를 돌리고 아키텍처 9-1, 9-3과 `conventions/harness.md` 5장에 명령을 적는다.
