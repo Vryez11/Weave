@@ -19,7 +19,7 @@ import java.util.concurrent.CompletableFuture
  * 의존성마다 하나씩 두는 Gateway Bean (design 결정 2, 아키텍처 5-2).
  *
  * 조회 메서드는 [IsolatedCalls]로만 하위 서비스를 부른다(add-call-isolation design 결정 1). 서킷 브레이커, 호출 시간 상한,
- * 의존성별 벌크헤드와 실패 로그는 그쪽이 맡고, Gateway는 의존성 이름과 부를 함수만 넘긴다. 좋아요 토글도 [IsolatedCalls.callBlocking]을 거친다.
+ * 의존성별 벌크헤드와 실패 로그는 그쪽이 맡고, Gateway는 의존성 이름과 부를 함수만 넘긴다. 좋아요 상태 변경도 [IsolatedCalls.callBlocking]을 거친다.
  */
 
 @Component

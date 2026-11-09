@@ -117,6 +117,7 @@ sequenceDiagram
 | 고도화 3 | 조회는 `IsolatedCalls`가 의존성마다 서킷 브레이커 → 호출 시간 상한(TimeLimiter) → ThreadPool 벌크헤드로 감싸고, HttpClient 그룹마다 연결·응답·커넥션 대기 타임아웃과 커넥션 풀 크기를 둔다. `FeedAssembler`가 요청 시간 예산(`RequestBudget`)으로 기다린다. 좋아요 토글은 요청 스레드에서 like 서킷과 Semaphore 벌크헤드 `like-toggle`을 거친다. 공유 풀(`applicationTaskExecutor`)은 비교 실험용 Semaphore 모드(`weave.isolation.bulkhead-type: semaphore`)에서만 조회를 돌린다 |
 | 고도화 4 | 고도화 3 그대로 감싸고, `FeedAssembler`가 의존성마다 결과를 값으로 받아(`RequestBudget.awaitResult`) 등급대로 대체한다(6장). post가 실패하면 요청 스레드에서 Redis stale 캐시(`PostStaleCache`)를 읽고, 그것도 안 되면 503이다. user 실패는 Caffeine 로컬 캐시(`UserProfileCache`)로 채운다. 응답에 `degradation`이 붙는다 |
 | 고도화 5 | 조회는 `IsolatedCalls`가 재시도 루프(`RetryLoop`) → Retry-After 대기(`RetryAfterHolds`) → 서킷 브레이커 → 요청 수 상한(RateLimiter, ad만) → TimeLimiter → ThreadPool 벌크헤드로 감싼다. 재시도는 멱등한 조회(post, user, like, recommendation)만, 재시도할 실패(5xx, 연결 실패, 커넥션 풀 대기를 뺀 입출력 실패)에만, 요청의 남은 시간 예산(`RequestDeadline`)과 의존성별 재시도 예산(`RetryBudget`) 안에서 한다. ad(외부 API)와 좋아요 토글은 다시 부르지 않는다. 429를 받으면 `Retry-After` 동안 그 의존성을 부르지 않는다(5-4, 5-5) |
+| 고도화 6 | 고도화 5 그대로 감싼다. 좋아요 토글을 없애고 상태 변경(`PUT /feed/likes/{postId}`)이 요청 스레드에서 like 서킷과 Semaphore 벌크헤드 `like-write`를 거친다. 멱등해졌지만 feed-service는 다시 부르지 않는다 |
 
 MVP의 "공유 스레드 풀 하나 + 기본 타임아웃"은 실무에서 흔한 실수를 일부러 재현한 것이다. 하위 서비스 하나가 느려지면 공유 풀과 Tomcat 스레드가 함께 묶여 피드 전체가 느려지는 모습을 고도화 2에서 기준선으로 남긴다. 기본값(풀 크기, 큐 크기, HttpClient의 응답 타임아웃)은 `add-feed-aggregation` change에서 실제 값을 확인해 기록한다.
 
@@ -130,7 +131,7 @@ feed-service에 용량 설정(`weave.http-client.max-connections-per-route`, `sp
 | | 최대 스레드 | `Integer.MAX_VALUE` | 그대로 |
 | | 대기열 | `LinkedBlockingQueue`, 용량 `Integer.MAX_VALUE` (사실상 무제한) | 그대로 |
 | | 코어 스레드 시간 초과 허용, keep-alive | 허용(`allowCoreThreadTimeOut` true), 60초 | 그대로 |
-| HttpClient 5 (그룹마다) | 자동 재시도 (`DefaultHttpRequestRetryStrategy`) | 응답이 429·503이면 1초 뒤(`Retry-After`가 있으면 그 값) 1회 다시 보낸다. 이 경우는 메서드가 멱등인지 보지 않아 토글 POST도 다시 보낸다. 응답 전에 `IOException`(연결 리셋, 응답 없음 `NoHttpResponseException` 등)이 나면 멱등한 요청(GET)만 1회 다시 보낸다. 타임아웃(`InterruptedIOException`), 호스트 이름 실패, 연결 거부, 경로 없음, SSL 오류, 연결 닫힘(`ConnectionClosedException`)은 다시 보내지 않는다 | 끔(`disableAutomaticRetries`, design 결정 3) |
+| HttpClient 5 (그룹마다) | 자동 재시도 (`DefaultHttpRequestRetryStrategy`) | 응답이 429·503이면 1초 뒤(`Retry-After`가 있으면 그 값) 1회 다시 보낸다. 이 경우는 메서드가 멱등인지 보지 않아 쓰기 요청도 다시 보낸다. 응답 전에 `IOException`(연결 리셋, 응답 없음 `NoHttpResponseException` 등)이 나면 멱등한 요청(GET)만 1회 다시 보낸다. 타임아웃(`InterruptedIOException`), 호스트 이름 실패, 연결 거부, 경로 없음, SSL 오류, 연결 닫힘(`ConnectionClosedException`)은 다시 보내지 않는다 | 끔(`disableAutomaticRetries`, design 결정 3) |
 | | 연결 타임아웃 (`ConnectionConfig.connectTimeout`) | 3분 | 그대로 |
 | | 응답 타임아웃 | `RequestConfig.responseTimeout`과 `ConnectionConfig.socketTimeout`이 비어 있어 `SocketConfig.soTimeout` 3분이 쓰인다 | 그대로 |
 | | 커넥션 풀에서 연결을 기다리는 시간 (`RequestConfig.connectionRequestTimeout`) | 3분 | 그대로 |
@@ -190,7 +191,7 @@ flowchart LR
   - 비교 실험(design 결정 11)은 같은 호출을 ThreadPool 벌크헤드와 Semaphore 벌크헤드로 바꿔 돌려야 한다. `@Bulkhead(type = ...)`는 컴파일 때 정해진다. 지금은 `weave.isolation.bulkhead-type`(`thread-pool` 기본 | `semaphore`, `IsolationProperties`) 하나로 바꾼다.
   - 감싸는 순서(5-4)가 aspect 순서 속성에 흩어지지 않고, self-invocation처럼 프록시를 거치지 않는 호출이 조용히 빠지는 일이 없다. "격리를 거치지 않는 호출이 없다"를 Gateway가 `IsolatedCalls`만 쓰는지로 확인한다.
   - AOP 의존성을 더하지 않는다.
-- 요청 스레드에서 동기로 부르는 좋아요 토글은 `isolated.callBlocking("like", IsolatedCalls.LIKE_TOGGLE) { ... }`로 부른다. 조회와 같은 `like` 서킷과 Semaphore 벌크헤드 `like-toggle`을 거치고 TimeLimiter는 쓰지 않는다(그룹의 응답 타임아웃이 같은 역할을 한다, design 결정 6).
+- 요청 스레드에서 동기로 부르는 좋아요 상태 변경은 `isolated.callBlocking("like", IsolatedCalls.LIKE_WRITE) { ... }`로 부른다. 조회와 같은 `like` 서킷과 Semaphore 벌크헤드 `like-write`를 거치고 TimeLimiter는 쓰지 않는다(그룹의 응답 타임아웃이 같은 역할을 한다, design 결정 6). 다시 부르지 않는다. 재시도를 한 층에만 둬 시도 수가 곱해지지 않게 하려는 것으로, 실패를 받은 클라이언트가 같은 `version`으로 다시 보낸다(`add-idempotent-like` design 결정 5).
 - 실패 로그(`downstream_call_failed`)도 `IsolatedCalls`가 감싼 future의 결과에서 한 번만 남긴다. 시간 상한이나 요청 시간 예산이 먼저 끝낸 호출의 뒤늦은 실패는 남기지 않는다. 다시 부른 시도의 실패는 실패 로그가 아니라 `downstream_call_retried` 줄의 `cause`로 남고, 실패 로그는 마지막 시도의 실패로 한 번이다(`add-retry-policy` design 결정 8).
 - **재시도 루프는 Resilience4j `Retry`가 아니라 `IsolatedCalls`(`RetryLoop`)가 직접 돈다**(`add-retry-policy` design 결정 1). 다시 부를지는 실패 종류만이 아니라 그 요청의 남은 시간, 의존성의 재시도 예산, 요청 시간 예산이 이미 끝냈는지를 시도마다 봐야 해서다. 설정(최대 시도 횟수, 간격 함수)만 스타터가 만든 `RetryRegistry`에서 의존성 이름으로 꺼내고(`RetryRegistry.find`, 인스턴스가 없는 ad는 다시 부르지 않는다), 스타터의 `resilience4j_retry_calls_total`은 늘 0이다. 재시도 결정은 `weave_retry_calls_total`로 센다.
 - 마감은 `RequestBudget.call`이 `start()`를 부르는 동안만 ThreadLocal `RequestDeadline`에 둔다. Gateway가 `IsolatedCalls.call`을 그 안에서 동기로 부른다는 구조에 기댄다(마감이 없으면 시간 조건 없이 시도 횟수만 본다).
@@ -231,7 +232,7 @@ resilience4j:
         queue-capacity: 0                # 자리가 없으면 바로 거절한다
         context-propagators: com.weave.feed.gateway.TraceContextPropagator   # traceId 전파 (7-3)
     instances: { ... }                   # 의존성마다 core-thread-pool-size, max-thread-pool-size
-  bulkhead:                              # Semaphore. 좋아요 토글(like-toggle)과 비교 실험의 Semaphore 모드
+  bulkhead:                              # Semaphore. 좋아요 상태 변경(like-write)과 비교 실험의 Semaphore 모드
     configs:
       default:
         max-wait-duration: 0
@@ -316,8 +317,8 @@ HTTP 클라이언트의 타임아웃과 풀 크기는 Boot 그룹 설정(`spring
 | 커넥션 대기 상한 | 100ms | 100ms | 벌크헤드 ≤ 커넥션 풀이라 평시에는 기다리지 않는다. 기다린다면 설정 오류라 빨리 실패한다 |
 | 요청 시간 예산 | 250ms(피드 하나) | | p99 300ms에 여유 50ms(4-3) |
 | ThreadPool 벌크헤드 | 스레드 40, 대기열 0 | 같음 | 400 RPS × 평시 p99 51ms ≈ 20.4, 여유 2배 → 40. 기준선 400 RPS의 의존성별 커넥션 사용 중 최댓값 14~16의 2.5배 이상 |
-| 커넥션 풀(라우트당·전체) | 40, like만 50 | 40 | 벌크헤드와 같게 둬 기다림이 벌크헤드 한 곳에서만 생긴다. like는 토글 상한 10을 더한다 |
-| 토글 동시 호출 상한(Semaphore) | like 10 | | like 풀에서 읽기 몫 밖의 자리. 토글 부하는 실험 세트에 없어 F-003의 S-11에서 다시 정한다 |
+| 커넥션 풀(라우트당·전체) | 40, like만 50 | 40 | 벌크헤드와 같게 둬 기다림이 벌크헤드 한 곳에서만 생긴다. like는 쓰기 상한 10을 더한다 |
+| 쓰기 동시 호출 상한(Semaphore `like-write`) | like 10 | | like 풀에서 읽기 몫 밖의 자리. 쓰기 부하는 실험 세트에 없어 F-003의 S-11에서 다시 정한다 |
 | 서킷: 판단 창, 최소 호출 수 | 최근 10초, 100 | 같음 | 처음에는 최근 호출 100개(400 RPS에서 0.25초)였는데, 1.05초 GC 멈춤만으로 창이 차 서킷이 5초 열렸다. 10초면 1초 멈춤은 창의 약 10%다. 대신 실제 장애도 창 전체의 실패율이 문턱을 넘어야 열려, 평시 뒤의 장애는 약 5~7초 뒤에 연다(S-03 실측 7~12초). 그동안 상한이 p99를 묶는다 |
 | 서킷: 실패율 문턱 | 50% | 같음 | 기준선 S-01의 호출 실패율 0 |
 | 서킷: 느린 호출 기준, 문턱 | 80ms, 50% | 160ms, 50% | 상한의 80%. 평시에 경계를 넘는 비율 0.17% 이하 |
@@ -327,7 +328,7 @@ HTTP 클라이언트의 타임아웃과 풀 크기는 Boot 그룹 설정(`spring
 
 | 값 | 설정 | 근거 |
 |---|---|---|
-| 최대 시도 횟수 | 3 (post, user, like, recommendation). ad와 좋아요 토글은 다시 부르지 않는다 | Google SRE 책 22장의 "요청 하나에 최대 3번". user·like가 post 중앙값(20ms) 뒤 시작해 빠른 실패(중앙값 20ms)를 두 번 겪어도 세 번째 시도의 상한(100ms)까지 약 190ms라 요청 시간 예산 250ms 안이다 |
+| 최대 시도 횟수 | 3 (post, user, like, recommendation). ad와 좋아요 상태 변경은 다시 부르지 않는다 | Google SRE 책 22장의 "요청 하나에 최대 3번". user·like가 post 중앙값(20ms) 뒤 시작해 빠른 실패(중앙값 20ms)를 두 번 겪어도 세 번째 시도의 상한(100ms)까지 약 190ms라 요청 시간 예산 250ms 안이다 |
 | 재시도 전 기다림 | 10ms, 20ms(지수 ×2), ±50% | 기다림 합(최대 45ms)이 하위 서비스 평시 중앙값 두 번 남짓이라 남은 예산을 시도 자체에 쓴다. jitter는 장애 시작에 같은 순간 실패한 수백 건이 같은 순간 다시 몰리지 않게 한다 |
 | 남은 시간 조건 | 마감 − 지금 ≥ 그 의존성의 호출 시간 상한 + 기다림 | 끝까지 기다리지 못할 시도는 보내지 않는다(design 결정 3) |
 | 재시도 예산 | 의존성마다 최근 1초(100ms 칸 10개) 원래 호출의 10%, 창마다 최소 1번 | 비율은 Google SRE 책 22장의 클라이언트별 재시도 예산 10%. 장애가 시작되는 순간 풀리는 재시도는 창에 쌓인 예산 전부라, 창 1초면 400 RPS에서 40번(100ms 칸 하나의 평시 호출 수)이다. 처음에는 서킷 판단 창과 같은 10초였는데, S-09에서 장애 시작에 재시도가 0.5초 안에 약 120~320번 몰린 직후 feed-service가 0.2~0.7초 멈추고 503이 났다. 1초로 줄인 뒤 503은 줄었지만 멈춤의 원인은 가리지 못했다([고도화 5 결과](experiments/retry-policy.md)). 계산한 S-09 장애 초반 요청 배율은 예산이 있으면 약 1.03, 없으면 약 1.33이고, 판정 상한 1.2(PRD 10장)가 둘을 가른다 |
