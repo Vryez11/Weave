@@ -1,5 +1,5 @@
 {
-  "stage": "고도화 5",
+  "stage": "고도화 6",
   "scenarios": {
     "S-01": { "availability": "meet", "p99": "meet", "degradeRatio": "meet", "requestRatio": "meet" },
     "S-02": { "availability": "meet", "p99": "meet", "requestRatio": "meet" },

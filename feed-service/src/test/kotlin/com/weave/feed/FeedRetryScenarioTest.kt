@@ -122,13 +122,13 @@ class FeedRetryScenarioTest :
                 withClue("ad-service가 받은 요청") { wireMock.requestsTo("/ads") shouldHaveSize 1 }
             }
 
-            test("F-005 좋아요 토글은 다시 부르지 않는다: like 최대 시도 횟수가 3이고 like-service가 토글에 503을 주면 500이 오고 토글은 한 번만 받는다") {
-                wireMock.stubToggleFailure(postId = 5, status = 503)
+            test("F-005 F-003 좋아요 상태 변경은 다시 부르지 않는다: like 최대 시도 횟수가 3이고 like-service가 상태 변경에 503을 주면 500이 오고 상태 변경은 한 번만 받는다") {
+                wireMock.stubLikeStateFailure(postId = 5, status = 503)
 
-                val response = FeedHttpClient(localPort()).toggleLike("5")
+                val response = FeedHttpClient(localPort()).putLike("5")
 
                 response.status shouldBe 500
-                withClue("like-service가 받은 토글 요청") { wireMock.requestsTo("/likes/5/toggle") shouldHaveSize 1 }
+                withClue("like-service가 받은 상태 변경 요청") { wireMock.requestsTo("/likes/5") shouldHaveSize 1 }
             }
         }
 

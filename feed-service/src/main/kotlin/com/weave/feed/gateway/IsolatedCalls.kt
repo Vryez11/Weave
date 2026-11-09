@@ -56,7 +56,7 @@ import java.util.function.Supplier
  * (`weave.ratelimiter.rejected.calls`, RateLimiter가 있는 의존성만)도 같은 방식이다(add-retry-policy design 결정 9). 대기 시작 로그
  * (`retry_after_hold_started`)는 대기를 새로 시작할 때만 남기고, 대기 중 막은 호출은 실패 로그와 지표로만 센다(design 결정 8).
  *
- * 요청 스레드에서 동기로 부르는 호출(좋아요 토글)은 [callBlocking]으로 부른다(design 결정 6).
+ * 요청 스레드에서 동기로 부르는 호출(좋아요 상태 변경)은 [callBlocking]으로 부른다(design 결정 6).
  *
  * `weave.isolation.bulkhead-type: semaphore`면 ThreadPool 벌크헤드 대신 같은 이름의 Semaphore 벌크헤드로 자리를 잡고
  * [taskExecutor](`applicationTaskExecutor`)에서 부른다(design 결정 11). 감싸는 순서와 실패 로그는 같다. 이때 호출 스레드의 trace는
@@ -215,7 +215,7 @@ class IsolatedCalls(
      *
      * 호출 시간 상한은 걸지 않는다. 동기 호출에 상한을 걸려면 다른 스레드로 넘겨야 하고, 그룹의 응답 타임아웃이 같은 역할을 한다.
      * 벌크헤드는 기다리지 않고 거절한다. 실패하면 [call]과 같은 실패 로그를 한 줄 남기고 실패를 그대로 던진다. 다시 부르지 않는다
-     * (좋아요 토글은 멱등하지 않다, add-retry-policy design 결정 1).
+     * (재시도는 같은 `version`으로 다시 보내는 클라이언트 한 층에 둔다, add-idempotent-like design 결정 5).
      */
     fun <T> callBlocking(
         dependency: String,
@@ -323,11 +323,11 @@ class IsolatedCalls(
         /** 격리하는 의존성. HTTP 서비스 그룹 이름, Resilience4j 인스턴스 이름과 같다. */
         val DEPENDENCIES = listOf("post", "user", "like", "recommendation", "ad")
 
-        /** 좋아요 토글의 Semaphore 벌크헤드 이름. 읽기 벌크헤드(`like`)와 자리를 나눈다(design 결정 6). */
-        const val LIKE_TOGGLE = "like-toggle"
+        /** 좋아요 상태 변경의 Semaphore 벌크헤드 이름. 읽기 벌크헤드(`like`)와 자리를 나눈다(design 결정 6). */
+        const val LIKE_WRITE = "like-write"
 
         /** [callBlocking]이 쓰는 Semaphore 벌크헤드. `resilience4j.bulkhead.instances`의 이름이다. */
-        val BLOCKING_BULKHEADS = listOf(LIKE_TOGGLE)
+        val BLOCKING_BULKHEADS = listOf(LIKE_WRITE)
 
         private const val TOO_MANY_REQUESTS = 429
 

@@ -134,6 +134,8 @@ services:
       LIKE_DB_URL: jdbc:mysql://mysql:3306/weave_like
       LIKE_DB_USERNAME: ${LIKE_DB_USERNAME:?.env에 LIKE_DB_USERNAME을 채운다}
       LIKE_DB_PASSWORD: ${LIKE_DB_PASSWORD:?.env에 LIKE_DB_PASSWORD를 채운다}
+      # 좋아요 수 갱신 방식을 실험마다 바꾼다. run-like.sh S-11이 방식마다 이 값으로 컨테이너를 새로 만든다(add-idempotent-like design 결정 10)
+      SPRING_APPLICATION_JSON: ${LIKE_SPRING_APPLICATION_JSON:-{}}
     depends_on:
       <<: *service-depends-on
       mysql:

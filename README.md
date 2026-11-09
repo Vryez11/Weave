@@ -29,6 +29,16 @@
 | S-09 하위 요청 배율 최댓값 (user, 상한 1.2) | 1.224 | **1.02** |
 | S-07 광고 요청 한도 초과: ad-service의 429 | 약 59,400건 (Retry-After 무시) | **30건**, 상한을 한도 아래로 두면 **0건** |
 
+고도화 6에서는 좋아요를 토글에서 상태 지정과 `version` 순서 판단으로 바꿨다. 피드의 p99는 고도화 5와 4ms 안으로 같고, 가용성은 S-03만 1에서 0.9992로 낮아졌을 뿐 SLO 안이다.
+
+| 상황 | 고치기 전 (토글, 읽고 고쳐 저장) | 고도화 6 |
+|---|---|---|
+| 이미 반영된 요청을 다시 보낸다 | 둘째 요청이 의도를 뒤집는다 | **한 번만 반영** (타임아웃 뒤 재전송 포함) |
+| 좋아요 → 취소 → 늦게 온 좋아요 | 순서를 판단할 근거가 없다 | **취소가 남는다** |
+| like-service에 서로 다른 사용자 50명이 동시에 | 갱신 44건 유실 | **수 50, 불일치 0** |
+| like-service에 같은 사용자의 같은 요청 20개가 동시에 | 500이 17~18개, 끝 상태가 정해지지 않는다 | **모두 200, 수 1** |
+| S-11 한 글에 몰림 (400 RPS, 2분): 수 불일치 | 1,898~2,626건 | **원자적 UPDATE 0건** |
+
 ## 목차
 
 1. [프로젝트 개요](#1-프로젝트-개요)
@@ -44,7 +54,8 @@
    - [2-4. 고도화 3: 하위 서비스 호출 격리](#2-4-고도화-3-하위-서비스-호출-격리-f-001)
    - [2-5. 고도화 4: 등급별 Graceful Degradation](#2-5-고도화-4-등급별-graceful-degradation-f-002)
    - [2-6. 고도화 5: 재시도와 외부 API 정책](#2-6-고도화-5-재시도와-외부-api-정책-f-005)
-   - [2-7. 남은 것](#2-7-남은-것)
+   - [2-7. 고도화 6: 좋아요 상태 기반 API와 멱등성](#2-7-고도화-6-좋아요-상태-기반-api와-멱등성-f-003)
+   - [2-8. 남은 것](#2-8-남은-것)
 3. [개발 방식](#3-개발-방식)
 4. [실행과 테스트](#4-실행과-테스트)
 
@@ -63,7 +74,7 @@
 | 장애 격리 | 타임아웃·요청 시간 예산, Resilience4j 서킷 브레이커와 벌크헤드로 느리거나 죽은 하위 서비스를 가둔다 | 완료 (고도화 3) |
 | 등급별 Graceful Degradation | 하위 서비스를 필수·중요·선택으로 나누고, 등급마다 실패했을 때의 응답을 다르게 한다 | 완료 (고도화 4) |
 | traceId 로그 | traceId 하나로 6개 서비스의 로그와 트레이스를 시간순으로 본다 | 완료 (고도화 1, 3, 4, 5) |
-| 좋아요 정합성 | 상태 기반 API와 멱등성으로 재시도·중복·순서 뒤바뀜에도 좋아요가 정확하다 | 예정 (고도화 6) |
+| 좋아요 정합성 | 상태 기반 API와 멱등성으로 재시도·중복·순서 뒤바뀜에도 좋아요가 정확하다 | 완료 (고도화 6) |
 
 ### 1-2. 시스템 구성
 
@@ -161,7 +172,7 @@ flowchart LR
 | 고도화 3 | 타임아웃·시간 예산, 서킷 브레이커, 벌크헤드 | F-001 | `v0.4.0` |
 | 고도화 4 | 등급별 Graceful Degradation | F-002 | `v0.5.0` |
 | 고도화 5 | 재시도 예산, 외부 API(ad)의 Retry-After와 쿼터 | F-005 | `v0.6.0` |
-| 고도화 6 | 좋아요 상태 기반 API와 멱등성, 인기 글 몰림의 카운터 방식 비교 | F-003 | 예정 |
+| 고도화 6 | 좋아요 상태 기반 API와 멱등성, 인기 글 몰림의 카운터 방식 비교 | F-003 | `v0.7.0` |
 
 판정 기준(SLO)은 처음에 정해 두고 바꾸지 않았다.
 
@@ -175,7 +186,7 @@ flowchart LR
 
 ## 2. 단계별 기록: 보려던 것, 결정, 결과
 
-자세한 숫자와 근거는 [MVP 기준선](docs/experiments/baseline-mvp.md), [고도화 3 결과](docs/experiments/call-isolation.md), [고도화 4 결과](docs/experiments/graceful-degradation.md), [고도화 5 결과](docs/experiments/retry-policy.md), [아키텍처](docs/architecture.md)에 있다.
+자세한 숫자와 근거는 [MVP 기준선](docs/experiments/baseline-mvp.md), [고도화 3 결과](docs/experiments/call-isolation.md), [고도화 4 결과](docs/experiments/graceful-degradation.md), [고도화 5 결과](docs/experiments/retry-policy.md), [고도화 6 결과](docs/experiments/idempotent-like.md), [아키텍처](docs/architecture.md)에 있다.
 
 ### 2-1. MVP: 보호 장치 없는 피드 (F-006)
 
@@ -353,14 +364,51 @@ Loki에서 `{service=~".+"} | traceId="<traceId>"` 한 줄로 6개 서비스의 
 - 재시도가 살리는 응답은 이 실험 세트에서 작다(S-09 like degrade 0.148 → 0.145). 몇 초 이상 이어지는 장애는 서킷이 금방 열리기 때문이다. 순간 실패를 넘기는 이득은 통합 테스트로 확인했고, 실험 세트가 보이는 것은 늘어나는 요청을 묶었다는 것이다.
 - 실험 세트 중 like-service가 512MB에서 OOMKilled로 죽어 컨테이너 상한을 768MB로 올렸다. 힙(128MB)과 GC는 그대로 뒀고, 네이티브 메모리가 왜 약 460MB까지 오르는지는 못 가렸다.
 
-### 2-7. 남은 것
+### 2-7. 고도화 6: 좋아요 상태 기반 API와 멱등성 (F-003)
+
+**보려던 것.** 토글 좋아요가 재전송과 동시 요청에서 어떻게 깨지는지. 멱등성과 순서 판단으로 사용자의 마지막 의도가 남는지. 인기 글에 좋아요가 몰릴 때 카운터를 어떻게 고쳐야 하는지.
+
+**결정.**
+
+- **토글을 없애고 원하는 상태를 보낸다.** `PUT /likes/{postId}`에 `{"liked": 불리언, "version": 양의 정수}`를 보낸다. `version`은 클라이언트가 의도를 만들 때 정하고 재전송에도 그대로 쓴다. 저장 값 이하면 바꾸지 않고 지금 상태를 돌려준다.
+- **취소해도 행을 남긴다.** 지우면 취소 뒤 늦게 온 좋아요의 순서를 판단할 근거가 사라진다. 판단 전에 그 행을 잠그고, 잠금 순서는 좋아요 행 → 카운터 행이다.
+- **feed-service는 쓰기를 다시 부르지 않는다.** 멱등해져 안전하지만 재시도 층이 둘이면 장애 중 요청이 곱으로 늘어난다. 재전송은 클라이언트 한 층에서 한다.
+
+| 값 | 정한 값 | 근거 |
+|---|---|---|
+| S-11 부하 | 400 RPS | 기준선(read-modify-write)이 실패 없이 버틴 단계. 600 RPS는 버티지 못했다 |
+| 기본 카운터 방식 | `atomic` | 수가 정확하고 막히지 않은 실행의 p99가 분할과 같다 |
+| 분할을 켤 때의 칸 수 | 8 | 분할 4 약 300회, 8은 10~37회, 16은 0회. 8에서 16으로 늘려 줄어드는 대기는 2분에 200ms 안팎 |
+| `like-write` 상한 | 10 | 400 RPS × 11ms = 동시 4.4개, 여유 2배로 약 9 |
+
+**결과.** 토글에서는 재전송이 의도를 뒤집고 동시 50명의 갱신 44건이 유실됐다. 상태 지정에서는 S-10의 중복, 동시, 순서 뒤바뀜, 타임아웃 뒤 재전송이 모두 한 번 반영한 결과로 끝난다.
+
+| 방식 (S-11, 400 RPS, 2분) | 수 불일치 | 행 잠금 대기 | 막히지 않은 p99 |
+|---|---|---|---|
+| read-modify-write | **1,898~2,626건** | 2,218~3,025회 | 11~18ms |
+| **atomic (기본)** | **0** | 2,473~3,451회 | 11ms |
+| sharded 8 | 0 | 10~37회 | 8~9ms |
+| sharded 16 | 0 | 0회 | 9ms |
+
+S-01~S-09는 모두 기대와 같았고 p99는 고도화 5와 4ms 안으로 같다.
+
+**측정이 설정을 바꿨다.** 막 뜬 서비스에 처음부터 목표 RPS를 줘 400 RPS를 처리 한계로 잘못 읽었고, 준비 구간을 0에서 올리도록 고친 뒤 다시 재서 400 RPS로 정했다. 방식 비교에서는 `atomic`의 잠금 대기 합이 2분에 약 7초(커넥션 10개 기준 0.6%)라 분할로 줄여도 응답 시간이 움직이지 않았다. 그래서 기본은 쓰기 경로가 단순한 `atomic`으로 뒀다.
+
+**한계도 그대로 적는다.**
+
+- 카운터 방식과 관계없이 like-service가 한 코어를 다 쓰고 HikariCP 대기가 189까지 차는 실행이 나왔다. 원인은 가리지 못했다.
+- 처리량 한계는 방식별로 재지 않았다. atomic은 600 RPS까지 실패가 없었고 800 RPS는 버티지 못했다.
+- S-03 가용성이 0.999233으로 SLO 안에서 고도화 5의 1보다 낮았다. 장애 시작 1.3~1.8초 뒤 약 0.5초에 503 92건이 몰렸고, 고도화 4·5에 적은 feed-service 순간 멈춤·캐시 읽기 실패와 같은 모습이다.
+
+[고도화 6 결과](docs/experiments/idempotent-like.md)
+
+### 2-8. 남은 것
 
 | 무엇 | 어디서 |
 |---|---|
 | 장애 시작 순간의 feed-service 멈춤(0.2~0.7초). safepoint 로그와 로그 대기열을 재면 가를 수 있다 | [고도화 5 결과](docs/experiments/retry-policy.md) "남은 것" |
 | like-service 네이티브 메모리(힙 128MB에 약 460MB) | 같은 문서 |
-| 토글 좋아요가 재시도·중복에 깨지는 것을 재현하고 상태 기반 API와 멱등성으로 바꾸기, 인기 글 몰림의 카운터 방식 비교(S-10, S-11) | 고도화 6 (F-003) |
-| 장애를 넣지 않은 like-service의 순간 막힘. 평시 like degrade 0.5%의 대부분이다. 메모리 압박, 관찰 파이프라인 포화, 호스트 순간 멈춤 중 무엇인지 아직 가리지 못했다 | [고도화 4 결과](docs/experiments/graceful-degradation.md) "남은 것" |
+| 장애를 넣지 않은 like-service의 순간 막힘. 평시 like degrade 0.5%의 대부분이고, S-11에서도 카운터 방식과 관계없이 나왔다. 메모리 압박, 관찰 파이프라인 포화, 호스트 순간 멈춤 중 무엇인지 아직 가리지 못했다 | [고도화 4 결과](docs/experiments/graceful-degradation.md) "남은 것" |
 | post 실패와 캐시 읽기 실패가 같은 순간에 오는 503 (S-06에서 0.014%) | 같은 문서 |
 
 ---
@@ -442,9 +490,16 @@ docker compose up -d --build --wait
 curl -i -H 'X-User-Id: 1' 'http://localhost:8080/feed?size=10'
 ```
 
+좋아요는 원하는 상태와 `version`을 보낸다. 같은 요청을 다시 보내도 결과는 같고, 저장된 값 이하의 `version`은 반영되지 않는다.
+
+```bash
+curl -i -X PUT -H 'X-User-Id: 1' -H 'Content-Type: application/json' -d '{"liked":true,"version":1}' 'http://localhost:8080/feed/likes/1'
+```
+
 | 주소 | 무엇 |
 |---|---|
 | `http://localhost:8080/feed?size=10` | 피드 (헤더 `X-User-Id`) |
+| `PUT http://localhost:8080/feed/likes/{postId}` | 좋아요 상태 지정 (헤더 `X-User-Id`, 본문 `{"liked": 불리언, "version": 양의 정수}`) |
 | `http://localhost:3000` | Grafana. Explore에서 Loki로 `{service=~".+"} \| traceId="<traceId>"`를 조회하고, 로그의 traceId 링크로 Tempo 트레이스를 연다 |
 | `http://localhost:3000/d/weave-feed` | 피드 실험 대시보드 (피드 SLO, 의존성별 호출, 자원 사용량, 서킷·벌크헤드, degrade 비율, 재시도·외부 API) |
 | `http://localhost:9090` | Prometheus |
@@ -500,6 +555,33 @@ FEED_SPRING_APPLICATION_JSON='{"weave.isolation.bulkhead-type":"semaphore","spri
 | S-08 | recommendation 무응답을 120초에 거둔다 (복구 시간) |
 | S-09 | user·like 5xx를 10초씩 세 번 |
 
+### 좋아요 정합성 실험
+
+좋아요 쓰기는 S-01~S-09와 따로 돌린다. 위의 Compose 환경을 띄운 뒤 돌리고, 리포트는 같은 `experiments/results/` 아래에 남는다.
+
+중복, 동시, 순서 뒤바뀜, 타임아웃 뒤 재전송의 최종 상태 확인:
+
+```bash
+experiments/run-like.sh S-10
+```
+
+한 글에 좋아요를 몰아 카운터 방식 비교. 기본값(400 RPS, 준비 1분 + 측정 2분)으로 방식마다 like-service를 다시 띄워 다섯 구성을 돌린다(약 17분).
+
+```bash
+experiments/run-like.sh S-11
+```
+
+한 방식만 짧게:
+
+```bash
+experiments/run-like.sh S-11 --strategy atomic --rps 5 --warmup 3s --duration 10s
+```
+
+| ID | 무엇을 보나 |
+|---|---|
+| S-10 | 같은 요청의 중복·동시·순서 뒤바뀜과 타임아웃 뒤 재전송이 사용자의 마지막 의도로 끝나는지 |
+| S-11 | `read-modify-write`, `atomic`, `sharded`(4, 8, 16칸)의 p99, 행 잠금 대기, 수 불일치 |
+
 ---
 
 ### 문서
@@ -508,6 +590,6 @@ FEED_SPRING_APPLICATION_JSON='{"weave.isolation.bulkhead-type":"semaphore","spri
 |---|---|
 | [PRD](docs/prd.md) | 단계, SLO, 의존성 등급, 장애 시나리오, 기능 ID와 수용 기준, 정한 것과 이유 |
 | [아키텍처](docs/architecture.md) | 요청 흐름, 시간 예산, Resilience4j 구성과 설정값 근거, 대체 구현, 관찰, 실험 환경 |
-| [MVP 기준선](docs/experiments/baseline-mvp.md), [고도화 3 결과](docs/experiments/call-isolation.md), [고도화 4 결과](docs/experiments/graceful-degradation.md), [고도화 5 결과](docs/experiments/retry-policy.md) | 단계별 장애 실험 결과와 비교 |
+| [MVP 기준선](docs/experiments/baseline-mvp.md), [고도화 3 결과](docs/experiments/call-isolation.md), [고도화 4 결과](docs/experiments/graceful-degradation.md), [고도화 5 결과](docs/experiments/retry-policy.md), [고도화 6 결과](docs/experiments/idempotent-like.md) | 단계별 장애 실험 결과와 비교 |
 | `openspec/specs/`, `openspec/changes/archive/` | 동작 스펙과 change별 설계 결정 |
 | [conventions/](conventions/) | 하네스, 스펙, 커밋, 브랜치 규칙 |

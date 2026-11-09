@@ -1,4 +1,6 @@
 # 아키텍처
+- 좋아요 순서 판단(F-003): 클라이언트가 정한 `version`을 재전송에도 그대로 보내고, 저장 값 이하면 바꾸지 않는다(8장, `add-idempotent-like` design)
+- S-11 몰림 부하와 카운터 방식(F-003): 400 RPS, 기본 `atomic`, 분할을 켤 때 8칸([고도화 6 결과](experiments/idempotent-like.md))
 
 - 작성일: 2026-11-04
 - 상태: 초안. 고도화 5(`add-retry-policy`, F-005)까지 반영했다. 격리·재시도 설정값과 근거는 4-3과 5-6, 대체 설정값은 6-4, 결과는 [고도화 3 결과](experiments/call-isolation.md), [고도화 4 결과](experiments/graceful-degradation.md), [고도화 5 결과](experiments/retry-policy.md)에 있다.
@@ -117,6 +119,7 @@ sequenceDiagram
 | 고도화 3 | 조회는 `IsolatedCalls`가 의존성마다 서킷 브레이커 → 호출 시간 상한(TimeLimiter) → ThreadPool 벌크헤드로 감싸고, HttpClient 그룹마다 연결·응답·커넥션 대기 타임아웃과 커넥션 풀 크기를 둔다. `FeedAssembler`가 요청 시간 예산(`RequestBudget`)으로 기다린다. 좋아요 토글은 요청 스레드에서 like 서킷과 Semaphore 벌크헤드 `like-toggle`을 거친다. 공유 풀(`applicationTaskExecutor`)은 비교 실험용 Semaphore 모드(`weave.isolation.bulkhead-type: semaphore`)에서만 조회를 돌린다 |
 | 고도화 4 | 고도화 3 그대로 감싸고, `FeedAssembler`가 의존성마다 결과를 값으로 받아(`RequestBudget.awaitResult`) 등급대로 대체한다(6장). post가 실패하면 요청 스레드에서 Redis stale 캐시(`PostStaleCache`)를 읽고, 그것도 안 되면 503이다. user 실패는 Caffeine 로컬 캐시(`UserProfileCache`)로 채운다. 응답에 `degradation`이 붙는다 |
 | 고도화 5 | 조회는 `IsolatedCalls`가 재시도 루프(`RetryLoop`) → Retry-After 대기(`RetryAfterHolds`) → 서킷 브레이커 → 요청 수 상한(RateLimiter, ad만) → TimeLimiter → ThreadPool 벌크헤드로 감싼다. 재시도는 멱등한 조회(post, user, like, recommendation)만, 재시도할 실패(5xx, 연결 실패, 커넥션 풀 대기를 뺀 입출력 실패)에만, 요청의 남은 시간 예산(`RequestDeadline`)과 의존성별 재시도 예산(`RetryBudget`) 안에서 한다. ad(외부 API)와 좋아요 토글은 다시 부르지 않는다. 429를 받으면 `Retry-After` 동안 그 의존성을 부르지 않는다(5-4, 5-5) |
+| 고도화 6 | 고도화 5 그대로 감싼다. 좋아요 토글을 없애고 상태 변경(`PUT /feed/likes/{postId}`)이 요청 스레드에서 like 서킷과 Semaphore 벌크헤드 `like-write`를 거친다. 멱등해졌지만 feed-service는 다시 부르지 않는다 |
 
 MVP의 "공유 스레드 풀 하나 + 기본 타임아웃"은 실무에서 흔한 실수를 일부러 재현한 것이다. 하위 서비스 하나가 느려지면 공유 풀과 Tomcat 스레드가 함께 묶여 피드 전체가 느려지는 모습을 고도화 2에서 기준선으로 남긴다. 기본값(풀 크기, 큐 크기, HttpClient의 응답 타임아웃)은 `add-feed-aggregation` change에서 실제 값을 확인해 기록한다.
 
@@ -130,7 +133,7 @@ feed-service에 용량 설정(`weave.http-client.max-connections-per-route`, `sp
 | | 최대 스레드 | `Integer.MAX_VALUE` | 그대로 |
 | | 대기열 | `LinkedBlockingQueue`, 용량 `Integer.MAX_VALUE` (사실상 무제한) | 그대로 |
 | | 코어 스레드 시간 초과 허용, keep-alive | 허용(`allowCoreThreadTimeOut` true), 60초 | 그대로 |
-| HttpClient 5 (그룹마다) | 자동 재시도 (`DefaultHttpRequestRetryStrategy`) | 응답이 429·503이면 1초 뒤(`Retry-After`가 있으면 그 값) 1회 다시 보낸다. 이 경우는 메서드가 멱등인지 보지 않아 토글 POST도 다시 보낸다. 응답 전에 `IOException`(연결 리셋, 응답 없음 `NoHttpResponseException` 등)이 나면 멱등한 요청(GET)만 1회 다시 보낸다. 타임아웃(`InterruptedIOException`), 호스트 이름 실패, 연결 거부, 경로 없음, SSL 오류, 연결 닫힘(`ConnectionClosedException`)은 다시 보내지 않는다 | 끔(`disableAutomaticRetries`, design 결정 3) |
+| HttpClient 5 (그룹마다) | 자동 재시도 (`DefaultHttpRequestRetryStrategy`) | 응답이 429·503이면 1초 뒤(`Retry-After`가 있으면 그 값) 1회 다시 보낸다. 이 경우는 메서드가 멱등인지 보지 않아 쓰기 요청도 다시 보낸다. 응답 전에 `IOException`(연결 리셋, 응답 없음 `NoHttpResponseException` 등)이 나면 멱등한 요청(GET)만 1회 다시 보낸다. 타임아웃(`InterruptedIOException`), 호스트 이름 실패, 연결 거부, 경로 없음, SSL 오류, 연결 닫힘(`ConnectionClosedException`)은 다시 보내지 않는다 | 끔(`disableAutomaticRetries`, design 결정 3) |
 | | 연결 타임아웃 (`ConnectionConfig.connectTimeout`) | 3분 | 그대로 |
 | | 응답 타임아웃 | `RequestConfig.responseTimeout`과 `ConnectionConfig.socketTimeout`이 비어 있어 `SocketConfig.soTimeout` 3분이 쓰인다 | 그대로 |
 | | 커넥션 풀에서 연결을 기다리는 시간 (`RequestConfig.connectionRequestTimeout`) | 3분 | 그대로 |
@@ -190,7 +193,7 @@ flowchart LR
   - 비교 실험(design 결정 11)은 같은 호출을 ThreadPool 벌크헤드와 Semaphore 벌크헤드로 바꿔 돌려야 한다. `@Bulkhead(type = ...)`는 컴파일 때 정해진다. 지금은 `weave.isolation.bulkhead-type`(`thread-pool` 기본 | `semaphore`, `IsolationProperties`) 하나로 바꾼다.
   - 감싸는 순서(5-4)가 aspect 순서 속성에 흩어지지 않고, self-invocation처럼 프록시를 거치지 않는 호출이 조용히 빠지는 일이 없다. "격리를 거치지 않는 호출이 없다"를 Gateway가 `IsolatedCalls`만 쓰는지로 확인한다.
   - AOP 의존성을 더하지 않는다.
-- 요청 스레드에서 동기로 부르는 좋아요 토글은 `isolated.callBlocking("like", IsolatedCalls.LIKE_TOGGLE) { ... }`로 부른다. 조회와 같은 `like` 서킷과 Semaphore 벌크헤드 `like-toggle`을 거치고 TimeLimiter는 쓰지 않는다(그룹의 응답 타임아웃이 같은 역할을 한다, design 결정 6).
+- 요청 스레드에서 동기로 부르는 좋아요 상태 변경은 `isolated.callBlocking("like", IsolatedCalls.LIKE_WRITE) { ... }`로 부른다. 조회와 같은 `like` 서킷과 Semaphore 벌크헤드 `like-write`를 거치고 TimeLimiter는 쓰지 않는다(그룹의 응답 타임아웃이 같은 역할을 한다, design 결정 6). 다시 부르지 않는다. 재시도를 한 층에만 둬 시도 수가 곱해지지 않게 하려는 것으로, 실패를 받은 클라이언트가 같은 `version`으로 다시 보낸다(`add-idempotent-like` design 결정 5).
 - 실패 로그(`downstream_call_failed`)도 `IsolatedCalls`가 감싼 future의 결과에서 한 번만 남긴다. 시간 상한이나 요청 시간 예산이 먼저 끝낸 호출의 뒤늦은 실패는 남기지 않는다. 다시 부른 시도의 실패는 실패 로그가 아니라 `downstream_call_retried` 줄의 `cause`로 남고, 실패 로그는 마지막 시도의 실패로 한 번이다(`add-retry-policy` design 결정 8).
 - **재시도 루프는 Resilience4j `Retry`가 아니라 `IsolatedCalls`(`RetryLoop`)가 직접 돈다**(`add-retry-policy` design 결정 1). 다시 부를지는 실패 종류만이 아니라 그 요청의 남은 시간, 의존성의 재시도 예산, 요청 시간 예산이 이미 끝냈는지를 시도마다 봐야 해서다. 설정(최대 시도 횟수, 간격 함수)만 스타터가 만든 `RetryRegistry`에서 의존성 이름으로 꺼내고(`RetryRegistry.find`, 인스턴스가 없는 ad는 다시 부르지 않는다), 스타터의 `resilience4j_retry_calls_total`은 늘 0이다. 재시도 결정은 `weave_retry_calls_total`로 센다.
 - 마감은 `RequestBudget.call`이 `start()`를 부르는 동안만 ThreadLocal `RequestDeadline`에 둔다. Gateway가 `IsolatedCalls.call`을 그 안에서 동기로 부른다는 구조에 기댄다(마감이 없으면 시간 조건 없이 시도 횟수만 본다).
@@ -231,11 +234,11 @@ resilience4j:
         queue-capacity: 0                # 자리가 없으면 바로 거절한다
         context-propagators: com.weave.feed.gateway.TraceContextPropagator   # traceId 전파 (7-3)
     instances: { ... }                   # 의존성마다 core-thread-pool-size, max-thread-pool-size
-  bulkhead:                              # Semaphore. 좋아요 토글(like-toggle)과 비교 실험의 Semaphore 모드
+  bulkhead:                              # Semaphore. 좋아요 상태 변경(like-write)과 비교 실험의 Semaphore 모드
     configs:
       default:
         max-wait-duration: 0
-    instances: { like-toggle: ..., post: ..., ... }
+    instances: { like-write: ..., post: ..., ... }
   retry:                                 # 멱등한 조회의 재시도 (고도화 5). IsolatedCalls가 설정만 꺼내 쓴다 (5-2)
     configs:
       default:
@@ -316,8 +319,8 @@ HTTP 클라이언트의 타임아웃과 풀 크기는 Boot 그룹 설정(`spring
 | 커넥션 대기 상한 | 100ms | 100ms | 벌크헤드 ≤ 커넥션 풀이라 평시에는 기다리지 않는다. 기다린다면 설정 오류라 빨리 실패한다 |
 | 요청 시간 예산 | 250ms(피드 하나) | | p99 300ms에 여유 50ms(4-3) |
 | ThreadPool 벌크헤드 | 스레드 40, 대기열 0 | 같음 | 400 RPS × 평시 p99 51ms ≈ 20.4, 여유 2배 → 40. 기준선 400 RPS의 의존성별 커넥션 사용 중 최댓값 14~16의 2.5배 이상 |
-| 커넥션 풀(라우트당·전체) | 40, like만 50 | 40 | 벌크헤드와 같게 둬 기다림이 벌크헤드 한 곳에서만 생긴다. like는 토글 상한 10을 더한다 |
-| 토글 동시 호출 상한(Semaphore) | like 10 | | like 풀에서 읽기 몫 밖의 자리. 토글 부하는 실험 세트에 없어 F-003의 S-11에서 다시 정한다 |
+| 커넥션 풀(라우트당·전체) | 40, like만 50 | 40 | 벌크헤드와 같게 둬 기다림이 벌크헤드 한 곳에서만 생긴다. like는 쓰기 상한 10을 더한다 |
+| 쓰기 동시 호출 상한(Semaphore `like-write`) | like 10 | | like 풀에서 읽기 몫 밖의 자리. S-11(400 RPS, 막히지 않은 실행의 p99 11ms)로 리틀의 법칙을 쓰면 400 × 0.011 = 4.4, 여유 2배로 약 9다. 막힘이 오면 기다리지 않고 거절해 feed-service 스레드를 묶지 않는다([고도화 6 결과](experiments/idempotent-like.md)) |
 | 서킷: 판단 창, 최소 호출 수 | 최근 10초, 100 | 같음 | 처음에는 최근 호출 100개(400 RPS에서 0.25초)였는데, 1.05초 GC 멈춤만으로 창이 차 서킷이 5초 열렸다. 10초면 1초 멈춤은 창의 약 10%다. 대신 실제 장애도 창 전체의 실패율이 문턱을 넘어야 열려, 평시 뒤의 장애는 약 5~7초 뒤에 연다(S-03 실측 7~12초). 그동안 상한이 p99를 묶는다 |
 | 서킷: 실패율 문턱 | 50% | 같음 | 기준선 S-01의 호출 실패율 0 |
 | 서킷: 느린 호출 기준, 문턱 | 80ms, 50% | 160ms, 50% | 상한의 80%. 평시에 경계를 넘는 비율 0.17% 이하 |
@@ -327,7 +330,7 @@ HTTP 클라이언트의 타임아웃과 풀 크기는 Boot 그룹 설정(`spring
 
 | 값 | 설정 | 근거 |
 |---|---|---|
-| 최대 시도 횟수 | 3 (post, user, like, recommendation). ad와 좋아요 토글은 다시 부르지 않는다 | Google SRE 책 22장의 "요청 하나에 최대 3번". user·like가 post 중앙값(20ms) 뒤 시작해 빠른 실패(중앙값 20ms)를 두 번 겪어도 세 번째 시도의 상한(100ms)까지 약 190ms라 요청 시간 예산 250ms 안이다 |
+| 최대 시도 횟수 | 3 (post, user, like, recommendation). ad와 좋아요 상태 변경은 다시 부르지 않는다 | Google SRE 책 22장의 "요청 하나에 최대 3번". user·like가 post 중앙값(20ms) 뒤 시작해 빠른 실패(중앙값 20ms)를 두 번 겪어도 세 번째 시도의 상한(100ms)까지 약 190ms라 요청 시간 예산 250ms 안이다 |
 | 재시도 전 기다림 | 10ms, 20ms(지수 ×2), ±50% | 기다림 합(최대 45ms)이 하위 서비스 평시 중앙값 두 번 남짓이라 남은 예산을 시도 자체에 쓴다. jitter는 장애 시작에 같은 순간 실패한 수백 건이 같은 순간 다시 몰리지 않게 한다 |
 | 남은 시간 조건 | 마감 − 지금 ≥ 그 의존성의 호출 시간 상한 + 기다림 | 끝까지 기다리지 못할 시도는 보내지 않는다(design 결정 3) |
 | 재시도 예산 | 의존성마다 최근 1초(100ms 칸 10개) 원래 호출의 10%, 창마다 최소 1번 | 비율은 Google SRE 책 22장의 클라이언트별 재시도 예산 10%. 장애가 시작되는 순간 풀리는 재시도는 창에 쌓인 예산 전부라, 창 1초면 400 RPS에서 40번(100ms 칸 하나의 평시 호출 수)이다. 처음에는 서킷 판단 창과 같은 10초였는데, S-09에서 장애 시작에 재시도가 0.5초 안에 약 120~320번 몰린 직후 feed-service가 0.2~0.7초 멈추고 503이 났다. 1초로 줄인 뒤 503은 줄었지만 멈춤의 원인은 가리지 못했다([고도화 5 결과](experiments/retry-policy.md)). 계산한 S-09 장애 초반 요청 배율은 예산이 있으면 약 1.03, 없으면 약 1.33이고, 판정 상한 1.2(PRD 10장)가 둘을 가른다 |
@@ -569,18 +572,26 @@ traceId는 스레드에 붙은 컨텍스트(MDC, 관찰 컨텍스트)에 있어�
 
 ## 8. 좋아요 저장
 
-| 테이블 (안) | 열 | 제약 |
+| 테이블 | 열 | 제약 |
 |---|---|---|
-| `post_like` | `user_id`, `post_id`, `created_at` | `(user_id, post_id)` 유니크 |
-| `post_like_count` | `post_id`, `like_count` | `post_id` 기본 키 |
+| `post_like` | `user_id`, `post_id`, `liked`, `version`, `created_at` | `(user_id, post_id)` 유니크, `(post_id, liked)` 인덱스 |
+| `post_like_count` | `post_id`, `shard`, `like_count` | `(post_id, shard)` 기본 키 |
 
-- MVP는 토글 API로, 누르면 행이 있는지 보고 넣거나 지우며 좋아요 수를 엔티티로 읽어 고친 뒤 저장한다. 고도화 6에서 이 방식이 동시 요청과 재시도에서 깨지는 것(갱신 유실, 중복)을 재현한다.
-- 고도화 6에서 바꿀 때 다룰 것:
-  - 좋아요 수는 엔티티를 읽고 고치지 않고 원자적 UPDATE(`@Modifying` 쿼리)로 바꾼다. 원자적 UPDATE 뒤 영속성 컨텍스트에 남은 옛 값을 비운다.
-  - 유니크 제약 위반은 "이미 반영된 요청"으로 처리한다.
-  - 늦게 도착한 재시도가 최근 결과를 덮어쓰지 않게 하는 방법(`@Version`, 요청 시각 등)을 정한다.
-  - 좋아요 수와 실제 행 수가 어긋났는지 검사하는 쿼리를 둔다.
-  - 인기 글 몰림(PRD S-11): 읽고 고쳐 저장하기, 원자적 UPDATE, 카운터 분할(`post_like_count`를 게시글당 N개 행으로 나누고 쓸 때 하나를 골라 더하고, 읽을 때 합친다)을 같은 몰림 부하로 비교해 처리량, p99, 잠금 대기, 수 불일치를 잰다. 모아서 반영하기는 PRD 8장의 비동기 집계로 보고 다루지 않는다.
+- MVP의 토글은 고도화 6에서 없앴다. 재전송과 동시 요청에서 깨지는 것은 [고도화 6 결과](experiments/idempotent-like.md)에 재현해 두었다.
+- **API:** `PUT /likes/{postId}`에 `{"liked": 불리언, "version": 양의 정수}`를 보낸다. `version`은 클라이언트가 의도를 만들 때 정하고(epoch 밀리초, 앞서 쓴 값 이하면 앞 값 + 1) 재전송에도 그대로 쓴다.
+- **순서:** `version`이 저장된 값보다 클 때만 바꾼다. 아니면 바꾸지 않고 200과 지금 상태를 돌려준다. 취소해도 행을 지우지 않아(`liked = false`) 늦게 온 요청을 가려낸다.
+- **동시성:** READ COMMITTED 트랜잭션에서 `INSERT ... ON DUPLICATE KEY UPDATE version = version`으로 행을 만들거나 X 잠금을 잡고, 그 안에서 읽고 판단한다. 잠금 순서는 좋아요 행 → 카운터 행이다.
+  - 유니크 위반을 "이미 반영된 요청"으로 처리하지 않는다. 취소 기록이 행으로 남아 위반이 반영을 뜻하지 않는다(`add-idempotent-like` design 결정 4).
+  - 네이티브·벌크 갱신은 `@Modifying(clearAutomatically = true, flushAutomatically = true)`로 영속성 컨텍스트의 옛 값을 비운다.
+- **수 갱신 방식**(`weave.like.counter.strategy`, 인기 글 몰림 S-11로 비교한다). 조회는 방식과 관계없이 게시글의 칸을 모두 더해(`SUM ... GROUP BY post_id`) 방식을 바꿔도 수가 이어진다.
+
+  | 방식 | 갱신 | 보장 |
+  |---|---|---|
+  | `read-modify-write` | 0번 칸을 엔티티로 읽어 더한 뒤 저장 | 없음. 비교 기준선이고 고도화가 끝나면 지울 후보다 |
+  | `atomic` | 0번 칸에 `INSERT ... ON DUPLICATE KEY UPDATE like_count = like_count + ?` | 있음. 게시글당 행 하나에 잠금이 몰린다 |
+  | `sharded` | `floorMod(user_id, weave.like.counter.shards)` 칸에 같은 문장 | 있음. 잠금을 칸으로 나눈다. 같은 사용자의 +1과 -1이 같은 칸에 들어가 칸의 값이 음수가 되지 않는다 |
+
+- **불일치 검사:** `GET /actuator/likeconsistency[?postId=]`가 저장된 수와 `liked` 행 수가 다른 게시글을 최대 100건 돌려준다. 값은 고치지 않는다. 노출은 `experiment` 프로필의 Actuator 목록에 있다.
 - 스키마는 Flyway로 관리한다.
 
 ## 9. 장애 실험 환경
@@ -594,7 +605,7 @@ traceId는 스레드에 붙은 컨텍스트(MDC, 관찰 컨텍스트)에 있어�
 | 대상 | 자원 상한 (`deploy.resources.limits`) | 메모 |
 |---|---|---|
 | feed-service | CPU 2, 메모리 1GB | Tomcat 최대 스레드 200을 `application.yml`에 명시한다(Boot 기본값, 4-2). Actuator는 관리 포트 8090(`MANAGEMENT_SERVER_PORT`)이고 헬스 체크와 Prometheus가 이 포트를 본다. 호스트 변수 `FEED_SPRING_APPLICATION_JSON`을 `SPRING_APPLICATION_JSON`으로 넘긴다(없으면 `{}`, 아래) |
-| 하위 서비스 5개 | 각 CPU 1, 메모리 512MB. like-service만 메모리 768MB | like-service는 JVM이 보는 메모리를 `-XX:MaxRAM=512m`으로 다른 서비스와 같게 둬 힙(128MB)과 GC를 그대로 두고 컨테이너 상한만 올렸다. 512MB에서 고도화 5 실험 세트 중 OOMKilled로 죽었다(힙 128MB에 네이티브 메모리 약 460MB, 2026-11-08) |
+| 하위 서비스 5개 | 각 CPU 1, 메모리 512MB. like-service만 메모리 768MB이고, S-11이 갱신 방식을 바꾸도록 호스트 변수 `LIKE_SPRING_APPLICATION_JSON`을 `SPRING_APPLICATION_JSON`으로 넘긴다(없으면 `{}`) | like-service는 JVM이 보는 메모리를 `-XX:MaxRAM=512m`으로 다른 서비스와 같게 둬 힙(128MB)과 GC를 그대로 두고 컨테이너 상한만 올렸다. 512MB에서 고도화 5 실험 세트 중 OOMKilled로 죽었다(힙 128MB에 네이티브 메모리 약 460MB, 2026-11-08) |
 | MySQL, Toxiproxy | 각 CPU 1 | |
 | Redis (`redis:8.2.2`) | CPU 0.5, 메모리 256MB | post stale 캐시(6-3). 캐시라 저장하지 않는다(`--save "" --appendonly no`). 값은 키 최대 50개 × 약 6KB이고 S-06의 읽기 400회/초는 한 코어 처리량에 비해 작다. 호스트 포트는 열지 않고 Toxiproxy 뒤에 두지 않는다. feed-service는 `REDIS_HOST=redis`로 부르고 Redis가 healthy가 된 뒤 뜬다(`add-graceful-degradation` design 결정 12) |
 | Alloy, Prometheus, Grafana | 각 CPU 0.5, 메모리 512MB | 실험 대상이 아니라 상한만 건다. OOM 재시작이 보이면 근거와 함께 올린다 |
@@ -635,6 +646,7 @@ feed-service는 하위 서비스를 의존성마다 하나인 프록시를 거�
 ```
 experiments/
 ├── run.sh  run-all.sh       # 명령 (아래)
+├── run-like.sh  like-config.json  # 좋아요 정합성 S-10, S-11 (아래 "좋아요 정합성 실험")
 ├── config.json              # 기본 RPS, 준비·측정 시간, k6 요청 시간 초과 5초, 사용자 ID 범위
 ├── slo.json                 # PRD 2장 SLO(가용성 99.9%, p99 300ms, 평시 degrade 비율 1% 미만)와 요청 배율 상한 1.2(PRD 10장). k6 threshold는 여기서만 읽는다
 ├── expectations.json        # 단계별 기대 결과(시나리오마다 meet/miss, 또는 기준마다 {availability, p99[, degradeRatio, requestRatio, retryAfter]})
@@ -691,6 +703,22 @@ experiments/run-all.sh --list                                 # 돌릴 목록
 
 원본 결과는 커밋하지 않는다. 기준선과 비교 요약은 `docs/experiments/`와 PR 설명에 적는다.
 
+### 9-4. 좋아요 정합성 실험 (S-10, S-11)
+
+피드 SLO로 판정하지 않아 `run.sh`와 나눴다(PRD 4장, `add-idempotent-like` design 결정 10). `run-all.sh`는 그대로 S-01~S-09다.
+
+```bash
+experiments/run-like.sh S-10                                   # 경우 네 개를 차례로 (약 20초)
+experiments/run-like.sh S-11                                   # 방식마다 like-service를 다시 띄워 같은 부하로 비교
+experiments/run-like.sh S-11 --strategy atomic --rps 5 --warmup 3s --duration 10s   # 방식 하나, 짧게
+```
+
+- **S-10:** 중복, 동시, 순서 뒤바뀜은 feed-service를 거쳐 보내고, 타임아웃 뒤 재전송은 like 프록시에 응답 지연 300ms(like 응답 타임아웃 100ms보다 길다)를 넣어 만든다. 반영 여부와 최종 상태는 k6가 Compose 네트워크 안에서 like-service를 직접 본다. 모든 경우가 기대와 같으면 0이다.
+- **S-11:** like-service를 직접 부른다. feed-service의 100ms 상한과 쓰기 상한이 비교할 대상을 잘라 버리기 때문이다. 반복마다 새 사용자가 눌러 모든 요청이 실제 수 갱신이 되고, 앱 수준 지연은 0으로 둔다. 준비와 측정을 따로 돌려 측정 구간의 행 잠금 대기만 뺀다(`Innodb_row_lock_waits`, `Innodb_row_lock_time`, `INNODB_METRICS`의 `lock_deadlocks`). CPU는 `docker stats`로 1초마다, HikariCP 대기는 Prometheus로 본다.
+- **판정:** `lib/like-verdict.sh`. `atomic`, `sharded`에 불일치나 실패가 있으면 1이다. `read-modify-write`의 불일치는 리포트에만 적고, 불일치가 없으면 "재현되지 않음"으로 적는다.
+- **설정 바꾸기:** `compose.yaml`의 `LIKE_SPRING_APPLICATION_JSON`으로 방식을 바꿔 컨테이너를 새로 만들고, 끝나면(실패·중단해도) 기본값으로 다시 만든다. MySQL 계정은 컨테이너 환경에서 쓰고 `.env`를 읽지 않는다.
+- 기본값은 `experiments/like-config.json`이다. 결과는 `experiments/results/<UTC 시각>-<S-10|S-11>/report.md`와 `report.json`이다.
+
 ## 10. 테스트
 
 | 종류 | 도구 | 무엇을 |
@@ -724,14 +752,13 @@ experiments/run-all.sh --list                                 # 돌릴 목록
 | `add-call-isolation` (F-001) | 5-2 ~ 5-6, 7-3의 벌크헤드 전파, Resilience4j 4.1.2 호환 확인, 가상 스레드 + Semaphore 벌크헤드 비교(S-02). 5-2의 어노테이션 방식은 `IsolatedCalls` 한 곳에서 감싸는 방식으로 바꿨다(design 결정 1) |
 | `add-graceful-degradation` (F-002) | 6장, 5-2의 fallback 위치. 응답 구성의 출발점이던 "Assembler가 성공·캐시 대체·실패를 받는다"를 의존성별 `Result`와 영역 결과(`SectionOutcome`)로 구체화했고, 6장에 없던 응답 계약·503 본문·대체 로그·Redis 장애 설정을 정했다(design 결정 1~10) |
 | `add-retry-policy` (F-005) | 5-5의 429 처리, Retry·RateLimiter 설정. 재시도 루프는 Resilience4j `Retry`가 아니라 `IsolatedCalls`(`RetryLoop`)가 직접 돌고 설정만 레지스트리에서 꺼낸다(design 결정 1). 5-4 순서에 Retry-After 대기를 더했고, 429 처리 방식(서킷 바깥의 의존성별 대기, `RetryAfterHolds`)과 재시도 예산(`RetryBudget`), 새 실패 분류(`rate_limited`, `retry_after`)를 정했다(design 결정 2~7) |
-| `add-idempotent-like` (F-003) | 8장의 고도화 6 항목(카운터 방식 비교 포함), 10장의 속성 기반 테스트 |
+| `add-idempotent-like` (F-003) | 8장의 고도화 6 항목(카운터 방식 비교 포함), 10장의 속성 기반 테스트. 순서 판단(`version`, 취소해도 행 유지), 잠금 순서(좋아요 행 → 카운터 행), 쓰기 재시도 없음, 카운터 방식 설정(`weave.like.counter`)을 정했다(design 결정 1~12) |
 
 ## 13. 남은 것
 
-- 좋아요 순서 판단 방법: `add-idempotent-like`
-- S-11의 몰림 부하 크기와 카운터 분할 수: `add-idempotent-like`
-- 장애를 넣지 않은 like-service의 순간 막힘(고도화 3의 S-04·S-08·S-09)과 like-service 컨테이너 메모리(G1에서 512MiB 중 약 500MiB)의 원인: [고도화 3 결과](experiments/call-isolation.md) "남은 것". 고도화 4부터는 피드 실패가 아니라 like degrade로 드러난다(S-01 0.51%, S-04 3.3%, [고도화 4 결과](experiments/graceful-degradation.md))
-- 장애 시작 순간의 feed-service 멈춤(0.2~0.7초, 고도화 5의 재시도가 있는 모든 구성의 S-09). GC·BLOCKED 스레드는 아니었고, 5초 수집 간격으로는 가르지 못한다. safepoint 로그와 `AsyncAppender` 대기열을 재면 가를 수 있다: [고도화 5 결과](experiments/retry-policy.md) "남은 것"
+- 장애를 넣지 않은 like-service의 순간 막힘(고도화 3의 S-04·S-08·S-09)과 like-service 컨테이너 메모리(G1에서 512MiB 중 약 500MiB)의 원인: [고도화 3 결과](experiments/call-isolation.md) "남은 것". 고도화 4부터는 피드 실패가 아니라 like degrade로 드러난다(S-01 0.51%, S-04 3.3%, [고도화 4 결과](experiments/graceful-degradation.md)). 고도화 6의 S-11에서도 카운터 방식과 관계없이 like-service CPU가 한 코어에 닿고 HikariCP 대기가 189까지 차는 실행이 나왔다([고도화 6 결과](experiments/idempotent-like.md))
+- 장애 시작 순간의 feed-service 멈춤(0.2~0.7초, 고도화 5의 재시도가 있는 모든 구성의 S-09, 고도화 6의 S-03에서 약 0.5초에 503 92건). GC·BLOCKED 스레드는 아니었고, 5초 수집 간격으로는 가르지 못한다. safepoint 로그와 `AsyncAppender` 대기열을 재면 가를 수 있다: [고도화 5 결과](experiments/retry-policy.md) "남은 것"
+- `like-write` 상한 10의 전제: 앱 지연 없는 직접 호출의 p99 11ms로 계산했다. 조회처럼 51ms를 전제하면 약 20이고, feed-service를 거친 쓰기 부하는 재지 않았다: [고도화 6 결과](experiments/idempotent-like.md)
 - like-service의 네이티브 메모리(힙 128MB에 약 460MB, 9-1): 고도화 5 실험 세트 중 512MB에서 OOMKilled로 죽어 컨테이너 상한만 768MB로 올렸다. 원인은 가리지 못했다
 - post 실패와 같은 순간의 캐시 읽기 실패(고도화 4의 S-01 503 6건, S-06 17건)의 원인. S-06의 11건은 Lettuce 지표에 남지 않아, 읽기 오류를 종류별로 세야 가를 수 있다: [고도화 4 결과](experiments/graceful-degradation.md) "남은 것"
 

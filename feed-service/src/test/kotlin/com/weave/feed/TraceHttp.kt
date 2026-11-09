@@ -24,11 +24,17 @@ class TracedFeedHttp(
         headers: Map<String, String> = USER_HEADERS,
     ): HttpResponse<String> = send(HttpRequest.newBuilder(uri("/feed$query")).GET(), headers)
 
-    fun toggleLike(
+    fun putLike(
         postId: Long,
         headers: Map<String, String> = USER_HEADERS,
     ): HttpResponse<String> =
-        send(HttpRequest.newBuilder(uri("/feed/likes/$postId/toggle")).POST(HttpRequest.BodyPublishers.noBody()), headers)
+        send(
+            HttpRequest
+                .newBuilder(uri("/feed/likes/$postId"))
+                .header("Content-Type", "application/json")
+                .PUT(HttpRequest.BodyPublishers.ofString("""{"liked":true,"version":7}""")),
+            headers,
+        )
 
     private fun uri(path: String) = URI.create("http://localhost:$port$path")
 

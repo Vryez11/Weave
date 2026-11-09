@@ -51,7 +51,7 @@ import java.io.InputStream
 @EnableConfigurationProperties(HttpClientProperties::class)
 class HttpClientConfig {
     /**
-     * HttpClient 5의 자동 재시도는 늘 끈다(design 결정 3). 기본 전략은 429·503에 1초 뒤 한 번 더 보내고 토글 POST도 다시 보낸다.
+     * HttpClient 5의 자동 재시도는 늘 끈다(design 결정 3). 기본 전략은 429·503에 1초 뒤 한 번 더 보내고 쓰기 요청도 다시 보낸다.
      * 모든 그룹의 커넥션 풀 크기(라우트당 최대, 전체 최대)와 커넥션 대기 상한(add-call-isolation design 결정 3)은 속성이 있을 때만
      * 바꾸고, 없으면 HttpClient 기본값을 쓴다. 그룹별 풀 크기 덮어쓰기는 [ConnectionPoolMetrics]가 그룹마다 더한다.
      */

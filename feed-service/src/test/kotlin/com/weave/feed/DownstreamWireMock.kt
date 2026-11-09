@@ -4,7 +4,7 @@ import com.github.tomakehurst.wiremock.WireMockServer
 import com.github.tomakehurst.wiremock.client.WireMock.aResponse
 import com.github.tomakehurst.wiremock.client.WireMock.anyRequestedFor
 import com.github.tomakehurst.wiremock.client.WireMock.get
-import com.github.tomakehurst.wiremock.client.WireMock.post
+import com.github.tomakehurst.wiremock.client.WireMock.put
 import com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo
 import com.github.tomakehurst.wiremock.core.WireMockConfiguration.options
 import com.github.tomakehurst.wiremock.verification.LoggedRequest
@@ -145,23 +145,23 @@ object DownstreamWireMock {
         server.stubFor(get(urlPathEqualTo(paths.getValue(dependency))).willReturn(response))
     }
 
-    fun stubToggle(
+    fun stubLikeState(
         postId: Long,
         liked: Boolean,
         likeCount: Long,
     ) {
         server.stubFor(
-            post(urlPathEqualTo("/likes/$postId/toggle")).willReturn(
+            put(urlPathEqualTo("/likes/$postId")).willReturn(
                 json(mapOf("postId" to postId, "liked" to liked, "likeCount" to likeCount)),
             ),
         )
     }
 
-    fun stubToggleFailure(
+    fun stubLikeStateFailure(
         postId: Long,
         status: Int,
     ) {
-        server.stubFor(post(urlPathEqualTo("/likes/$postId/toggle")).willReturn(aResponse().withStatus(status)))
+        server.stubFor(put(urlPathEqualTo("/likes/$postId")).willReturn(aResponse().withStatus(status)))
     }
 
     /** 경로 하나에 온 요청 기록. 쿼리 파라미터는 비교하지 않는다. */
@@ -216,10 +216,19 @@ class FeedHttpClient(
         userId: String? = "1",
     ): Response = send(HttpRequest.newBuilder(uri("/feed$query")).GET(), userId)
 
-    fun toggleLike(
+    /** 좋아요 상태를 지정한다. [body]가 null이면 본문 없이 보낸다. */
+    fun putLike(
         postId: String,
         userId: String? = "1",
-    ): Response = send(HttpRequest.newBuilder(uri("/feed/likes/$postId/toggle")).POST(HttpRequest.BodyPublishers.noBody()), userId)
+        body: String? = """{"liked":true,"version":7}""",
+    ): Response {
+        val publisher = body?.let { HttpRequest.BodyPublishers.ofString(it) } ?: HttpRequest.BodyPublishers.noBody()
+        return send(HttpRequest.newBuilder(uri("/feed/likes/$postId")).header("Content-Type", "application/json").PUT(publisher), userId)
+    }
+
+    /** 없어진 토글 경로를 부른다. */
+    fun postToggle(postId: String): Response =
+        send(HttpRequest.newBuilder(uri("/feed/likes/$postId/toggle")).POST(HttpRequest.BodyPublishers.noBody()), "1")
 
     private fun uri(path: String) = URI.create("http://localhost:$port$path")
 
