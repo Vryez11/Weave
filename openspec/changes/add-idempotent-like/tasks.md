@@ -28,7 +28,7 @@
 - [x] 1.6 상태 지정, 반복, 늦게 도착한 요청의 시나리오를 옮긴다.
   - `PostLikeStateScenarioTest`(Integration): "좋아요 상태 지정"(일곱), "같은 요청의 반복"(둘), "늦게 도착한 요청"(넷). "어떤 순서로 몇 번이 와도"는 `checkAll`로 임의 순서·중복을 게시글마다 보낸다.
   - 확인: 새 시나리오가 `:like-service:integrationTest`에서 단언 실패(컴파일 오류가 아니다)하고 `:like-service:test`는 통과한다.
-- [ ] 1.7 동시성, 불일치 검사, 카운터 방식의 시나리오를 옮긴다.
+- [x] 1.7 동시성, 불일치 검사, 카운터 방식의 시나리오를 옮긴다.
   - `PostLikeConcurrencyScenarioTest`: "동시 요청의 정합성"(둘, 실제 HTTP 포트와 스레드). `PostLikeConsistencyScenarioTest`: "좋아요 수 불일치 검사"(넷, 어긋남은 SQL로 만든다). `PostLikeCounterScenarioTest`: "좋아요 수 갱신 방식"(셋, 속성 `weave.like.counter.strategy`, `weave.like.counter.shards`).
   - 확인: 1.6과 같다.
 - [ ] 1.8 S-10, S-11 실험 스크립트의 판정·실행 시나리오를 옮긴다.
