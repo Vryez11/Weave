@@ -580,6 +580,14 @@ traceId는 스레드에 붙은 컨텍스트(MDC, 관찰 컨텍스트)에 있어�
 - **동시성:** READ COMMITTED 트랜잭션에서 `INSERT ... ON DUPLICATE KEY UPDATE version = version`으로 행을 만들거나 X 잠금을 잡고, 그 안에서 읽고 판단한다. 잠금 순서는 좋아요 행 → 카운터 행이다.
   - 유니크 위반을 "이미 반영된 요청"으로 처리하지 않는다. 취소 기록이 행으로 남아 위반이 반영을 뜻하지 않는다(`add-idempotent-like` design 결정 4).
   - 네이티브·벌크 갱신은 `@Modifying(clearAutomatically = true, flushAutomatically = true)`로 영속성 컨텍스트의 옛 값을 비운다.
+- **수 갱신 방식**(`weave.like.counter.strategy`, 인기 글 몰림 S-11로 비교한다). 조회는 방식과 관계없이 게시글의 칸을 모두 더해(`SUM ... GROUP BY post_id`) 방식을 바꿔도 수가 이어진다.
+
+  | 방식 | 갱신 | 보장 |
+  |---|---|---|
+  | `read-modify-write` | 0번 칸을 엔티티로 읽어 더한 뒤 저장 | 없음. 비교 기준선이고 고도화가 끝나면 지울 후보다 |
+  | `atomic` | 0번 칸에 `INSERT ... ON DUPLICATE KEY UPDATE like_count = like_count + ?` | 있음. 게시글당 행 하나에 잠금이 몰린다 |
+  | `sharded` | `floorMod(user_id, weave.like.counter.shards)` 칸에 같은 문장 | 있음. 잠금을 칸으로 나눈다. 같은 사용자의 +1과 -1이 같은 칸에 들어가 칸의 값이 음수가 되지 않는다 |
+
 - **불일치 검사:** `GET /actuator/likeconsistency[?postId=]`가 저장된 수와 `liked` 행 수가 다른 게시글을 최대 100건 돌려준다. 값은 고치지 않는다. 노출은 `experiment` 프로필의 Actuator 목록에 있다.
 - 스키마는 Flyway로 관리한다.
 
