@@ -99,7 +99,7 @@ class IsolationSettingsTest :
                 }
             }
 
-            test("F-001 커넥션 풀은 라우트당·전체 40이고 like만 50이다(읽기 벌크헤드 40 + 토글 10)") {
+            test("F-001 커넥션 풀은 라우트당·전체 40이고 like만 50이다(읽기 벌크헤드 40 + 쓰기 10)") {
                 connectionManagersByDependency().forEach { (dependency, manager) ->
                     val expected = if (dependency == "like") 50 else 40
                     (dependency to manager.defaultMaxPerRoute) shouldBe (dependency to expected)
@@ -131,7 +131,7 @@ class IsolationSettingsTest :
                 }
             }
 
-            test("F-001 Semaphore 벌크헤드는 의존성마다 40, 토글(like-write)은 10이고 모두 기다리지 않는다") {
+            test("F-001 Semaphore 벌크헤드는 의존성마다 40, 쓰기(like-write)는 10이고 모두 기다리지 않는다") {
                 val registry = context().getBean(BulkheadRegistry::class.java)
                 (callTimeouts.keys.associateWith { 40 } + ("like-write" to 10)).forEach { (name, maxCalls) ->
                     val config = registry.bulkhead(name).bulkheadConfig

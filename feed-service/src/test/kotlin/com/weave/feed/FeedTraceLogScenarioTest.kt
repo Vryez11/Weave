@@ -26,7 +26,7 @@ import java.util.UUID
 import kotlin.time.Duration.Companion.seconds
 
 /**
- * `trace-logging` 스펙에서 feed-service 경로(`GET /feed`, 토글)를 쓰는 시나리오 (F-004).
+ * `trace-logging` 스펙에서 feed-service 경로(`GET /feed`, 좋아요 상태 변경)를 쓰는 시나리오 (F-004).
  *
  * 하위 서비스는 [DownstreamWireMock]으로 흉내 내고, 하위 서비스가 받은 `traceparent`는 WireMock의 요청 기록에서 읽는다.
  * 로그는 [LogCapture]로 잡고, 요청 하나의 줄은 응답의 `X-Trace-Id`와 같은 `traceId`로 찾는다(design 결정 8).
